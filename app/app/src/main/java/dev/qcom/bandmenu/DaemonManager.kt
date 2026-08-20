@@ -21,6 +21,7 @@ class DaemonManager(private val context: Context) {
         private const val TAG = "QcomBand"
         private const val BINARY_NAME = "qcom-bandlockd"
         private const val SOCKET_NAME = "qcom_bandlockd"
+        private const val EXPECTED_DAEMON_VERSION = "4.3.4"
     }
 
     var isReady = mutableStateOf(false)
@@ -42,6 +43,9 @@ class DaemonManager(private val context: Context) {
 
     @Volatile
     private var consecutiveFailures = 0
+
+    @Volatile
+    private var connectedDaemonVersion: String? = null
 
     @Volatile
     var onConnectionEvent: ((Boolean) -> Unit)? = null
@@ -68,9 +72,16 @@ class DaemonManager(private val context: Context) {
         // overwriting a binary that's still being executed by a running daemon.
         AppLog.i(TAG, "launchAndConnect: trying existing daemon...")
         if (tryConnect()) {
-            AppLog.i(TAG, "launchAndConnect: connected to existing daemon")
-            Handler(Looper.getMainLooper()).post { isReady.value = true }
-            return
+            if (connectedDaemonVersion == EXPECTED_DAEMON_VERSION) {
+                AppLog.i(TAG, "launchAndConnect: connected to existing daemon (v$connectedDaemonVersion)")
+                Handler(Looper.getMainLooper()).post { isReady.value = true }
+                return
+            }
+            AppLog.i(TAG, "launchAndConnect: existing daemon v$connectedDaemonVersion != expected v$EXPECTED_DAEMON_VERSION, redeploying")
+            try { socket?.close() } catch (_: Exception) {}
+            socket = null
+            writer = null
+            reader = null
         }
         AppLog.i(TAG, "launchAndConnect: no existing daemon, starting fresh")
 
@@ -107,7 +118,7 @@ class DaemonManager(private val context: Context) {
         Shell.cmd("setsid '$path' -uid $uid </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
         AppLog.i(TAG, "launchAndConnect: daemon launch command returned")
 
-        for (i in 1..60) {
+        for (i in 1..12) {
             Thread.sleep(250)
             if (tryConnect()) {
                 AppLog.i(TAG, "launchAndConnect: connected after ${(i * 250)}ms")
@@ -116,7 +127,33 @@ class DaemonManager(private val context: Context) {
             }
         }
 
-        AppLog.e(TAG, "launchAndConnect: failed to connect after 15s")
+        AppLog.e(TAG, "launchAndConnect: failed to connect after 3s, trying SELinux fallback...")
+
+        val selinuxMode = Shell.cmd("getenforce").exec().out.firstOrNull()?.trim() ?: ""
+        if (selinuxMode.equals("Enforcing", ignoreCase = true)) {
+            AppLog.i(TAG, "launchAndConnect: SELinux is Enforcing, trying permissive...")
+            Shell.cmd("setenforce 0").exec()
+
+            if (stderrFile.exists()) stderrFile.delete()
+            Shell.cmd("setsid '$path' -uid $uid </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
+
+            for (i in 1..20) {
+                Thread.sleep(250)
+                if (tryConnect()) {
+                    AppLog.i(TAG, "launchAndConnect: connected after SELinux permissive (${i * 250}ms)")
+                    Shell.cmd("setenforce 1").exec()
+                    AppLog.i(TAG, "launchAndConnect: SELinux restored to Enforcing")
+                    Handler(Looper.getMainLooper()).post { isReady.value = true }
+                    return
+                }
+            }
+
+            AppLog.e(TAG, "launchAndConnect: still failed after SELinux permissive")
+            Shell.cmd("setenforce 1").exec()
+            AppLog.i(TAG, "launchAndConnect: SELinux restored to Enforcing")
+        }
+
+        AppLog.e(TAG, "launchAndConnect: failed to connect")
         val stderr = if (stderrFile.exists()) stderrFile.readText().trim() else ""
         val msg = if (stderr.isNotEmpty()) {
             "Daemon failed to start. stderr:\n$stderr"
@@ -165,7 +202,8 @@ class DaemonManager(private val context: Context) {
             }
             AppLog.i(TAG, "tryConnect: probe response (${line.length} chars)")
             // Parse to verify it's valid JSON
-            JSONObject(line)
+            val resp = JSONObject(line)
+            connectedDaemonVersion = resp.optString("version", "")
             // Connection is good — upgrade to full 15s timeout
             s.soTimeout = 15000
             if (consecutiveFailures >= 3) {
