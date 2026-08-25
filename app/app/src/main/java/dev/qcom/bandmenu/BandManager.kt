@@ -181,6 +181,13 @@ object JsonRequestBuilder {
     fun lteCellLockSet(earfcn: Int, pci: Int): JSONObject =
         JSONObject().put("cmd", "lte_cell_lock_set").put("earfcn", earfcn).put("pci", pci)
 
+    fun lteCellLockMultiPciSet(earfcn: Int, pciList: List<Int>): JSONObject {
+        val arr = JSONArray()
+        pciList.forEach { arr.put(it) }
+        return JSONObject().put("cmd", "lte_cell_lock_multi_pci_set")
+            .put("earfcn", earfcn).put("pci_list", arr)
+    }
+
     fun lteCellLockClear(): JSONObject = JSONObject().put("cmd", "lte_cell_lock_clear")
 
     fun nrCellLockPciSet(arfcn: Int, pci: Int, scsKhz: Int, band: Int): JSONObject =

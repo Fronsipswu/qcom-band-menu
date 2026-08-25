@@ -296,6 +296,14 @@ class MainActivity : ComponentActivity() {
                                                 if (parts.size < 2) { errorMsg = "Need: earfcn pci"; return@withContext }
                                                 JsonStateParser.parseResponse(daemonManager.lteCellLockSet(parts[0].toInt(), parts[1].toInt()))
                                             }
+                                            6 -> {
+                                                if (parts.size < 2) { errorMsg = "Need: earfcn pci..."; return@withContext }
+                                                val earfcn = parts[0].toInt()
+                                                val pciList = parts.drop(1).map { it.toInt() }
+                                                if (pciList.size > 64) { errorMsg = "Max 64 PCIs"; return@withContext }
+                                                if (pciList.any { it < 0 || it > 503 }) { errorMsg = "PCI must be 0-503"; return@withContext }
+                                                JsonStateParser.parseResponse(daemonManager.lteCellLockMultiPciSet(earfcn, pciList))
+                                            }
                                             5 -> {
                                                 if (parts.size != 2) { errorMsg = "Need: mcc mnc"; return@withContext }
                                                 val mcc = parts[0].toIntOrNull()
@@ -324,7 +332,7 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 val typeName = when (fieldIndex) {
-                                    0 -> "NR-ARFCN"; 1 -> "PCI"; 2 -> "MultiPCI"; 3 -> "gNB"; 4 -> "LTE PCI"; 5 -> "PLMN"; else -> "Unknown"
+                                    0 -> "NR-ARFCN"; 1 -> "PCI"; 2 -> "MultiPCI"; 3 -> "gNB"; 4 -> "LTE PCI"; 6 -> "LTE MultiPCI"; 5 -> "PLMN"; else -> "Unknown"
                                 }
                                 cellLockResult = CellLockResult(sim, fieldIndex, typeName, success, errorMsg)
 

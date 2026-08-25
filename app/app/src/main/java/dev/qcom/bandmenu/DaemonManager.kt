@@ -21,7 +21,7 @@ class DaemonManager(private val context: Context) {
         private const val TAG = "QcomBand"
         private const val BINARY_NAME = "qcom-bandlockd"
         private const val SOCKET_NAME = "qcom_bandlockd"
-        private const val EXPECTED_DAEMON_VERSION = "4.3.4"
+        private const val EXPECTED_DAEMON_VERSION = "4.4.0"
     }
 
     var isReady = mutableStateOf(false)
@@ -347,6 +347,8 @@ class DaemonManager(private val context: Context) {
 
     fun lteCellLockSet(earfcn: Int, pci: Int): JSONObject =
         sendRequest(JsonRequestBuilder.lteCellLockSet(earfcn, pci))
+    fun lteCellLockMultiPciSet(earfcn: Int, pciList: List<Int>): JSONObject =
+        sendRequest(JsonRequestBuilder.lteCellLockMultiPciSet(earfcn, pciList))
     fun lteCellLockClear(): JSONObject = sendRequest(JsonRequestBuilder.lteCellLockClear())
     fun nrCellLockPciSet(arfcn: Int, pci: Int, scsKhz: Int, band: Int): JSONObject =
         sendRequest(JsonRequestBuilder.nrCellLockPciSet(arfcn, pci, scsKhz, band))

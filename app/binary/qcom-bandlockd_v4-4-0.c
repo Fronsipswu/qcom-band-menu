@@ -268,6 +268,36 @@
  *   status message says so explicitly when anything was skipped, instead
  *   of unconditionally reporting a full restore. No new commands or
  *   fields -- see cmd_reset() below.
+ *
+ * v4.4.0 -- LTE cell lock: multi-PCI support (field-confirmed on device):
+ *   TLV_LTECELL_SET_LOCK (0x01 on message 0x00D8) was already, byte-for-
+ *   byte, a count-prefixed list TLV -- value: count:u8, then count*[pci:u16,
+ *   earfcn:u32] -- not a single-cell-only shape with a "count" that could
+ *   only ever be 0 or 1. cmd_lte_cell_lock_set() just never exercised the
+ *   >1 case: it always wrote count=1. This was confirmed field-testable and
+ *   working with count>1 (multiple {pci,earfcn} pairs, same or different
+ *   EARFCN per entry) via a standalone test tool before being ported here --
+ *   no new TLV id, no new message id, no wire-format change of any kind,
+ *   only the request now carries more entries when asked to.
+ *   IMPORTANT (see qcom-bandlockd-app-interface.md and the new .md written
+ *   for the app-frontend LLM): this is NOT a frequency-only/EARFCN-only
+ *   lock. Every entry still requires an explicit PCI; QMI_NAS_SET_CELL_
+ *   CONFIG has no "match any PCI on this EARFCN" mode in this NAS spec
+ *   version (confirmed by checking the vendor QMI NAS spec directly -- NR5G
+ *   cell lock has an explicit ARFCN-only ConfigurationType, LTE cell lock
+ *   does not). Multi-PCI locking to every currently-visible PCI on a
+ *   channel is the closest available approximation, not a true wildcard --
+ *   a PCI that later appears on that EARFCN but wasn't in the list you
+ *   locked to will still be excluded.
+ *   New command: lte_cell_lock_multi_pci_set (fields "earfcn", "pci_list"
+ *   -- non-empty array of integers 0-503, max 64, mirrors nr_cell_lock_
+ *   multi_pci_set's "pci_list" shape). lte_cell_lock_set (single "pci") is
+ *   unchanged as a convenience wrapper -- it now calls the same underlying
+ *   cmd_lte_cell_lock_multi_pci_set() with a one-element list, so both
+ *   commands share one code path and one TLV builder. LTE_CELL_LOCK_MAX
+ *   raised from 16 to 64 (see its definition) so a GET immediately after a
+ *   large multi-PCI SET reads back the full list instead of truncating it.
+ *   See cmd_lte_cell_lock_multi_pci_set()/jlte_cell_lock() below.
  */
 
 typedef unsigned char u8;
@@ -320,7 +350,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define MSG_NR_CELL_LOCK_GET  0x010Fu
 
 /* LTE cell-lock SET (0x00D8) TLVs */
-#define TLV_LTECELL_SET_LOCK  0x01u /* value: enable:u8, then [pci:u16,earfcn:u32] only when enable=1 (7 bytes total when enabled, 1 byte when clearing) */
+#define TLV_LTECELL_SET_LOCK  0x01u /* value: count:u8, then count*[pci:u16,earfcn:u32] (1 byte when count=0/clearing, 1+6*count bytes otherwise). Was only ever written with count<=1 before v4.4.0; see that header note -- this is the same field qcom-cell-lock-test.c's set_lte()/clear_lte() wrote, just exercised beyond count=1 now. */
 #define TLV_LTECELL_SET_APPLY 0x10u /* value: apply:u8=1 */
 /* LTE cell-lock GET (0x00D7) reply TLV */
 #define TLV_LTECELL_GET_LIST  0x10u /* value: count:u8, then count*[pci:u16,earfcn:u16] -- EARFCN read back as 16-bit, see v4.1.0 header note */
@@ -338,12 +368,12 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define TLV_NRCELL_GET_MULTI  0x13u /* presence-only marker -- qcom-cell-lock-test.c never decoded this TLV's contents for multi-PCI read-back, only reported that it was present; carried over identically, see jnr_cell_lock() */
 #define TLV_NRCELL_GET_GNB    0x14u /* value: count:u8, then count*gnb_id:u64, then an optional trailing id_bits:u8 */
 
-#define LTE_CELL_LOCK_MAX 16u      /* cap on decoded LTE cell-lock GET entries kept in state (the SET side only ever writes one) */
+#define LTE_CELL_LOCK_MAX 64u      /* cap on LTE cell-lock entries, both directions: GET decode AND SET encode (v4.4.0 -- previously 16 and GET-only, since the SET side only ever wrote one entry; see the v4.4.0 header note on lte_cell_lock_multi_pci_set). Matches NR_CELL_MULTI_PCI_MAX so the two multi-cell features share one mental model. */
 #define NR_CELL_ARFCN_MAX 16u      /* cap on decoded NR ARFCN-list GET entries kept in state (the SET side only ever writes one) */
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.3.4"
+#define DAEMON_VERSION "4.4.0"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
@@ -1122,14 +1152,28 @@ static int query_nr_independent_capability(struct state*s){
  * already use elsewhere in this file -- do_command() sets *did_set=0 for
  * all of these so serve_client() doesn't also fire the unrelated general
  * GET (message 0x0034) afterward. */
-static int cmd_lte_cell_lock_set(struct state*s,u32 earfcn,u32 pci){
- u8 val[7],apply=1,p[14];int pos=0;
- val[0]=1;put16(val+1,(u16)pci);put32(val+3,earfcn);
- pos=addtlv(p,pos,TLV_LTECELL_SET_LOCK,val,7);
+/* Value layout for TLV_LTECELL_SET_LOCK: count:u8(1) + count*[pci:u16(2),
+ * earfcn:u32(4)] = 1+6*count bytes, up to LTE_CELL_LOCK_MAX entries -- see
+ * the v4.4.0 header note. Locks to ANY of the listed PCIs on their
+ * respective EARFCNs (typically all the same EARFCN); it is NOT a
+ * frequency-only/wildcard-PCI lock -- every entry still needs a real PCI. */
+#define LTECELL_MULTI_VALLEN_MAX (1u+6u*LTE_CELL_LOCK_MAX)
+static int cmd_lte_cell_lock_multi_pci_set(struct state*s,u32 earfcn,const u32*pcis,u32 count){
+ u8 val[LTECELL_MULTI_VALLEN_MAX],apply=1,p[3+LTECELL_MULTI_VALLEN_MAX+3];u32 i,vlen;int pos=0;
+ if(count<1||count>LTE_CELL_LOCK_MAX)return 0;
+ val[0]=(u8)count;vlen=1;
+ for(i=0;i<count;i++){put16(val+vlen,(u16)pcis[i]);vlen+=2;put32(val+vlen,earfcn);vlen+=4;}
+ pos=addtlv(p,pos,TLV_LTECELL_SET_LOCK,val,(u16)vlen);
  pos=addtlv(p,pos,TLV_LTECELL_SET_APPLY,&apply,1);
  if(!setter_msg(s,MSG_LTE_CELL_LOCK_SET,p,(u16)pos))return 0;
  query_lte_cell_lock(s);
  return 1;
+}
+/* Convenience wrapper for the common single-PCI case; same TLV builder,
+ * same wire bytes as before v4.4.0 for count=1 (val[0]=1,pci,earfcn --
+ * byte-identical to the old hardcoded single-entry version). */
+static int cmd_lte_cell_lock_set(struct state*s,u32 earfcn,u32 pci){
+ return cmd_lte_cell_lock_multi_pci_set(s,earfcn,&pci,1);
 }
 static int cmd_lte_cell_lock_clear(struct state*s){
  u8 val=0,apply=1,p[8];int pos=0;
@@ -1627,6 +1671,18 @@ static void do_command(struct state*s,const char*req,int*ok,int*did_set,int*shut
   if(!json_get_int(req,"earfcn",&earfcn)||earfcn<0){setstatus(s,"Missing/invalid 'earfcn' integer field.");set_stage(stage,stage_cap,"bad_request");return;}
   if(!json_get_int(req,"pci",&pci)||pci<0||pci>503){setstatus(s,"Field 'pci' must be an integer 0-503.");set_stage(stage,stage_cap,"bad_request");return;}
   *ok=cmd_lte_cell_lock_set(s,(u32)earfcn,(u32)pci);*did_set=0;return;
+ }
+ /* v4.4.0: same TLV as lte_cell_lock_set above, just with count>1. See the
+    header note -- this is NOT an EARFCN-only/no-PCI lock; every PCI in the
+    list is required, and the modem admits any cell matching one of them
+    on the given EARFCN, not the frequency in general. */
+ if(eq(cmd,"lte_cell_lock_multi_pci_set")){
+  s64 earfcn=0;u32 pcis[LTE_CELL_LOCK_MAX],i;int cnt;
+  if(!json_get_int(req,"earfcn",&earfcn)||earfcn<0){setstatus(s,"Missing/invalid 'earfcn' integer field.");set_stage(stage,stage_cap,"bad_request");return;}
+  cnt=json_get_int_array(req,"pci_list",pcis,(int)LTE_CELL_LOCK_MAX);
+  if(cnt<=0){setstatus(s,"Field 'pci_list' must be a non-empty array of integers (max 64).");set_stage(stage,stage_cap,"bad_request");return;}
+  for(i=0;i<(u32)cnt;i++)if(pcis[i]>503){setstatus(s,"Field 'pci_list' entries must each be 0-503.");set_stage(stage,stage_cap,"bad_request");return;}
+  *ok=cmd_lte_cell_lock_multi_pci_set(s,(u32)earfcn,pcis,(u32)cnt);*did_set=0;return;
  }
  if(eq(cmd,"lte_cell_lock_clear")){*ok=cmd_lte_cell_lock_clear(s);*did_set=0;return;}
  if(eq(cmd,"nr_cell_lock_pci_set")){

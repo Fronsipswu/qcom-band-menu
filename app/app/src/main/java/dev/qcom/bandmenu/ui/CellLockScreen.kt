@@ -301,6 +301,7 @@ private fun SimCellLockPage(
     var nrMultiPciText by remember { mutableStateOf("") }
     var nrGnbText by remember { mutableStateOf("") }
     var ltePciText by remember { mutableStateOf("") }
+    var lteMultiPciText by remember { mutableStateOf("") }
     var plmnText by remember { mutableStateOf("") }
 
     var labelOverrides by remember { mutableStateOf<Map<Int, LabelOverride>>(emptyMap()) }
@@ -329,6 +330,10 @@ private fun SimCellLockPage(
 
         ltePciText = if (lte?.valid == true && lte.locks.isNotEmpty()) {
             "${lte.locks[0].earfcn} ${lte.locks[0].pci}"
+        } else ""
+
+        lteMultiPciText = if (lte?.valid == true && lte.locks.size > 1) {
+            "${lte.locks[0].earfcn} ${lte.locks.joinToString(" ") { it.pci.toString() }}"
         } else ""
 
         plmnText = if (plmnLockState?.lockedPlmn != null) {
@@ -362,7 +367,8 @@ private fun SimCellLockPage(
             2 to "NR-ARFCN SCS Band PCI1 PCI2...",
             3 to "\"ID bits 22-32\" gNB1 gNB2...",
             4 to "EARFCN PCI",
-            5 to "MCC MNC (e.g. 244 01)"
+            5 to "MCC MNC (e.g. 244 01)",
+            6 to "EARFCN PCI1 PCI2..."
         )
     }
 
@@ -373,7 +379,8 @@ private fun SimCellLockPage(
             2 to "MultiPCI lock: Put NR-ARFCN SCS Band and PCI list",
             3 to "gNB lock: Put ID bits (22-32) and gNB IDs",
             4 to "PCI lock: Put EARFCN and PCI",
-            5 to "PLMN lock: Put MCC and MNC (e.g. 244 01)"
+            5 to "PLMN lock: Put MCC and MNC (e.g. 244 01)",
+            6 to "Multi-cell lock: Put EARFCN and PCI list (0-503)"
         )
     }
 
@@ -522,6 +529,31 @@ private fun SimCellLockPage(
             keyboardActions = KeyboardActions(onDone = {
                 keyboard?.hide()
                 onApplyLock(simSlot + 1, 4, ltePciText)
+            })
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            fieldTitles[6]!!,
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        val o6 = labelOverrides[6]
+        TextField(
+            value = lteMultiPciText,
+            onValueChange = { lteMultiPciText = it },
+            label = o6?.text ?: defaultLabels[6]!!,
+            colors = TextFieldDefaults.textFieldColors(
+                labelColor = o6?.color ?: defaultLabelColor
+            ),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = numericKeyboard,
+            keyboardActions = KeyboardActions(onDone = {
+                keyboard?.hide()
+                onApplyLock(simSlot + 1, 6, lteMultiPciText)
             })
         )
 
