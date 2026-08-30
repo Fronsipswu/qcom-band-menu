@@ -109,7 +109,6 @@ fun BandLockScreen(
     bandFilter: BandFilterState = BandFilterState(),
     onSaveFilter: (BandFilterState) -> Unit = {},
     onClearFilter: () -> Unit = {},
-    contentPadding: PaddingValues = PaddingValues(),
     snackbarHostState: SnackbarHostState,
     backdrop: Backdrop? = null
 ) {
@@ -141,7 +140,9 @@ fun BandLockScreen(
         selectedSim = pagerState.targetPage
     }
 
-    Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+    // SmallTopAppBar owns the top system-bar inset. Applying Scaffold's top
+    // padding to this parent would count the status bar twice.
+    Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading || hardware == null) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -180,6 +181,10 @@ fun BandLockScreen(
                             state = pagerState,
                             beyondViewportPageCount = 1,
                             userScrollEnabled = true,
+                            // Pages can have different measured heights after filtering.
+                            // HorizontalPager centers them vertically by default, which can
+                            // create a large blank gap above RAT lock. Keep page content top-aligned.
+                            verticalAlignment = Alignment.Top,
                             modifier = Modifier.fillMaxWidth()
                         ) { page ->
                             val simState = if (page == 0) modemState!!.sim1 else modemState!!.sim2
@@ -243,7 +248,8 @@ fun BandLockScreen(
                 }
                 WindowIconDropdownMenu(
                     entries = menuEntries,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp),
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .padding(top = statusBarInset + 8.dp, end = 8.dp),
                     collapseOnSelection = true
                 ) {
                     Icon(
@@ -780,6 +786,7 @@ private fun BandFilterSheet(
                     state = sheetPagerState,
                     beyondViewportPageCount = 1,
                     userScrollEnabled = true,
+                    verticalAlignment = Alignment.Top,
                     modifier = Modifier.fillMaxWidth()
                 ) { page ->
                     SheetSimSections(

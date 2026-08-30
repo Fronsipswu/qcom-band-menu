@@ -123,7 +123,6 @@ fun MainScreen(
                         bandFilter = bandFilter,
                         onSaveFilter = onSaveFilter,
                         onClearFilter = onClearFilter,
-                        contentPadding = topPadding,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop
                     )
@@ -141,7 +140,6 @@ fun MainScreen(
                         onClearPlmn = onCellLockClearPlmn,
                         lockResult = cellLockResult,
                         onLockResultConsumed = onCellLockResultConsumed,
-                        contentPadding = topPadding,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop
                     )

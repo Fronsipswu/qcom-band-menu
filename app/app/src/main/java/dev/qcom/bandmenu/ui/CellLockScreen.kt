@@ -90,7 +90,6 @@ fun CellLockScreen(
     onClearPlmn: (Int) -> Unit,
     lockResult: CellLockResult?,
     onLockResultConsumed: () -> Unit,
-    contentPadding: PaddingValues = PaddingValues(),
     snackbarHostState: SnackbarHostState,
     backdrop: Backdrop? = null
 ) {
@@ -122,7 +121,9 @@ fun CellLockScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().padding(contentPadding)) {
+    // SmallTopAppBar owns the top system-bar inset. Applying Scaffold's top
+    // padding to this parent would count the status bar twice.
+    Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading || modemState == null) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -264,7 +265,8 @@ fun CellLockScreen(
                 }
                 WindowIconDropdownMenu(
                     entries = menuEntries,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp),
+                    modifier = Modifier.align(Alignment.TopEnd)
+                        .padding(top = statusBarInset + 8.dp, end = 8.dp),
                     collapseOnSelection = true
                 ) {
                     Icon(
