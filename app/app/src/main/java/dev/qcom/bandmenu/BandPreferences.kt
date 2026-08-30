@@ -28,6 +28,18 @@ object BandPreferences {
     private val DEBUG_LOGGING = booleanPreferencesKey("debug_logging")
     private val NR_INDEPENDENT_SUPPORTED = booleanPreferencesKey("nr_independent_supported")
 
+    internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
+    internal val BAND_FILTER_GSM_SIM1 = stringSetPreferencesKey("band_filter_gsm_sim1")
+    internal val BAND_FILTER_WCDMA_SIM1 = stringSetPreferencesKey("band_filter_wcdma_sim1")
+    internal val BAND_FILTER_LTE_SIM1 = stringSetPreferencesKey("band_filter_lte_sim1")
+    internal val BAND_FILTER_NR_NSA_SIM1 = stringSetPreferencesKey("band_filter_nr_nsa_sim1")
+    internal val BAND_FILTER_NR_SA_SIM1 = stringSetPreferencesKey("band_filter_nr_sa_sim1")
+    internal val BAND_FILTER_GSM_SIM2 = stringSetPreferencesKey("band_filter_gsm_sim2")
+    internal val BAND_FILTER_WCDMA_SIM2 = stringSetPreferencesKey("band_filter_wcdma_sim2")
+    internal val BAND_FILTER_LTE_SIM2 = stringSetPreferencesKey("band_filter_lte_sim2")
+    internal val BAND_FILTER_NR_NSA_SIM2 = stringSetPreferencesKey("band_filter_nr_nsa_sim2")
+    internal val BAND_FILTER_NR_SA_SIM2 = stringSetPreferencesKey("band_filter_nr_sa_sim2")
+
     fun getSimState(dataStore: DataStore<Preferences>, sim: Int): Flow<SimState> {
         return dataStore.data.map { prefs ->
             if (sim == 1) prefsToSimState(
@@ -92,6 +104,69 @@ object BandPreferences {
 
     fun getDebugLogging(dataStore: DataStore<Preferences>): Flow<Boolean> {
         return dataStore.data.map { it[DEBUG_LOGGING] ?: false }
+    }
+
+    fun getBandFilter(dataStore: DataStore<Preferences>): Flow<BandFilterState> {
+        return dataStore.data.map { prefs -> prefsToBandFilter(prefs) }
+    }
+
+    suspend fun saveBandFilter(dataStore: DataStore<Preferences>, state: BandFilterState) {
+        dataStore.edit { prefs -> writeBandFilter(prefs, state) }
+    }
+
+    suspend fun clearBandFilter(dataStore: DataStore<Preferences>) {
+        dataStore.edit { prefs -> clearBandFilterIn(prefs) }
+    }
+
+    internal fun writeBandFilter(prefs: androidx.datastore.preferences.core.MutablePreferences, state: BandFilterState) {
+        prefs[BAND_FILTER_ENABLED] = true
+        prefs[BAND_FILTER_GSM_SIM1] = state.sim1.gsm.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_WCDMA_SIM1] = state.sim1.wcdma.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_LTE_SIM1] = state.sim1.lte.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_NR_NSA_SIM1] = state.sim1.nrNsa.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_NR_SA_SIM1] = state.sim1.nrSa.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_GSM_SIM2] = state.sim2.gsm.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_WCDMA_SIM2] = state.sim2.wcdma.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_LTE_SIM2] = state.sim2.lte.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_NR_NSA_SIM2] = state.sim2.nrNsa.map { it.toString() }.toSet()
+        prefs[BAND_FILTER_NR_SA_SIM2] = state.sim2.nrSa.map { it.toString() }.toSet()
+    }
+
+    internal fun clearBandFilterIn(prefs: androidx.datastore.preferences.core.MutablePreferences) {
+        prefs[BAND_FILTER_ENABLED] = false
+    }
+
+    internal fun prefsToBandFilter(prefs: Preferences): BandFilterState {
+        return BandFilterState(
+            enabled = prefs[BAND_FILTER_ENABLED] ?: false,
+            sim1 = prefsToSimBandFilter(
+                prefs[BAND_FILTER_GSM_SIM1],
+                prefs[BAND_FILTER_WCDMA_SIM1],
+                prefs[BAND_FILTER_LTE_SIM1],
+                prefs[BAND_FILTER_NR_NSA_SIM1],
+                prefs[BAND_FILTER_NR_SA_SIM1]
+            ),
+            sim2 = prefsToSimBandFilter(
+                prefs[BAND_FILTER_GSM_SIM2],
+                prefs[BAND_FILTER_WCDMA_SIM2],
+                prefs[BAND_FILTER_LTE_SIM2],
+                prefs[BAND_FILTER_NR_NSA_SIM2],
+                prefs[BAND_FILTER_NR_SA_SIM2]
+            )
+        )
+    }
+
+    internal fun prefsToSimBandFilter(
+        gsm: Set<String>?, wcdma: Set<String>?, lte: Set<String>?,
+        nrNsa: Set<String>?, nrSa: Set<String>?
+    ): SimBandFilter {
+        return SimBandFilter(
+            gsm = gsm?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet(),
+            wcdma = wcdma?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet(),
+            lte = lte?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet(),
+            nrNsa = nrNsa?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet(),
+            nrSa = nrSa?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
+        )
     }
 
     suspend fun setDebugLogging(dataStore: DataStore<Preferences>, enabled: Boolean) {

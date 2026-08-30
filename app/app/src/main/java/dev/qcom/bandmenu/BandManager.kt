@@ -17,6 +17,25 @@ data class SimState(
     val nrMode: NrMode = NrMode.BOTH
 )
 
+data class SimBandFilter(
+    val gsm: Set<Int> = emptySet(),
+    val wcdma: Set<Int> = emptySet(),
+    val lte: Set<Int> = emptySet(),
+    val nrNsa: Set<Int> = emptySet(),
+    val nrSa: Set<Int> = emptySet()
+) {
+    companion object {
+        fun visibleBands(hardware: Set<Int>, filter: Set<Int>): Set<Int> =
+            if (filter.isEmpty()) hardware else hardware.intersect(filter)
+    }
+}
+
+data class BandFilterState(
+    val enabled: Boolean = false,
+    val sim1: SimBandFilter = SimBandFilter(),
+    val sim2: SimBandFilter = SimBandFilter()
+)
+
 data class HardwareBands(
     val gsm: Set<Int> = emptySet(),
     val wcdma: Set<Int> = emptySet(),

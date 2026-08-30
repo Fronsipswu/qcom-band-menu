@@ -74,7 +74,10 @@ fun MainScreen(
     cellLockRefreshing: Boolean,
     onCellLockRefresh: () -> Unit,
     cellLockRefreshKey: Int,
-    nrIndependentSupported: Boolean?
+    nrIndependentSupported: Boolean?,
+    bandFilter: dev.qcom.bandmenu.BandFilterState,
+    onSaveFilter: (dev.qcom.bandmenu.BandFilterState) -> Unit,
+    onClearFilter: () -> Unit
 ) {
     var selectedIndex by remember { mutableIntStateOf(0) }
     val pagerState = rememberPagerState(pageCount = { 3 })
@@ -117,6 +120,9 @@ fun MainScreen(
                         onApply = onApply,
                         onReset = onReset,
                         nrIndependentSupported = nrIndependentSupported,
+                        bandFilter = bandFilter,
+                        onSaveFilter = onSaveFilter,
+                        onClearFilter = onClearFilter,
                         contentPadding = topPadding,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop

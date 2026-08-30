@@ -79,11 +79,18 @@ class MainActivity : ComponentActivity() {
                 var cellLockRefreshKey by remember { mutableIntStateOf(0) }
                 var cellLockSelectedSim by remember { mutableIntStateOf(0) }
                 var nrIndependentSupported by remember { mutableStateOf<Boolean?>(null) }
+                var bandFilter by remember { mutableStateOf(BandFilterState()) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
                         debugEnabled = enabled
                         AppLog.debugEnabled = enabled
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getBandFilter(bandDataStore).collectLatest { state ->
+                        bandFilter = state
                     }
                 }
 
@@ -558,6 +565,13 @@ class MainActivity : ComponentActivity() {
                     },
                     cellLockRefreshKey = cellLockRefreshKey,
                     nrIndependentSupported = nrIndependentSupported,
+                    bandFilter = bandFilter,
+                    onSaveFilter = { state ->
+                        scope.launch { BandPreferences.saveBandFilter(bandDataStore, state) }
+                    },
+                    onClearFilter = {
+                        scope.launch { BandPreferences.clearBandFilter(bandDataStore) }
+                    },
                     onApply = { slot, state ->
                         scope.launch {
                             modemLock.withLock {
