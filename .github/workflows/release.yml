@@ -1,0 +1,145 @@
+name: Release build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for the APK filename (e.g. 4.5.2). Filename only — the APK internally keeps the versionName/versionCode from build.gradle.kts.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  signed-release:
+    name: Build signed release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout app repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Checkout miuix composite build
+        uses: actions/checkout@v4
+        with:
+          repository: compose-miuix-ui/miuix
+          ref: e1086564cda9f9019b0cd827c0a29c2de7a91918
+          path: miuix
+
+      - name: Checkout AndroidLiquidGlass composite build
+        uses: actions/checkout@v4
+        with:
+          repository: Kyant0/AndroidLiquidGlass
+          ref: b18eb0ff12c616546a68c72e7d0097f1ab286c87
+          path: AndroidLiquidGlass
+
+      # Reproduces the local composite-build state (see ci.yml for details)
+      - name: Patch AndroidLiquidGlass for composite build
+        run: |
+          sed -i 's/^agp = "9.3.0"$/agp = "9.3.1"/' AndroidLiquidGlass/gradle/libs.versions.toml
+          python3 - <<'PYEOF'
+          from pathlib import Path
+          p = Path("AndroidLiquidGlass/backdrop/build.gradle.kts")
+          s = p.read_text()
+          old = "}\n\nkotlin {"
+          new = "}\n\ngroup = \"io.github.kyant0\"\nversion = \"2.0.0\"\n\nkotlin {"
+          assert s.count(old) >= 1, "insertion point not found in backdrop/build.gradle.kts"
+          p.write_text(s.replace(old, new, 1))
+          PYEOF
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Set up Gradle caching
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build unsigned release APK
+        working-directory: app
+        run: ./gradlew :app:assembleRelease
+
+      # Keystore is decoded into $RUNNER_TEMP only — never written to the
+      # workspace, the repo, or any uploaded artifact.
+      - name: Decode signing keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Zipalign
+        run: |
+          "$ANDROID_HOME/build-tools/37.0.0/zipalign" -f -p 4 \
+            app/app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$RUNNER_TEMP/app-release-aligned.apk"
+
+      # Passwords are passed via env: references so they never appear in
+      # process arguments or logs.
+      - name: Sign APK
+        env:
+          KS_PASS: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/release.jks" \
+            --ks-key-alias "${{ secrets.RELEASE_KEY_ALIAS }}" \
+            --ks-pass env:KS_PASS \
+            --key-pass env:KEY_PASS \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --v4-signing-enabled true \
+            --out "$RUNNER_TEMP/app-release-signed.apk" \
+            "$RUNNER_TEMP/app-release-aligned.apk"
+
+      - name: Verify signature
+        run: |
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/app-release-signed.apk"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Determine version and APK name
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          VERSION="${VERSION_INPUT:-${GITHUB_REF_NAME#v}}"
+          VERSION="${VERSION#v}"
+          APK="qcom-band-menu_v${VERSION}_signedRelease-${GITHUB_SHA::7}.apk"
+          cp "$RUNNER_TEMP/app-release-signed.apk" "$APK"
+          echo "APK=${APK}" >> "$GITHUB_ENV"
+
+      # Tag pushes create a public GitHub Release with the APK attached;
+      # manual dispatch builds are uploaded as workflow artifacts instead.
+      - name: Create GitHub Release and attach APK
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Signed release build of ${GITHUB_REF_NAME} (commit ${GITHUB_SHA::7}).
+
+          **Note:** This build is signed with a new signing key. If you have an older version installed, you must uninstall it before installing this APK.
+          EOF
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "$APK"
+
+      - name: Upload signed APK artifact
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK }}
+          path: ${{ env.APK }}
+          if-no-files-found: error
