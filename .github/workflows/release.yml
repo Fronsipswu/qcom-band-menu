@@ -137,8 +137,6 @@ jobs:
             else
               echo "Signed release build of ${GITHUB_REF_NAME} (commit ${GITHUB_SHA::7})."
             fi
-            echo
-            echo "**Note:** This build is signed with a new signing key. If you have an older version installed, you must uninstall it before installing this APK."
           } > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
