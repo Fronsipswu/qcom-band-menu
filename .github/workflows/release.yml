@@ -129,11 +129,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > "$RUNNER_TEMP/notes.md" <<EOF
-          Signed release build of ${GITHUB_REF_NAME} (commit ${GITHUB_SHA::7}).
-
-          **Note:** This build is signed with a new signing key. If you have an older version installed, you must uninstall it before installing this APK.
-          EOF
+          # Use the annotated tag message as the changelog when present
+          TAG_MSG=$(git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME")
+          {
+            if [ -n "$TAG_MSG" ]; then
+              printf '%s\n' "$TAG_MSG"
+            else
+              echo "Signed release build of ${GITHUB_REF_NAME} (commit ${GITHUB_SHA::7})."
+            fi
+            echo
+            echo "**Note:** This build is signed with a new signing key. If you have an older version installed, you must uninstall it before installing this APK."
+          } > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/notes.md" \
