@@ -59,7 +59,10 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        run: sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
+        run: |
+          sdkmanager --install "build-tools;37.0.0"
+          sdkmanager --install "platforms;android-37.0" || \
+            echo "::warning::platforms;android-37.0 not in remote repo - AGP will auto-download it during the build"
 
       - name: Set up Gradle caching
         uses: gradle/actions/setup-gradle@v4
