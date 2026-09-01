@@ -30,6 +30,15 @@ data class SimBandFilter(
     }
 }
 
+fun SimBandFilter.copyForOtherSim(): SimBandFilter =
+    SimBandFilter(
+        gsm = gsm.toSet(),
+        wcdma = wcdma.toSet(),
+        lte = lte.toSet(),
+        nrNsa = nrNsa.toSet(),
+        nrSa = nrSa.toSet()
+    )
+
 data class BandFilterState(
     val enabled: Boolean = false,
     val sim1: SimBandFilter = SimBandFilter(),

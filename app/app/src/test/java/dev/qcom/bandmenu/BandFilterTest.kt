@@ -144,4 +144,53 @@ class BandFilterTest {
         assertEquals(setOf("850", "900"), prefs[BandPreferences.BAND_FILTER_GSM_SIM1])
         assertEquals(setOf("28"), prefs[BandPreferences.BAND_FILTER_LTE_SIM2])
     }
+
+    @Test
+    fun copyForOtherSim_copiesAllRatSetsVerbatim() {
+        val source = SimBandFilter(
+            gsm = setOf(850, 900),
+            wcdma = setOf(1),
+            lte = setOf(3, 7, 28),
+            nrNsa = setOf(1, 8),
+            nrSa = setOf(41, 78)
+        )
+        assertEquals(source, source.copyForOtherSim())
+    }
+
+    @Test
+    fun copyForOtherSim_emptySetsStayEmpty_notPrefilledFromHardware() {
+        val source = SimBandFilter(lte = setOf(3))
+        val copied = source.copyForOtherSim()
+        assertEquals(SimBandFilter(lte = setOf(3)), copied)
+        assertEquals(emptySet<Int>(), copied.gsm)
+        assertEquals(emptySet<Int>(), copied.wcdma)
+        assertEquals(emptySet<Int>(), copied.nrNsa)
+        assertEquals(emptySet<Int>(), copied.nrSa)
+    }
+
+    @Test
+    fun copyForOtherSim_createsIndependentSetInstances() {
+        val source = SimBandFilter(
+            gsm = setOf(850, 900),
+            wcdma = setOf(1, 8),
+            lte = setOf(3, 7),
+            nrNsa = setOf(1, 8),
+            nrSa = setOf(41, 78)
+        )
+        val copied = source.copyForOtherSim()
+        assertFalse(copied.gsm === source.gsm)
+        assertFalse(copied.wcdma === source.wcdma)
+        assertFalse(copied.lte === source.lte)
+        assertFalse(copied.nrNsa === source.nrNsa)
+        assertFalse(copied.nrSa === source.nrSa)
+    }
+
+    @Test
+    fun copyForOtherSim_mergedNrSelection_copiesNsaAndSaVerbatim() {
+        val nr = setOf(1, 8, 28, 41)
+        val source = SimBandFilter(lte = setOf(3), nrNsa = nr, nrSa = nr)
+        val copied = source.copyForOtherSim()
+        assertEquals(nr, copied.nrNsa)
+        assertEquals(nr, copied.nrSa)
+    }
 }

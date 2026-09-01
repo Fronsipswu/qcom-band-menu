@@ -54,6 +54,7 @@ import dev.qcom.bandmenu.NrMode
 import dev.qcom.bandmenu.RatType
 import dev.qcom.bandmenu.SimBandFilter
 import dev.qcom.bandmenu.SimState
+import dev.qcom.bandmenu.copyForOtherSim
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -73,6 +74,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
@@ -782,6 +784,18 @@ private fun BandFilterSheet(
                 Spacer(modifier = Modifier.height(8.dp))
             }
             item {
+                CopySelectionRow(
+                    label = if (tabIndex == 0) "Copy selection to SIM 2" else "Copy selection to SIM 1",
+                    hapticFeedback = hapticFeedback
+                ) {
+                    if (tabIndex == 0) {
+                        sim2Selection = sim1Selection.copyForOtherSim()
+                    } else {
+                        sim1Selection = sim2Selection.copyForOtherSim()
+                    }
+                }
+            }
+            item {
                 HorizontalPager(
                     state = sheetPagerState,
                     beyondViewportPageCount = 1,
@@ -958,6 +972,36 @@ private fun FilterSectionTitle(
             }
     ) {
         SmallTitle(text)
+    }
+}
+
+@Composable
+private fun CopySelectionRow(
+    label: String,
+    hapticFeedback: HapticFeedback,
+    onCopy: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                onCopy()
+            }
+            .padding(horizontal = 28.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = MiuixIcons.Copy,
+            contentDescription = null,
+            tint = MiuixTheme.colorScheme.primary
+        )
+        Text(
+            text = label,
+            style = MiuixTheme.textStyles.body1,
+            color = MiuixTheme.colorScheme.primary
+        )
     }
 }
 
