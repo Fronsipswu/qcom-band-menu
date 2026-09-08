@@ -26,7 +26,14 @@ data class SimBandFilter(
 ) {
     companion object {
         fun visibleBands(hardware: Set<Int>, filter: Set<Int>): Set<Int> =
-            if (filter.isEmpty()) hardware else hardware.intersect(filter)
+            hardware.intersect(filter)
+
+        fun effectiveFilter(bandFilter: BandFilterState, hardware: HardwareBands, sim: Int): SimBandFilter =
+            if (bandFilter.enabled) {
+                if (sim == 0) bandFilter.sim1 else bandFilter.sim2
+            } else {
+                SimBandFilter(hardware.gsm, hardware.wcdma, hardware.lte, hardware.nr, hardware.nr)
+            }
     }
 }
 

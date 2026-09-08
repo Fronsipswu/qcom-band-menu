@@ -1,6 +1,5 @@
 package dev.qcom.bandmenu.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -39,6 +39,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawPlainBackdrop
+import com.kyant.backdrop.effects.blur
 import dev.qcom.bandmenu.CellLockState
 import dev.qcom.bandmenu.ModemState
 import dev.qcom.bandmenu.PlmnLockState
@@ -103,6 +107,15 @@ fun CellLockScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val hasNrHardware = modemState?.hardware?.nr?.isNotEmpty() == true
 
+    // Content-only capture layer: the top bar (a sibling of this subtree) samples
+    // and blurs it. The bar itself is never part of the captured layer, so the
+    // blur cannot self-reference (the crash from the 0fefeb5 attempt).
+    val surfaceColor = MiuixTheme.colorScheme.surface
+    val screenBackdrop = rememberLayerBackdrop(onDraw = {
+        drawRect(surfaceColor)
+        drawContent()
+    })
+
     var selectedSim by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     var experimentalEnabled by remember { mutableStateOf(false) }
@@ -136,7 +149,9 @@ fun CellLockScreen(
                 PullToRefresh(
                     isRefreshing = isRefreshing,
                     onRefresh = onRefresh,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(screenBackdrop),
                     contentPadding = PaddingValues(top = topBarHeight)
                 ) {
                     Column(
@@ -183,7 +198,12 @@ fun CellLockScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.6f))
+                            .drawPlainBackdrop(
+                                backdrop = screenBackdrop,
+                                shape = { RectangleShape },
+                                effects = { blur(8f.dp.toPx()) },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
+                            )
                     ) {
                         SmallTopAppBar(
                             title = "Cell-Lock",
@@ -330,7 +350,7 @@ private fun SimCellLockPage(
             "$idBits ${nr.gnbAllowlist.gnbIds.joinToString(" ")}"
         } else ""
 
-        ltePciText = if (lte?.valid == true && lte.locks.isNotEmpty()) {
+        ltePciText = if (lte?.valid == true && lte.locks.size == 1) {
             "${lte.locks[0].earfcn} ${lte.locks[0].pci}"
         } else ""
 

@@ -19,9 +19,18 @@ class BandFilterTest {
     }
 
     @Test
-    fun visibleBands_emptyFilter_passthrough() {
+    fun visibleBands_emptyFilter_hidesAllBands() {
         val hardware = setOf(1, 3, 7, 28)
-        assertEquals(hardware, SimBandFilter.visibleBands(hardware, emptySet()))
+        assertEquals(emptySet<Int>(), SimBandFilter.visibleBands(hardware, emptySet()))
+    }
+
+    @Test
+    fun visibleBands_emptyRatSet_hidesThatRatWhileOthersPass() {
+        val gsmHardware = setOf(850, 900)
+        val lteHardware = setOf(1, 3, 7, 28)
+        val filter = SimBandFilter(gsm = emptySet(), lte = setOf(3, 7))
+        assertEquals(emptySet<Int>(), SimBandFilter.visibleBands(gsmHardware, filter.gsm))
+        assertEquals(setOf(3, 7), SimBandFilter.visibleBands(lteHardware, filter.lte))
     }
 
     @Test
@@ -117,8 +126,49 @@ class BandFilterTest {
     }
 
     @Test
-    fun visibleBands_clearedFilterWithStaleSets_passthrough() {
+    fun visibleBands_staleSavedSet_intersects() {
         val hardware = setOf(1, 3, 7, 28)
+        val staleFilter = SimBandFilter(lte = setOf(3))
+        assertEquals(setOf(3), SimBandFilter.visibleBands(hardware, staleFilter.lte))
+    }
+
+    @Test
+    fun effectiveFilter_disabled_returnsFullHardwareFilter() {
+        val hardware = HardwareBands(gsm = setOf(850), wcdma = setOf(1), lte = setOf(3, 7), nr = setOf(78))
+        val state = BandFilterState(
+            enabled = false,
+            sim1 = SimBandFilter(lte = setOf(3)),
+            sim2 = SimBandFilter(gsm = setOf(850))
+        )
+        val full = SimBandFilter(hardware.gsm, hardware.wcdma, hardware.lte, hardware.nr, hardware.nr)
+        assertEquals(full, SimBandFilter.effectiveFilter(state, hardware, 0))
+        assertEquals(full, SimBandFilter.effectiveFilter(state, hardware, 1))
+    }
+
+    @Test
+    fun effectiveFilter_enabled_returnsSimFilter() {
+        val hardware = HardwareBands(gsm = setOf(850, 900), wcdma = setOf(1), lte = setOf(1, 3), nr = setOf(78))
+        val sim1 = SimBandFilter(gsm = setOf(850), lte = setOf(3))
+        val sim2 = SimBandFilter(lte = setOf(1), nrNsa = setOf(78), nrSa = setOf(78))
+        val state = BandFilterState(enabled = true, sim1 = sim1, sim2 = sim2)
+        assertEquals(sim1, SimBandFilter.effectiveFilter(state, hardware, 0))
+        assertEquals(sim2, SimBandFilter.effectiveFilter(state, hardware, 1))
+    }
+
+    @Test
+    fun effectiveFilter_enabled_emptyRatSet_hidesRatOnBandsPage() {
+        val hardware = HardwareBands(gsm = setOf(850, 900), wcdma = setOf(1), lte = setOf(1, 3, 7), nr = setOf(78))
+        val state = BandFilterState(enabled = true, sim1 = SimBandFilter(lte = setOf(3)), sim2 = SimBandFilter())
+        val f1 = SimBandFilter.effectiveFilter(state, hardware, 0)
+        assertEquals(emptySet<Int>(), SimBandFilter.visibleBands(hardware.gsm, f1.gsm))
+        assertEquals(setOf(3), SimBandFilter.visibleBands(hardware.lte, f1.lte))
+        val f2 = SimBandFilter.effectiveFilter(state, hardware, 1)
+        assertEquals(emptySet<Int>(), SimBandFilter.visibleBands(hardware.lte, f2.lte))
+    }
+
+    @Test
+    fun effectiveFilter_disabled_staleSavedSetsDoNotHideBands() {
+        val hardware = HardwareBands(gsm = setOf(850, 900), wcdma = setOf(1), lte = setOf(1, 3, 7, 28), nr = setOf(41, 78))
         val cleared = BandPreferences.prefsToBandFilter(mutablePreferencesOf()).let {
             BandFilterState(enabled = false, sim1 = it.sim1, sim2 = it.sim2)
         }
@@ -127,9 +177,11 @@ class BandFilterTest {
             sim1 = SimBandFilter(lte = setOf(3)),
             sim2 = SimBandFilter(lte = setOf(7))
         )
-        assertEquals(hardware, SimBandFilter.visibleBands(hardware, if (cleared.enabled) cleared.sim1.lte else emptySet()))
-        assertEquals(hardware, SimBandFilter.visibleBands(hardware, if (staleFilter.enabled) staleFilter.sim1.lte else emptySet()))
-        assertEquals(setOf(3), SimBandFilter.visibleBands(hardware, staleFilter.sim1.lte))
+        val full = SimBandFilter(hardware.gsm, hardware.wcdma, hardware.lte, hardware.nr, hardware.nr)
+        assertEquals(full, SimBandFilter.effectiveFilter(cleared, hardware, 0))
+        assertEquals(full, SimBandFilter.effectiveFilter(staleFilter, hardware, 0))
+        assertEquals(hardware.lte, SimBandFilter.visibleBands(hardware.lte, SimBandFilter.effectiveFilter(staleFilter, hardware, 0).lte))
+        assertEquals(setOf(3), SimBandFilter.visibleBands(hardware.lte, staleFilter.sim1.lte))
     }
 
     @Test

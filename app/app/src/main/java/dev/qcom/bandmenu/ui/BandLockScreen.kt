@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.captionBar
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -34,11 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +50,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawPlainBackdrop
+import com.kyant.backdrop.effects.blur
 import dev.qcom.bandmenu.BandConstants
 import dev.qcom.bandmenu.BandFilterState
 import dev.qcom.bandmenu.HardwareBands
@@ -125,6 +133,15 @@ fun BandLockScreen(
 
     val hapticFeedback = LocalHapticFeedback.current
 
+    // Content-only capture layer: the top bar (a sibling of this subtree) samples
+    // and blurs it. The bar itself is never part of the captured layer, so the
+    // blur cannot self-reference (the crash from the 0fefeb5 attempt).
+    val surfaceColor = MiuixTheme.colorScheme.surface
+    val screenBackdrop = rememberLayerBackdrop(onDraw = {
+        drawRect(surfaceColor)
+        drawContent()
+    })
+
     val hardware = modemState?.hardware
     val useIndependentLock = nrIndependentSupported == true
 
@@ -132,6 +149,12 @@ fun BandLockScreen(
     var showFilterSheet by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(pageCount = { 2 })
     val slotStates = remember { arrayOf(SlotBandState(), SlotBandState()) }
+
+    // HorizontalPager is as tall as its tallest page, which keeps scrollable
+    // blank space below a SIM page whose filter hides entire RATs. Track each
+    // page's natural height and size the pager to the current page instead.
+    val pageHeights = remember { mutableStateMapOf<Int, Int>() }
+    val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }
 
     LaunchedEffect(selectedSim) {
         if (pagerState.targetPage != selectedSim) {
@@ -157,7 +180,9 @@ fun BandLockScreen(
                 PullToRefresh(
                     isRefreshing = refreshingSlots.contains(selectedSim),
                     onRefresh = { onRefresh(selectedSim) },
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(screenBackdrop),
                     contentPadding = PaddingValues(top = topBarHeight)
                 ) {
                     Column(
@@ -183,22 +208,36 @@ fun BandLockScreen(
                             state = pagerState,
                             beyondViewportPageCount = 1,
                             userScrollEnabled = true,
-                            // Pages can have different measured heights after filtering.
-                            // HorizontalPager centers them vertically by default, which can
-                            // create a large blank gap above RAT lock. Keep page content top-aligned.
                             verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (pagerHeight != null) {
+                                        Modifier.height(pagerHeight)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
                         ) { page ->
                             val simState = if (page == 0) modemState!!.sim1 else modemState!!.sim2
                             val refreshKey = if (page == 0) refreshKey0 else refreshKey1
-                            SimBandLockPage(
-                                state = slotStates[page],
-                                simState = simState,
-                                hardware = hardware,
-                                useIndependentLock = useIndependentLock,
-                                filter = if (bandFilter.enabled) (if (page == 0) bandFilter.sim1 else bandFilter.sim2) else SimBandFilter(),
-                                refreshKey = refreshKey
-                            )
+                            Column(
+                                modifier = Modifier
+                                    // Measure the page content without the pager's height
+                                    // constraint so its natural height is tracked even when
+                                    // the pager is sized to the other page.
+                                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                                    .onSizeChanged { size -> pageHeights[page] = size.height }
+                            ) {
+                                SimBandLockPage(
+                                    state = slotStates[page],
+                                    simState = simState,
+                                    hardware = hardware,
+                                    useIndependentLock = useIndependentLock,
+                                    filter = SimBandFilter.effectiveFilter(bandFilter, hardware, page),
+                                    refreshKey = refreshKey
+                                )
+                            }
                         }
                     }
                 }
@@ -207,7 +246,12 @@ fun BandLockScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.6f))
+                            .drawPlainBackdrop(
+                                backdrop = screenBackdrop,
+                                shape = { RectangleShape },
+                                effects = { blur(8f.dp.toPx()) },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
+                            )
                     ) {
                         Column {
                             SmallTopAppBar(
@@ -284,7 +328,7 @@ fun BandLockScreen(
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                         val s = slotStates[selectedSim]
-                        val f = if (bandFilter.enabled) (if (selectedSim == 0) bandFilter.sim1 else bandFilter.sim2) else SimBandFilter()
+                        val f = SimBandFilter.effectiveFilter(bandFilter, hardware, selectedSim)
                         val visibleGsm = SimBandFilter.visibleBands(hardware.gsm, f.gsm)
                         val visibleWcdma = SimBandFilter.visibleBands(hardware.wcdma, f.wcdma)
                         val visibleLte = SimBandFilter.visibleBands(hardware.lte, f.lte)
@@ -703,24 +747,13 @@ private fun BandFilterSheet(
                 if (!bandFilter.enabled) {
                     return SimBandFilter(hardware.gsm, hardware.wcdma, hardware.lte, hardware.nr, hardware.nr)
                 }
-                return if (useIndependentLock) {
-                    SimBandFilter(
-                        gsm = f.gsm.ifEmpty { hardware.gsm },
-                        wcdma = f.wcdma.ifEmpty { hardware.wcdma },
-                        lte = f.lte.ifEmpty { hardware.lte },
-                        nrNsa = f.nrNsa.ifEmpty { hardware.nr },
-                        nrSa = f.nrSa.ifEmpty { hardware.nr }
-                    )
-                } else {
-                    val nr = (f.nrNsa + f.nrSa).ifEmpty { hardware.nr }
-                    SimBandFilter(
-                        gsm = f.gsm.ifEmpty { hardware.gsm },
-                        wcdma = f.wcdma.ifEmpty { hardware.wcdma },
-                        lte = f.lte.ifEmpty { hardware.lte },
-                        nrNsa = nr,
-                        nrSa = nr
-                    )
-                }
+                return SimBandFilter(
+                    gsm = f.gsm,
+                    wcdma = f.wcdma,
+                    lte = f.lte,
+                    nrNsa = f.nrNsa,
+                    nrSa = f.nrSa
+                )
             }
             sim1Selection = prefill(bandFilter.sim1)
             sim2Selection = prefill(bandFilter.sim2)
@@ -750,18 +783,24 @@ private fun BandFilterSheet(
         },
         endAction = {
             val dismissState = LocalDismissState.current
+            val saveEnabled = selectedCount > 0
+            val saveTint by animateColorAsState(
+                targetValue = if (saveEnabled) MiuixTheme.colorScheme.onBackground
+                else MiuixTheme.colorScheme.disabledOnSecondaryVariant,
+                label = "saveTint"
+            )
             IconButton(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                     onSave(BandFilterState(enabled = true, sim1 = sim1Selection, sim2 = sim2Selection))
                     dismissState?.invoke()
                 },
-                enabled = selectedCount > 0
+                enabled = saveEnabled
             ) {
                 Icon(
                     imageVector = MiuixIcons.Ok,
                     contentDescription = "Save",
-                    tint = MiuixTheme.colorScheme.onBackground
+                    tint = saveTint
                 )
             }
         }
