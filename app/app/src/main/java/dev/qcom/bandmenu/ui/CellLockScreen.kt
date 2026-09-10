@@ -406,7 +406,9 @@ private fun SimCellLockPage(
         )
     }
 
-    val numericKeyboard = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done)
+    // Phone (TYPE_CLASS_PHONE): starts on a numeric/dial-pad layout but, unlike KeyboardType.Number's
+    // digits-only keypad, lets users switch back to the alphanumeric layout on common IMEs (needed for spaces).
+    val switchableNumericKeyboard = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done)
     val defaultLabelColor = MiuixTheme.colorScheme.onSecondaryContainer
 
     Column(
@@ -438,7 +440,7 @@ private fun SimCellLockPage(
                 ),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = numericKeyboard,
+                keyboardOptions = switchableNumericKeyboard,
                 keyboardActions = KeyboardActions(onDone = {
                     keyboard?.hide()
                     onApplyLock(simSlot + 1, 0, nrArfcnText)
@@ -464,7 +466,7 @@ private fun SimCellLockPage(
                 ),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = numericKeyboard,
+                keyboardOptions = switchableNumericKeyboard,
                 keyboardActions = KeyboardActions(onDone = {
                     keyboard?.hide()
                     onApplyLock(simSlot + 1, 1, nrPciText)
@@ -490,7 +492,7 @@ private fun SimCellLockPage(
                     ),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = numericKeyboard,
+                    keyboardOptions = switchableNumericKeyboard,
                     keyboardActions = KeyboardActions(onDone = {
                         keyboard?.hide()
                         onApplyLock(simSlot + 1, 2, nrMultiPciText)
@@ -517,7 +519,7 @@ private fun SimCellLockPage(
                     ),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = numericKeyboard,
+                    keyboardOptions = switchableNumericKeyboard,
                     keyboardActions = KeyboardActions(onDone = {
                         keyboard?.hide()
                         onApplyLock(simSlot + 1, 3, nrGnbText)
@@ -547,7 +549,7 @@ private fun SimCellLockPage(
             ),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = numericKeyboard,
+            keyboardOptions = switchableNumericKeyboard,
             keyboardActions = KeyboardActions(onDone = {
                 keyboard?.hide()
                 onApplyLock(simSlot + 1, 4, ltePciText)
@@ -572,7 +574,7 @@ private fun SimCellLockPage(
             ),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = numericKeyboard,
+            keyboardOptions = switchableNumericKeyboard,
             keyboardActions = KeyboardActions(onDone = {
                 keyboard?.hide()
                 onApplyLock(simSlot + 1, 6, lteMultiPciText)
@@ -599,7 +601,7 @@ private fun SimCellLockPage(
             ),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = numericKeyboard,
+            keyboardOptions = switchableNumericKeyboard,
             keyboardActions = KeyboardActions(onDone = {
                 keyboard?.hide()
                 onApplyLock(simSlot + 1, 5, plmnText)
