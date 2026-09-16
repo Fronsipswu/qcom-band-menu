@@ -609,6 +609,9 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 add(JsonRequestBuilder.modeSet(validatedState.nrMode))
                                             }
+                                            if (validatedState.usageMode != UsageMode.UNKNOWN) {
+                                                add(JsonRequestBuilder.usagePrefSet(validatedState.usageMode))
+                                            }
                                             add(JsonRequestBuilder.ratSet(validatedState.ratMask))
                                         }
 

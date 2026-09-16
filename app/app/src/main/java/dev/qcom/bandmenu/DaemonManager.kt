@@ -21,7 +21,7 @@ class DaemonManager(private val context: Context) {
         private const val TAG = "QcomBand"
         private const val BINARY_NAME = "qcom-bandlockd"
         private const val SOCKET_NAME = "qcom_bandlockd"
-        private const val EXPECTED_DAEMON_VERSION = "4.4.0"
+        private const val EXPECTED_DAEMON_VERSION = "4.5.5"
     }
 
     var isReady = mutableStateOf(false)
@@ -342,6 +342,7 @@ class DaemonManager(private val context: Context) {
     fun nrNsaSet(bands: Set<Int>): JSONObject = sendRequest(JsonRequestBuilder.nrNsaSet(bands))
     fun nrSet(bands: Set<Int>): JSONObject = sendRequest(JsonRequestBuilder.nrSet(bands))
     fun modeSet(mode: NrMode): JSONObject = sendRequest(JsonRequestBuilder.modeSet(mode))
+    fun usagePrefSet(mode: UsageMode): JSONObject = sendRequest(JsonRequestBuilder.usagePrefSet(mode))
     fun reset(): JSONObject = sendRequest(JsonRequestBuilder.reset())
     fun verboseSet(verbose: Boolean): JSONObject = sendRequest(JsonRequestBuilder.verboseSet(verbose))
 

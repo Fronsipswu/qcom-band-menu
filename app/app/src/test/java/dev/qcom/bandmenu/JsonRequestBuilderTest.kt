@@ -67,6 +67,20 @@ class JsonRequestBuilderTest {
     }
 
     @Test
+    fun usagePrefSet_voice() {
+        val json = JsonRequestBuilder.usagePrefSet(UsageMode.VOICE)
+        assertEquals("usage_pref_set", json.getString("cmd"))
+        assertEquals("voice", json.getString("mode"))
+    }
+
+    @Test
+    fun usagePrefSet_data() {
+        val json = JsonRequestBuilder.usagePrefSet(UsageMode.DATA)
+        assertEquals("usage_pref_set", json.getString("cmd"))
+        assertEquals("data", json.getString("mode"))
+    }
+
+    @Test
     fun reset() {
         val json = JsonRequestBuilder.reset()
         assertEquals("reset", json.getString("cmd"))

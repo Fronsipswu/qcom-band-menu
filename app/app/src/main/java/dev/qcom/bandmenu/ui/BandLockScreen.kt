@@ -62,6 +62,7 @@ import dev.qcom.bandmenu.NrMode
 import dev.qcom.bandmenu.RatType
 import dev.qcom.bandmenu.SimBandFilter
 import dev.qcom.bandmenu.SimState
+import dev.qcom.bandmenu.UsageMode
 import dev.qcom.bandmenu.copyForOtherSim
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -103,6 +104,7 @@ private class SlotBandState {
     val nrSaChecked = mutableStateMapOf<Int, Boolean>()
     val nrChecked = mutableStateMapOf<Int, Boolean>()
     var nrMode by mutableStateOf(NrMode.BOTH)
+    var usageMode by mutableStateOf(UsageMode.UNKNOWN)
 }
 
 @Composable
@@ -343,7 +345,8 @@ fun BandLockScreen(
                             lteBands = s.lteChecked.filterValues { it }.keys.intersect(visibleLte),
                             nrNsaBands = if (useIndependentLock) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
                             nrSaBands = if (useIndependentLock) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
-                            nrMode = s.nrMode
+                            nrMode = s.nrMode,
+                            usageMode = s.usageMode
                         )
                         onApply(selectedSim, state)
                     },
@@ -408,6 +411,7 @@ private fun SimBandLockPage(
             state.nrChecked.clear()
             (s.nrNsaBands + s.nrSaBands).forEach { state.nrChecked[it] = true }
             state.nrMode = s.nrMode
+            state.usageMode = s.usageMode
         }
     }
 
@@ -483,6 +487,23 @@ private fun SimBandLockPage(
                     .then(if (nrModeEnabled) Modifier else Modifier.alpha(0.4f))
             )
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        SmallTitle("Usage setting")
+        val usageEnabled = state.usageMode != UsageMode.UNKNOWN
+        TabRowWithContour(
+            tabs = listOf("Voice-centric", "Data-centric"),
+            selectedTabIndex = if (state.usageMode == UsageMode.DATA) 1 else 0,
+            onTabSelected = { index ->
+                if (usageEnabled) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    state.usageMode = if (index == 1) UsageMode.DATA else UsageMode.VOICE
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (usageEnabled) Modifier else Modifier.alpha(0.4f))
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
         SmallTitle("Band lock")

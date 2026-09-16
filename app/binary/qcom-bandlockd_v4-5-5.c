@@ -298,6 +298,40 @@
  *   raised from 16 to 64 (see its definition) so a GET immediately after a
  *   large multi-PCI SET reads back the full list instead of truncating it.
  *   See cmd_lte_cell_lock_multi_pci_set()/jlte_cell_lock() below.
+ *
+ * v4.5.5 -- Usage preference (voice-centric / data-centric):
+ *   QMI_NAS_SET_SYSTEM_SELECTION_PREFERENCE (message id 0x0033 -- the SAME
+ *   MSG_SET already used throughout this file for RAT/GSM/WCDMA/LTE/NR/
+ *   PLMN preferences) has another optional TLV not previously implemented
+ *   here: 0x21 "Usage Setting", enum usage_setting (4 bytes) -- 1=
+ *   NAS_USAGE_VOICE_CENTRIC, 2=NAS_USAGE_DATA_CENTRIC. Per spec, at least
+ *   one system-selection-preference TLV must be present in a SET request
+ *   or the modem returns QMI_ERR_MISSING_ARG; this is sent the same
+ *   incremental way every other setter in this file already works --
+ *   TLV_DURATION (0x17) plus the one TLV being changed, nothing else --
+ *   same pattern as plmn_lock_set/cmd_mode above.
+ *
+ *   GET (message id 0x0034, MSG_GET) reports the SAME 4-byte enum shape
+ *   under a DIFFERENT TLV id, 0x1F, which additionally allows 0=
+ *   NAS_USAGE_UNKNOWN. This mirrors the NR-SA/NR-NSA split-by-direction
+ *   pattern already noted for TLV 0x2C/0x2D vs 0x2F/0x30, NOT the PLMN
+ *   TLV 0x16 pattern (same id both directions) -- confirmed against the
+ *   vendor QMI NAS spec and against a standalone test tool run against a
+ *   real device before being ported here. query() now also parses TLV
+ *   0x1F out of every GET reply (same TLV walk as RAT/GSM/LTE/NR/PLMN, no
+ *   separate round trip needed), so usage-preference state is included in
+ *   every response's "state.usage_pref" field for free.
+ *
+ *   New command: usage_pref_set (field "mode", string "voice" or "data").
+ *   Like plmn_lock_set/gsm_set/wcdma_set/the cell-lock setters, this
+ *   updates s->usage_valid/usage_setting directly on a successful SET
+ *   (did_set=0, no forced re-query -- avoids racing the modem for a value
+ *   this function already knows). There is no usage_pref_clear -- the spec
+ *   gives no "automatic"/unset value for this TLV (0=NAS_USAGE_UNKNOWN is
+ *   a GET-only report value, never documented as a valid value to SET), so
+ *   unlike plmn_lock this preference is set to one of the two centric
+ *   modes, not cleared back to a third state. See cmd_usage_pref_set()/
+ *   jusage_pref() below.
  */
 
 typedef unsigned char u8;
@@ -336,6 +370,11 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define TLV_NR_MODE 0x2Eu
 #define TLV_NET_SEL_PREF 0x16u /* Network Selection Preference -- SAME id and SAME 5-byte value (enum8 net_sel_pref, uint16 mcc, uint16 mnc) on both SET (0x0033) and GET (0x0034), unlike some of this device's other fields. See the v4.3.0 header note. */
 #define TLV_MANUAL_PLMN 0x1Bu  /* "Manual Network Selection PLMN" -- GET (0x0034) reply only, distinct from TLV 0x16. This is the authoritative report of which PLMN is actually locked/registered, and it's the only one of the two that carries mnc_includes_pcs_digit (needed to know whether a reported MNC of e.g. 90 means 090 or 90). Value: mcc:u16 LE, mnc:u16 LE, mnc_includes_pcs_digit:bool (5 bytes). See the v4.3.1 header note. */
+#define TLV_USAGE_SETTING_SET 0x21u /* "Usage Setting" -- SET (0x0033) optional TLV: enum usage_setting, 4 bytes LE. 1=NAS_USAGE_VOICE_CENTRIC, 2=NAS_USAGE_DATA_CENTRIC. Per spec at least one system-selection-preference TLV must be present in the request or the modem returns QMI_ERR_MISSING_ARG; this file always sends TLV_DURATION alongside it, same as every other setter here. See the v4.5.5 header note. */
+#define TLV_USAGE_SETTING_GET 0x1Fu /* "Usage Setting" on GET (0x0034) reply -- SAME 4-byte enum shape as TLV 0x21 above, but a DIFFERENT id (split-by-direction, like TLV 0x2C/0x2D vs 0x2F/0x30 for NR-SA/NR-NSA -- NOT like TLV 0x16, which is the same id both ways). Additionally allows 0=NAS_USAGE_UNKNOWN, a GET-only report value. See the v4.5.5 header note. */
+#define NAS_USAGE_UNKNOWN 0u        /* GET-only report value -- never documented as a valid value to SET */
+#define NAS_USAGE_VOICE_CENTRIC 1u
+#define NAS_USAGE_DATA_CENTRIC 2u
 
 /* ── Cell lock: a separate QMI feature from the band-family locking above.
  * Its own message ids, and TLV ids that are only meaningful *within* those
@@ -373,7 +412,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.4.0"
+#define DAEMON_VERSION "4.5.5"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
@@ -447,6 +486,7 @@ struct state{
  int nr_mode[2],nr_mode_known[2];
  int netsel_valid;u8 net_sel_pref;u16 plmn_mcc,plmn_mnc; /* TLV 0x16, see v4.3.0 header note */
  int manual_plmn_valid;u16 manual_plmn_mcc,manual_plmn_mnc;int manual_plmn_pcs; /* TLV 0x1B, see v4.3.1 header note -- distinct from the TLV 0x16 fields above */
+ int usage_valid;u32 usage_setting; /* TLV 0x1F on GET (0x0034); see v4.5.5 header note */
  char status[160];
  int verbose;
  struct opresult last_op;
@@ -686,7 +726,7 @@ static int parse_result(const u8*r,u32 n,u16*result,u16*error){
 }
 static int result_ok(const u8*r,u32 n){u16 res=0,err=0;if(!parse_result(r,n,&res,&err))return 0;return res==0;}
 static int bind_sim(struct state*s,int sim){u8 p[4]={1,1,0,0},r[128];u32 n;p[3]=(u8)(sim-1);if(!exchange(s,MSG_BIND,p,4,r,sizeof(r),&n)||!result_ok(r,n)){setstatus(s,"SIM bind failed.");return 0;}s->sim=sim;return 1;}
-static int query(struct state*s){u8 r[2048];u32 n,p,e;zero(s->legacy,8);zero(s->lte,8);zero(s->extlte,32);zero(s->sa,64);zero(s->nsa,64);s->sa_present=0;s->nsa_present=0;s->rat=0;s->netsel_valid=0;s->net_sel_pref=0;s->plmn_mcc=0;s->plmn_mnc=0;s->manual_plmn_valid=0;s->manual_plmn_mcc=0;s->manual_plmn_mnc=0;s->manual_plmn_pcs=0;if(!exchange(s,MSG_GET,0,0,r,sizeof(r),&n)||!result_ok(r,n)){s->valid=0;setstatus(s,"State query failed.");return 0;}e=7u+le16(r+5);if(e>n)e=n;for(p=7;p+3<=e;){u8 id=r[p];u16 l=le16(r+p+1);const u8*v=r+p+3;if(p+3u+l>e)break;if(id==TLV_MODE&&l>=2)s->rat=le16(v);else if(id==TLV_LEGACY&&l==8)copy(s->legacy,v,8);else if(id==TLV_LTE&&l==8)copy(s->lte,v,8);else if(id==TLV_EXT_LTE_GET&&l==32)copy(s->extlte,v,32);else if(id==TLV_NR_SA_GET&&l==64){copy(s->sa,v,64);s->sa_present=1;}else if(id==TLV_NR_NSA_GET&&l==64){copy(s->nsa,v,64);s->nsa_present=1;}
+static int query(struct state*s){u8 r[2048];u32 n,p,e;zero(s->legacy,8);zero(s->lte,8);zero(s->extlte,32);zero(s->sa,64);zero(s->nsa,64);s->sa_present=0;s->nsa_present=0;s->rat=0;s->netsel_valid=0;s->net_sel_pref=0;s->plmn_mcc=0;s->plmn_mnc=0;s->manual_plmn_valid=0;s->manual_plmn_mcc=0;s->manual_plmn_mnc=0;s->manual_plmn_pcs=0;s->usage_valid=0;s->usage_setting=0;if(!exchange(s,MSG_GET,0,0,r,sizeof(r),&n)||!result_ok(r,n)){s->valid=0;setstatus(s,"State query failed.");return 0;}e=7u+le16(r+5);if(e>n)e=n;for(p=7;p+3<=e;){u8 id=r[p];u16 l=le16(r+p+1);const u8*v=r+p+3;if(p+3u+l>e)break;if(id==TLV_MODE&&l>=2)s->rat=le16(v);else if(id==TLV_LEGACY&&l==8)copy(s->legacy,v,8);else if(id==TLV_LTE&&l==8)copy(s->lte,v,8);else if(id==TLV_EXT_LTE_GET&&l==32)copy(s->extlte,v,32);else if(id==TLV_NR_SA_GET&&l==64){copy(s->sa,v,64);s->sa_present=1;}else if(id==TLV_NR_NSA_GET&&l==64){copy(s->nsa,v,64);s->nsa_present=1;}
  /* v4.3.0: TLV 0x16, "Network Selection Preference" -- SAME id and SAME
     5-byte shape (net_sel_pref:u8, mcc:u16 LE, mnc:u16 LE) on both this
     GET reply and the SET request cmd_plmn_lock_set()/cmd_plmn_lock_clear()
@@ -702,6 +742,14 @@ static int query(struct state*s){u8 r[2048];u32 n,p,e;zero(s->legacy,8);zero(s->
     mnc:u16 LE, mnc_includes_pcs_digit:bool (byte 4). */
  else if(id==TLV_MANUAL_PLMN&&l>=5){
   s->manual_plmn_valid=1;s->manual_plmn_mcc=le16(v);s->manual_plmn_mnc=le16(v+2);s->manual_plmn_pcs=v[4]?1:0;
+ }
+ /* v4.5.5: TLV 0x1F, "Usage Setting" on the GET side -- see the header
+    note for why this is a distinct id from the SET side's TLV 0x21
+    rather than shared like TLV 0x16 is. Guarded to length>=4 for the
+    usual reason (never trust the modem to send exactly the documented
+    length). */
+ else if(id==TLV_USAGE_SETTING_GET&&l>=4){
+  s->usage_valid=1;s->usage_setting=le32(v);
  }
  /* Confirmed by a live capture (mode sa/nsa/both, each followed by a GET):
     on GET, id 0x2B ("NR_COMBINED" -- the same id the "nr" command uses on
@@ -1081,6 +1129,24 @@ static int cmd_plmn_lock_clear(struct state*s){
  pos=addtlv(p,pos,TLV_NET_SEL_PREF,v,5);
  if(!setter(s,p,(u16)pos))return 0;
  s->netsel_valid=1;s->net_sel_pref=0x00;s->plmn_mcc=0;s->plmn_mnc=0;
+ return 1;
+}
+
+/* v4.5.5 Usage preference -- sends TLV_DURATION (0x17) + TLV_USAGE_SETTING_SET
+ * (0x21, 4-byte LE enum: 1=voice-centric, 2=data-centric), same incremental
+ * single-purpose pattern as every other setter here. Caller (do_command())
+ * validates `setting` is 1 or 2 before calling this; not re-validated here.
+ * Updates s->usage_valid/usage_setting immediately on success, same
+ * reasoning as cmd_plmn_lock_set()/cmd_mode() above -- an immediate GET
+ * right after a SET can race the modem and read back the pre-change value,
+ * which this function already knows to avoid. */
+static int cmd_usage_pref_set(struct state*s,u32 setting){
+ u8 p[16],d=1,v[4];int pos=0;
+ put32(v,setting);
+ pos=addtlv(p,pos,TLV_DURATION,&d,1);
+ pos=addtlv(p,pos,TLV_USAGE_SETTING_SET,v,4);
+ if(!setter(s,p,(u16)pos))return 0;
+ s->usage_valid=1;s->usage_setting=setting;
  return 1;
 }
 
@@ -1554,6 +1620,23 @@ static void jplmn_lock(char*b,u32*pos,u32 cap,const struct state*s){
  } else jput(b,pos,cap,"null");
  jputc(b,pos,cap,'}');
 }
+/* v4.5.5. "valid" is true once TLV 0x1F has been seen in a GET reply.
+ * "mode"/"mode_raw" are null until then, same null-until-seen convention
+ * as jplmn_lock()'s TLV-0x16 fields above. mode_raw 0 (NAS_USAGE_UNKNOWN)
+ * is a real, valid GET-only report value -- distinct from "valid":false,
+ * which means the TLV was absent from the reply entirely. */
+static void jusage_pref(char*b,u32*pos,u32 cap,const struct state*s){
+ jputc(b,pos,cap,'{');
+ jput(b,pos,cap,"\"valid\":");jbool(b,pos,cap,s->usage_valid);
+ if(s->usage_valid){
+  jput(b,pos,cap,",\"mode\":");
+  jstr(b,pos,cap,s->usage_setting==1?"voice":(s->usage_setting==2?"data":(s->usage_setting==0?"unknown":"unrecognized")));
+  jput(b,pos,cap,",\"mode_raw\":");jint(b,pos,cap,s->usage_setting);
+ } else {
+  jput(b,pos,cap,",\"mode\":null,\"mode_raw\":null");
+ }
+ jputc(b,pos,cap,'}');
+}
 static void jstate(char*b,u32*pos,u32 cap,struct state*s){
  jputc(b,pos,cap,'{');
  jput(b,pos,cap,"\"valid\":");jbool(b,pos,cap,s->valid);
@@ -1582,6 +1665,7 @@ static void jstate(char*b,u32*pos,u32 cap,struct state*s){
  jput(b,pos,cap,",\"lte_cell_lock\":");jlte_cell_lock(b,pos,cap,s);
  jput(b,pos,cap,",\"nr_cell_lock\":");jnr_cell_lock(b,pos,cap,s);
  jput(b,pos,cap,",\"plmn_lock\":");jplmn_lock(b,pos,cap,s);
+ jput(b,pos,cap,",\"usage_pref\":");jusage_pref(b,pos,cap,s);
  jput(b,pos,cap,",\"status\":");jstr(b,pos,cap,s->status);
  jputc(b,pos,cap,'}');
 }
@@ -1732,6 +1816,21 @@ static void do_command(struct state*s,const char*req,int*ok,int*did_set,int*shut
   *ok=cmd_plmn_lock_set(s,(u32)mcc,(u32)mnc);*did_set=0;return;
  }
  if(eq(cmd,"plmn_lock_clear")){*ok=cmd_plmn_lock_clear(s);*did_set=0;return;}
+ /* v4.5.5 Usage preference. did_set=0 for the same reason plmn_lock_set/
+    gsm_set/wcdma_set/the cell-lock commands above use it:
+    cmd_usage_pref_set() already updates s->usage_valid/usage_setting
+    directly on success, so an immediate post-SET query() would only risk
+    racing the modem and reading back the pre-change value instead of
+    adding anything. No usage_pref_clear -- see the v4.5.5 header note on
+    why this TLV has no documented "automatic"/unset value to SET. */
+ if(eq(cmd,"usage_pref_set")){
+  u32 setting;
+  if(!json_get_string(req,"mode",arg,sizeof(arg))){setstatus(s,"Missing 'mode' string field (\"voice\" or \"data\").");set_stage(stage,stage_cap,"bad_request");return;}
+  if(eq(arg,"voice"))setting=NAS_USAGE_VOICE_CENTRIC;
+  else if(eq(arg,"data"))setting=NAS_USAGE_DATA_CENTRIC;
+  else{setstatus(s,"Field 'mode' must be \"voice\" or \"data\".");set_stage(stage,stage_cap,"bad_request");return;}
+  *ok=cmd_usage_pref_set(s,setting);*did_set=0;return;
+ }
  if(eq(cmd,"mode_set")){
   if(!json_get_string(req,"mode",arg,sizeof(arg))){setstatus(s,"Missing 'mode' string field (\"sa\"/\"nsa\"/\"both\").");set_stage(stage,stage_cap,"bad_request");return;}
   *ok=cmd_mode(s,arg);*did_set=*ok;return;

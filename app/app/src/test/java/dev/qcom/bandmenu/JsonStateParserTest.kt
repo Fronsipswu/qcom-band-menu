@@ -212,6 +212,66 @@ class JsonStateParserTest {
         assertEquals(setOf(999), parsed.error.rejectedBands)
     }
 
+    private fun sampleUsagePref(valid: Boolean, mode: String?, modeRaw: Int?): JSONObject {
+        val obj = JSONObject().put("valid", valid)
+        if (mode != null) obj.put("mode", mode) else obj.put("mode", JSONObject.NULL)
+        if (modeRaw != null) obj.put("mode_raw", modeRaw) else obj.put("mode_raw", JSONObject.NULL)
+        return obj
+    }
+
+    @Test
+    fun parseSimState_usagePrefVoice() {
+        val state = sampleState()
+            .put("usage_pref", sampleUsagePref(true, "voice", 1))
+        val resp = sampleResponse("query", true, state)
+        val parsed = JsonStateParser.parseResponse(resp)
+        assertEquals(UsageMode.VOICE, parsed.simState!!.usageMode)
+    }
+
+    @Test
+    fun parseSimState_usagePrefData() {
+        val state = sampleState()
+            .put("usage_pref", sampleUsagePref(true, "data", 2))
+        val resp = sampleResponse("query", true, state)
+        val parsed = JsonStateParser.parseResponse(resp)
+        assertEquals(UsageMode.DATA, parsed.simState!!.usageMode)
+    }
+
+    @Test
+    fun parseSimState_usagePrefRawZero_isUnknown() {
+        val state = sampleState()
+            .put("usage_pref", sampleUsagePref(true, "unknown", 0))
+        val resp = sampleResponse("query", true, state)
+        val parsed = JsonStateParser.parseResponse(resp)
+        assertEquals(UsageMode.UNKNOWN, parsed.simState!!.usageMode)
+    }
+
+    @Test
+    fun parseSimState_usagePrefRawOther_isUnknown() {
+        val state = sampleState()
+            .put("usage_pref", sampleUsagePref(true, "unrecognized", 5))
+        val resp = sampleResponse("query", true, state)
+        val parsed = JsonStateParser.parseResponse(resp)
+        assertEquals(UsageMode.UNKNOWN, parsed.simState!!.usageMode)
+    }
+
+    @Test
+    fun parseSimState_usagePrefInvalid_isUnknown() {
+        val state = sampleState()
+            .put("usage_pref", sampleUsagePref(false, null, null))
+        val resp = sampleResponse("query", true, state)
+        val parsed = JsonStateParser.parseResponse(resp)
+        assertEquals(UsageMode.UNKNOWN, parsed.simState!!.usageMode)
+    }
+
+    @Test
+    fun parseSimState_usagePrefMissing_isUnknown() {
+        val state = sampleState()
+        val resp = sampleResponse("query", true, state)
+        val parsed = JsonStateParser.parseResponse(resp)
+        assertEquals(UsageMode.UNKNOWN, parsed.simState!!.usageMode)
+    }
+
     @Test
     fun parseSimState_nullRat() {
         val state = sampleState().put("rat", JSONObject.NULL)

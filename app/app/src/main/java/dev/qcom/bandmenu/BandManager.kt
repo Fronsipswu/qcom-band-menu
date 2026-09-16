@@ -7,6 +7,8 @@ enum class RatType { GSM, WCDMA, LTE, NR }
 
 enum class NrMode { SA, NSA, BOTH, UNKNOWN }
 
+enum class UsageMode { UNKNOWN, VOICE, DATA }
+
 data class SimState(
     val ratMask: Set<RatType> = emptySet(),
     val gsmBands: Set<Int> = emptySet(),
@@ -14,7 +16,8 @@ data class SimState(
     val lteBands: Set<Int> = emptySet(),
     val nrNsaBands: Set<Int> = emptySet(),
     val nrSaBands: Set<Int> = emptySet(),
-    val nrMode: NrMode = NrMode.BOTH
+    val nrMode: NrMode = NrMode.BOTH,
+    val usageMode: UsageMode = UsageMode.UNKNOWN
 )
 
 data class SimBandFilter(
@@ -206,6 +209,15 @@ object JsonRequestBuilder {
         return JSONObject().put("cmd", "mode_set").put("mode", modeStr)
     }
 
+    fun usagePrefSet(mode: UsageMode): JSONObject {
+        val modeStr = when (mode) {
+            UsageMode.VOICE -> "voice"
+            UsageMode.DATA -> "data"
+            UsageMode.UNKNOWN -> "voice"
+        }
+        return JSONObject().put("cmd", "usage_pref_set").put("mode", modeStr)
+    }
+
     fun reset(): JSONObject = JSONObject().put("cmd", "reset")
 
     fun shutdown(): JSONObject = JSONObject().put("cmd", "shutdown")
@@ -306,8 +318,19 @@ object JsonStateParser {
             lteBands = parseIntArray(state, "lte"),
             nrNsaBands = parseIntArray(state, "nr_nsa"),
             nrSaBands = parseIntArray(state, "nr_sa"),
-            nrMode = nrMode
+            nrMode = nrMode,
+            usageMode = parseUsageMode(state)
         )
+    }
+
+    private fun parseUsageMode(state: JSONObject): UsageMode {
+        val pref = state.optJSONObject("usage_pref") ?: return UsageMode.UNKNOWN
+        if (!pref.optBoolean("valid", false)) return UsageMode.UNKNOWN
+        return when (pref.optInt("mode_raw", 0)) {
+            1 -> UsageMode.VOICE
+            2 -> UsageMode.DATA
+            else -> UsageMode.UNKNOWN
+        }
     }
 
     fun parseHardware(state: JSONObject): HardwareBands {
