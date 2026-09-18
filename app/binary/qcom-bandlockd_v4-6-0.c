@@ -115,9 +115,14 @@
  *   -verbose       Start with verbose diagnostics on (default: off). Same
  *                  effect as sending {"cmd":"verbose_set","verbose":true}
  *                  as the first request; can be toggled at any time.
+ *   -tokenfile <path>  Optional. Read a shared token (32 hex chars, 16 raw
+ *                  bytes, or a short string) and require every request to
+ *                  carry a matching "token" field; every response then also
+ *                  carries "auth" so the client can verify the peer. Absent
+ *                  or unreadable -> no token required, unchanged behavior.
  *
  * Usage:
- *   qcom-bandlockd -uid 10234 [-name qcom_bandlockd] [-verbose]
+ *   qcom-bandlockd -uid 10234 [-name qcom_bandlockd] [-verbose] [-tokenfile path]
  *
  * Build:
  * clang --target=aarch64-linux-gnu -fuse-ld=lld -O2 -nostdlib -static \
@@ -332,6 +337,21 @@
  *   unlike plmn_lock this preference is set to one of the two centric
  *   modes, not cleared back to a third state. See cmd_usage_pref_set()/
  *   jusage_pref() below.
+ *
+ * v4.6.0 -- Security hardening (no modem-facing bytes changed):
+ *   F1: jmnc_padded()'s nibble buffer was char t[4] but a u16 MNC needs up
+ *       to 5 digits; sized to t[6] and the digit loop is now bounded by
+ *       sizeof t. Output is byte-identical for every MNC this device can
+ *       report (<=9999); the reported value is never clamped.
+ *   F3: optional shared-token auth via -tokenfile. When configured, every
+ *       request must carry a matching "token" and every response carries
+ *       "auth"; the existing SO_PEERCRED uid gate is unchanged and still
+ *       runs first. Absent/unreadable tokenfile -> identical to v4.5.5.
+ *       This also gates shutdown/verbose_set, since the check runs before
+ *       do_command() for every command.
+ *   F4: the accept loop waits with ppoll() for IDLE_TIMEOUT_SEC (15 min) and
+ *       exits cleanly if no client connects; a client being served is never
+ *       timed out. shutdown behavior is unchanged.
  */
 
 typedef unsigned char u8;
@@ -340,9 +360,16 @@ typedef unsigned int u32;
 typedef unsigned long u64;
 typedef long s64;
 
-enum { SYS_close=57,SYS_read=63,SYS_write=64,SYS_exit=93,SYS_nanosleep=101,SYS_clock_gettime=113,
+enum { SYS_close=57,SYS_openat=56,SYS_read=63,SYS_write=64,SYS_exit=93,SYS_nanosleep=101,SYS_clock_gettime=113,
        SYS_socket=198,SYS_connect=203,SYS_bind=200,SYS_listen=201,
-       SYS_sendto=206,SYS_recvfrom=207,SYS_setsockopt=208,SYS_getsockopt=209,SYS_accept4=242 };
+       SYS_sendto=206,SYS_recvfrom=207,SYS_setsockopt=208,SYS_getsockopt=209,SYS_accept4=242,
+       SYS_ppoll=73 };
+#define AT_FDCWD (-100)
+#define POLLIN 0x0001
+/* Idle timeout for the accept loop (F4, v4.6.0): exit cleanly after this many
+ * seconds with no client connected. Never applies while a client is being
+ * served -- ppoll() is only reached between connections. */
+#define IDLE_TIMEOUT_SEC 900
 enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIMEO=20,SO_PEERCRED=17,CLOCK_MONOTONIC=1 };
 #define QRTR_CTRL_NODE 1u
 #define QRTR_PORT_CTRL 0xFFFFFFFEu
@@ -412,7 +439,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.5.5"
+#define DAEMON_VERSION "4.6.0"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
@@ -420,6 +447,7 @@ struct timeval64{s64 sec,usec;};
 struct timespec64{s64 sec,nsec;};
 struct sockaddr_un{u16 family;char path[108];};
 struct ucred{u32 pid,uid,gid;};
+struct pollfd64{int fd;short events,revents;};
 
 /* Outcome of the single most recent setter()/exchange() transaction, kept
  * around so the JSON response layer can turn it into a structured error
@@ -495,6 +523,11 @@ struct state{
  struct nr_indep_probe nr_cap;
  struct lte_cell_lock lte_cell;
  struct nr_cell_lock nr_cell;
+ /* F3 (v4.6.0): shared-token auth. auth_configured is 0 unless -tokenfile
+  * named a readable, well-formed token, in which case every request must
+  * carry a matching "token" string and every response carries "auth". */
+ int auth_configured;
+ char auth_token[65];
 };
 
 static inline s64 sc1(s64 n,s64 a){register s64 x8 __asm__("x8")=n;register s64 x0 __asm__("x0")=a;__asm__ volatile("svc 0":"+r"(x0):"r"(x8):"memory");return x0;}
@@ -521,6 +554,42 @@ static void setstatus(struct state*s,const char*x){u64 i=0;while(x[i]&&i+1<sizeo
  * through). Whoever launches this process (the app, via libsu or similar)
  * should capture stderr. Nothing at or after the accept() loop writes here. */
 static void elog(const char*s){sc3(SYS_write,2,(s64)s,(s64)slen(s));}
+
+/* F3 (v4.6.0): load the shared token from -tokenfile. Accepts, in order of
+ * preference, 32 hex characters (canonical 16-byte token), exactly 16 raw
+ * bytes (canonicalized to lowercase hex), or a short (<=64 char) ASCII
+ * token, which is used verbatim. Trailing whitespace/NUL and leading
+ * whitespace are trimmed. Any other shape, an unreadable file, or an absent
+ * flag leaves auth_configured=0 -- the daemon then behaves exactly as it did
+ * before v4.6.0 (no token required, no "auth" field emitted). */
+static int hexdigit(char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F');}
+static char hexlower(char c){return (c>='A'&&c<='Z')?(char)(c-'A'+'a'):c;}
+static void load_token_file(struct state*s,const char*path){
+ int i;s64 fd,n;char buf[128];const char*p;u32 len;
+ fd=sc4(SYS_openat,AT_FDCWD,(s64)path,0,0);
+ if(fd<0)return;
+ n=sc3(SYS_read,fd,(s64)buf,(s64)(sizeof(buf)-1));
+ sc1(SYS_close,fd);
+ if(n<=0)return;
+ buf[n]=0;
+ while(n>0){char c=buf[n-1];if(c=='\n'||c=='\r'||c==' '||c=='\t'||c==0)buf[--n]=0;else break;}
+ p=buf;
+ while(*p==' '||*p=='\t'||*p=='\n'||*p=='\r')p++;
+ len=(u32)slen(p);
+ if(!len)return;
+ if(len==32){
+  for(i=0;i<32;i++)if(!hexdigit(p[i]))return;
+  for(i=0;i<32;i++)s->auth_token[i]=hexlower(p[i]);
+  s->auth_token[32]=0;
+ }else if(len==16){
+  for(i=0;i<16;i++){unsigned char c=(unsigned char)p[i];s->auth_token[i*2]="0123456789abcdef"[(c>>4)&0xf];s->auth_token[i*2+1]="0123456789abcdef"[c&0xf];}
+  s->auth_token[32]=0;
+ }else if(len<=64){
+  for(i=0;i<(int)len;i++)s->auth_token[i]=p[i];
+  s->auth_token[len]=0;
+ }else return;
+ s->auth_configured=1;
+}
 
 /* ── JSON writer: bounded append into a caller-owned buffer ─────────────
  * No allocation, no generic nesting tracker -- every JSON object/array in
@@ -1572,8 +1641,8 @@ static void jnr_cell_lock(char*b,u32*pos,u32 cap,const struct state*s){
  * mnc_includes_pcs_digit flag TLV 0x1B carries (TLV 0x16 has no such flag,
  * so its own mnc is only ever emitted as a plain number -- see below). */
 static void jmnc_padded(char*b,u32*pos,u32 cap,u16 mnc,int pcs){
- char t[4];int n=0,width=pcs?3:2,i;u32 v=mnc;
- if(!v)t[n++]='0';else while(v){t[n++]=(char)('0'+v%10);v/=10;}
+ char t[6];int n=0,width=pcs?3:2,i;u32 v=mnc;
+ if(!v)t[n++]='0';else while(v&&n<(int)sizeof t){t[n++]=(char)('0'+v%10);v/=10;}
  jputc(b,pos,cap,'"');
  for(i=n;i<width;i++)jputc(b,pos,cap,'0');
  for(i=n-1;i>=0;i--)jputc(b,pos,cap,t[i]);
@@ -1849,6 +1918,7 @@ static void build_response(struct state*s,const char*req,int ok,const char*expli
  if(have_id)jint(out,&pos,outcap,(u32)idv);else jput(out,&pos,outcap,"null");
  jput(out,&pos,outcap,",\"cmd\":");jstr(out,&pos,outcap,cmdbuf);
  jput(out,&pos,outcap,",\"version\":");jstr(out,&pos,outcap,DAEMON_VERSION);
+ if(s->auth_configured){jput(out,&pos,outcap,",\"auth\":");jstr(out,&pos,outcap,s->auth_token);}
  jput(out,&pos,outcap,",\"ok\":");jbool(out,&pos,outcap,ok);
  jput(out,&pos,outcap,",\"error\":");
  if(ok)jput(out,&pos,outcap,"null");
@@ -1899,15 +1969,28 @@ static int make_listen_socket(const char*name,s64*out_fd){
  * hasn't been authenticated. */
 static s64 accept_client(s64 listen_fd,u32 allow_uid){
  for(;;){
-  s64 cfd=sc4(SYS_accept4,listen_fd,0,0,0);
-  if(cfd<0)return -1;
+  /* F4 (v4.6.0): wait for a connection with an idle timeout. ppoll() is only
+   * reached between clients -- serve_client() runs to completion (client
+   * disconnect or shutdown) before the loop comes back here -- so a connected
+   * or in-progress client is never timed out. Return -2 on timeout so run()
+   * can exit cleanly. */
+  struct pollfd64 pfd;struct timespec64 ts;s64 pr;
+  pfd.fd=(int)listen_fd;pfd.events=POLLIN;pfd.revents=0;
+  ts.sec=IDLE_TIMEOUT_SEC;ts.nsec=0;
+  pr=sc5(SYS_ppoll,(s64)&pfd,1,(s64)&ts,0,0);
+  if(pr==0)return -2;
+  if(pr<0)return -1;
   {
-   struct ucred cr;s64 optlen=(s64)sizeof(cr);
-   zero(&cr,sizeof(cr));
-   if(sc5(SYS_getsockopt,cfd,SOL_SOCKET,SO_PEERCRED,(s64)&cr,(s64)&optlen)<0){sc1(SYS_close,cfd);continue;}
-   if(cr.uid!=allow_uid){sc1(SYS_close,cfd);continue;}
+   s64 cfd=sc4(SYS_accept4,listen_fd,0,0,0);
+   if(cfd<0)return -1;
+   {
+    struct ucred cr;s64 optlen=(s64)sizeof(cr);
+    zero(&cr,sizeof(cr));
+    if(sc5(SYS_getsockopt,cfd,SOL_SOCKET,SO_PEERCRED,(s64)&cr,(s64)&optlen)<0){sc1(SYS_close,cfd);continue;}
+    if(cr.uid!=allow_uid){sc1(SYS_close,cfd);continue;}
+   }
+   return cfd;
   }
-  return cfd;
  }
 }
 static int write_all(s64 fd,const char*b,u64 n){
@@ -1945,6 +2028,15 @@ static int serve_client(struct state*s,s64 cfd){
   if(n<=0)return 0;
   {
    int ok=0,did_set=0,shutdown_req=0;char stage[16];
+   if(s->auth_configured){
+    char tok[80];
+    if(!json_get_string(line,"token",tok,sizeof(tok))||!eq(tok,s->auth_token)){
+     setstatus(s,"Unauthorized: missing or invalid token.");
+     build_response(s,line,0,"unauthorized",resp,sizeof(resp));
+     if(!write_line(cfd,resp))return 0;
+     continue;
+    }
+   }
    do_command(s,line,&ok,&did_set,&shutdown_req,stage,sizeof(stage));
    if(did_set&&ok)query(s);
    build_response(s,line,ok,stage,resp,sizeof(resp));
@@ -1957,7 +2049,7 @@ static int serve_client(struct state*s,s64 cfd){
 static int run(int argc,char**argv){
  struct state s;s64 listen_fd=-1;
  u32 allow_uid=0;int have_uid=0,verbose_flag=0,i;
- const char*sockname="qcom_bandlockd";
+ const char*sockname="qcom_bandlockd";const char*tokenfile=0;
 
  for(i=1;i<argc;i++){
   if(eq(argv[i],"-verbose"))verbose_flag=1;
@@ -1968,10 +2060,14 @@ static int run(int argc,char**argv){
    allow_uid=(u32)(neg?-v:v);have_uid=1;
   }
   else if(eq(argv[i],"-name")&&i+1<argc){sockname=argv[++i];}
+  else if(eq(argv[i],"-tokenfile")&&i+1<argc){tokenfile=argv[++i];}
  }
  if(!have_uid){elog("qcom-bandlockd: -uid <peer_uid> is required (refusing to start without peer authentication).\n");return 1;}
 
  zero(&s,sizeof(s));s.fd=-1;s.sim=1;s.verbose=verbose_flag;setstatus(&s,"Starting...");
+ /* F3: optional shared-token auth. Absent/unreadable/invalid -> auth_configured
+  * stays 0 and every request/response is byte-identical to v4.5.5. */
+ if(tokenfile)load_token_file(&s,tokenfile);
  elog("qcom-bandlockd v" DAEMON_VERSION " starting.\n");
  if(!open_nas(&s)){elog("qcom-bandlockd: NAS discovery/open failed.\n");return 2;}
  if(!bind_sim(&s,1)){elog("qcom-bandlockd: SIM1 bind failed.\n");sc1(SYS_close,s.fd);return 3;}
@@ -1991,6 +2087,7 @@ static int run(int argc,char**argv){
 
  for(;;){
   s64 cfd=accept_client(listen_fd,allow_uid);
+  if(cfd==-2){elog("qcom-bandlockd: idle timeout (no client for 15 minutes), exiting.\n");break;}
   if(cfd<0)continue;
   {int r=serve_client(&s,cfd);sc1(SYS_close,cfd);if(r)break;}
  }

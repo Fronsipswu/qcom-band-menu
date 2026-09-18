@@ -21,7 +21,10 @@ class DaemonManager(private val context: Context) {
         private const val TAG = "QcomBand"
         private const val BINARY_NAME = "qcom-bandlockd"
         private const val SOCKET_NAME = "qcom_bandlockd"
-        private const val EXPECTED_DAEMON_VERSION = "4.5.5"
+        private const val EXPECTED_DAEMON_VERSION = "4.6.0"
+        private const val AUTH_PREFS = "daemon_auth"
+        private const val AUTH_TOKEN_KEY = "token"
+        private const val AUTH_TOKEN_FILE = "auth_token"
     }
 
     var isReady = mutableStateOf(false)
@@ -47,8 +50,47 @@ class DaemonManager(private val context: Context) {
     @Volatile
     private var connectedDaemonVersion: String? = null
 
+    /** F3: true when the last tryConnect() reached a socket that spoke JSON but
+     *  could not prove it was our daemon (missing/wrong "auth"). Used to avoid
+     *  tripping the SELinux permissive fallback for a hostile squatter. */
+    @Volatile
+    private var lastConnectAuthFailure = false
+
+    /** F3: true when a socket actually accepted our connect() during this
+     *  launch attempt but never produced an authenticated response (closed,
+     *  timed out, non-JSON, or auth mismatch). Set once and never reset per
+     *  retry; reset only at the start of launchAndConnect. A hostile squatter
+     *  must not be able to force the SELinux permissive fallback, so the
+     *  fallback runs only when nothing accepted the connection at all. */
+    @Volatile
+    private var socketPeerUnauthenticated = false
+
+    /** F3: stable 128-bit shared token, generated once and reused across
+     *  restarts (persisted in app-private SharedPreferences). */
+    private val token: String by lazy { loadOrCreateToken() }
+
     @Volatile
     var onConnectionEvent: ((Boolean) -> Unit)? = null
+
+    private fun loadOrCreateToken(): String {
+        val prefs = context.getSharedPreferences(AUTH_PREFS, Context.MODE_PRIVATE)
+        val existing = prefs.getString(AUTH_TOKEN_KEY, null)
+        if (existing != null && DaemonAuth.isValidToken(existing)) return existing
+        val created = DaemonAuth.newToken()
+        prefs.edit().putString(AUTH_TOKEN_KEY, created).apply()
+        return created
+    }
+
+    /** Writes the token to an owner-only file in filesDir and returns it, for
+     *  passing to the daemon as `-tokenfile`. */
+    private fun writeTokenFile(): File {
+        val f = File(context.filesDir, AUTH_TOKEN_FILE)
+        // Owner-only read; leave owner write in place so the next launch can
+        // rewrite it (the daemon runs as root and can read it regardless).
+        f.writeText(token)
+        f.setReadable(true, true)
+        return f
+    }
 
     fun start(onDenied: () -> Unit, onLaunchFailed: (String) -> Unit = {}) {
         AppLog.d(TAG, "start: requesting shell...")
@@ -56,7 +98,19 @@ class DaemonManager(private val context: Context) {
         Shell.getShell { shell ->
             AppLog.d(TAG, "start: shell obtained, isRoot=${shell.isRoot}, status=${shell.status}")
             if (shell.isRoot) {
-                Thread { launchAndConnect(onLaunchFailed) }.start()
+                Thread {
+                    try {
+                        launchAndConnect(onLaunchFailed)
+                    } catch (t: Throwable) {
+                        AppLog.e(TAG, "start: launchAndConnect crashed", t)
+                        val msg = "Daemon launch failed: ${t.message ?: t.javaClass.simpleName}"
+                        launchError.value = msg
+                        Handler(Looper.getMainLooper()).post {
+                            isReady.value = false
+                            onLaunchFailed(msg)
+                        }
+                    }
+                }.start()
             } else {
                 AppLog.e(TAG, "start: root denied")
                 Handler(Looper.getMainLooper()).post {
@@ -68,6 +122,10 @@ class DaemonManager(private val context: Context) {
     }
 
     private fun launchAndConnect(onLaunchFailed: (String) -> Unit) {
+        // F3: reset the per-launch auth signals once here (never per retry), so
+        // a squatter that accepts then drops/closes cannot clear its own trace.
+        lastConnectAuthFailure = false
+        socketPeerUnauthenticated = false
         // Try connecting to an existing daemon first — avoids ETXTBSY when
         // overwriting a binary that's still being executed by a running daemon.
         AppLog.i(TAG, "launchAndConnect: trying existing daemon...")
@@ -110,12 +168,14 @@ class DaemonManager(private val context: Context) {
 
         val uid = Process.myUid()
         val path = File(context.filesDir, BINARY_NAME).absolutePath
+        // F3: hand the daemon our shared token via an owner-only file.
+        val tokenPath = writeTokenFile().absolutePath
         val stderrFile = File(context.cacheDir, "daemon_stderr.log")
         if (stderrFile.exists()) stderrFile.delete()
-        AppLog.i(TAG, "launchAndConnect: launching daemon: $path -uid $uid")
+        AppLog.i(TAG, "launchAndConnect: launching daemon: $path -uid $uid -tokenfile <file>")
         // </dev/null prevents the daemon from inheriting the shell's stdin,
         // which would cause exec() to block waiting for the pipe to close.
-        Shell.cmd("setsid '$path' -uid $uid </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
+        Shell.cmd("setsid '$path' -uid $uid -tokenfile '$tokenPath' </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
         AppLog.i(TAG, "launchAndConnect: daemon launch command returned")
 
         for (i in 1..12) {
@@ -127,30 +187,59 @@ class DaemonManager(private val context: Context) {
             }
         }
 
-        AppLog.e(TAG, "launchAndConnect: failed to connect after 3s, trying SELinux fallback...")
+        AppLog.e(TAG, "launchAndConnect: failed to connect after 3s")
+
+        if (lastConnectAuthFailure || socketPeerUnauthenticated) {
+            // F3: something answered on the socket but could not prove it is
+            // our daemon (or accepted then closed/timed out). Never trip
+            // SELinux permissive for a squatter — only a launch where nothing
+            // accepted the connection at all may use the fallback.
+            val msg = "Another process is listening on the daemon socket but did " +
+                "not authenticate. Refusing to continue (no SELinux change made)."
+            AppLog.e(TAG, "launchAndConnect: $msg")
+            launchError.value = msg
+            Handler(Looper.getMainLooper()).post {
+                isReady.value = false
+                onLaunchFailed(msg)
+            }
+            return
+        }
+
+        AppLog.e(TAG, "launchAndConnect: trying SELinux fallback...")
 
         val selinuxMode = Shell.cmd("getenforce").exec().out.firstOrNull()?.trim() ?: ""
         if (selinuxMode.equals("Enforcing", ignoreCase = true)) {
             AppLog.i(TAG, "launchAndConnect: SELinux is Enforcing, trying permissive...")
-            Shell.cmd("setenforce 0").exec()
+            // F2: whatever happens below — success, exception, or falling
+            // through — enforcement is restored exactly once, and only if we
+            // were the ones who turned it off.
+            var permissiveSet = false
+            try {
+                val rc0 = Shell.cmd("setenforce 0").exec()
+                permissiveSet = (rc0.code == 0)
+                if (!permissiveSet) {
+                    AppLog.e(TAG, "launchAndConnect: setenforce 0 failed (exit=${rc0.code}), skipping permissive relaunch")
+                } else {
+                if (stderrFile.exists()) stderrFile.delete()
+                Shell.cmd("setsid '$path' -uid $uid -tokenfile '$tokenPath' </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
 
-            if (stderrFile.exists()) stderrFile.delete()
-            Shell.cmd("setsid '$path' -uid $uid </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
+                for (i in 1..20) {
+                    Thread.sleep(250)
+                    if (tryConnect()) {
+                        AppLog.i(TAG, "launchAndConnect: connected after SELinux permissive (${i * 250}ms)")
+                        Handler(Looper.getMainLooper()).post { isReady.value = true }
+                        return
+                    }
+                }
 
-            for (i in 1..20) {
-                Thread.sleep(250)
-                if (tryConnect()) {
-                    AppLog.i(TAG, "launchAndConnect: connected after SELinux permissive (${i * 250}ms)")
-                    Shell.cmd("setenforce 1").exec()
-                    AppLog.i(TAG, "launchAndConnect: SELinux restored to Enforcing")
-                    Handler(Looper.getMainLooper()).post { isReady.value = true }
-                    return
+                AppLog.e(TAG, "launchAndConnect: still failed after SELinux permissive")
+                }
+            } finally {
+                if (permissiveSet) {
+                    val rc = Shell.cmd("setenforce 1").exec()
+                    AppLog.i(TAG, "launchAndConnect: SELinux restored to Enforcing (exit=${rc.code})")
                 }
             }
-
-            AppLog.e(TAG, "launchAndConnect: still failed after SELinux permissive")
-            Shell.cmd("setenforce 1").exec()
-            AppLog.i(TAG, "launchAndConnect: SELinux restored to Enforcing")
         }
 
         AppLog.e(TAG, "launchAndConnect: failed to connect")
@@ -170,6 +259,10 @@ class DaemonManager(private val context: Context) {
 
     private fun tryConnect(): Boolean {
         val s = LocalSocket()
+        // F3: do NOT reset the launch-level auth flags here — a squatter must
+        // not be able to clear its own trace by failing a later retry. They are
+        // reset once per launch in launchAndConnect().
+        var connected = false
         return try {
             val addr = LocalSocketAddress(SOCKET_NAME, LocalSocketAddress.Namespace.ABSTRACT)
             AppLog.i(TAG, "tryConnect: connecting to abstract '$SOCKET_NAME'...")
@@ -178,6 +271,9 @@ class DaemonManager(private val context: Context) {
             // overload instead. The retry loop in launchAndConnect handles the
             // case where the daemon isn't ready yet.
             s.connect(addr)
+            // F3: from here on the socket accepted us; any failure below means
+            // a peer answered but did not authenticate as our daemon.
+            connected = true
             AppLog.i(TAG, "tryConnect: connected, setting up streams")
             s.soTimeout = 5000
             socket = s
@@ -189,6 +285,7 @@ class DaemonManager(private val context: Context) {
             // so a bare connect() is not sufficient.
             val probe = JsonRequestBuilder.query()
             probe.put("id", ++requestId)
+            probe.put("token", token)
             val reqStr = probe.toString()
             AppLog.i(TAG, "tryConnect: sending probe: $reqStr")
             writer!!.write(reqStr)
@@ -203,6 +300,13 @@ class DaemonManager(private val context: Context) {
             AppLog.i(TAG, "tryConnect: probe response (${line.length} chars)")
             // Parse to verify it's valid JSON
             val resp = JSONObject(line)
+            // F3: only trust a peer that echoes our token back. A squatter on
+            // the abstract socket cannot, so it must not be adopted.
+            val respAuth = resp.optString("auth", "")
+            if (respAuth != token) {
+                lastConnectAuthFailure = true
+                throw IOException("Daemon did not authenticate (auth mismatch)")
+            }
             connectedDaemonVersion = resp.optString("version", "")
             // Connection is good — upgrade to full 15s timeout
             s.soTimeout = 15000
@@ -213,6 +317,7 @@ class DaemonManager(private val context: Context) {
             true
         } catch (e: Exception) {
             AppLog.i(TAG, "tryConnect: failed: ${e.javaClass.name}: ${e.message}")
+            if (connected) socketPeerUnauthenticated = true
             try { s.close() } catch (_: Exception) {}
             socket = null
             writer = null
@@ -257,6 +362,8 @@ class DaemonManager(private val context: Context) {
     fun sendRequest(request: JSONObject): JSONObject {
         val id = ++requestId
         request.put("id", id)
+        // F3: every request carries the shared token centrally.
+        request.put("token", token)
 
         // C1: Attempt reconnect if writer/reader is null
         if (writer == null || reader == null) {
@@ -374,7 +481,7 @@ class DaemonManager(private val context: Context) {
         var sentShutdown = false
         try {
             writer?.let { w ->
-                w.write(JsonRequestBuilder.shutdown().toString())
+                w.write(JsonRequestBuilder.shutdown().put("token", token).toString())
                 w.write("\n")
                 w.flush()
                 sentShutdown = true
@@ -411,7 +518,7 @@ class DaemonManager(private val context: Context) {
         var sentShutdown = false
         try {
             writer?.let { w ->
-                w.write(JsonRequestBuilder.shutdown().toString())
+                w.write(JsonRequestBuilder.shutdown().put("token", token).toString())
                 w.write("\n")
                 w.flush()
                 sentShutdown = true
