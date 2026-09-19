@@ -352,6 +352,51 @@
  *   F4: the accept loop waits with ppoll() for IDLE_TIMEOUT_SEC (15 min) and
  *       exits cleanly if no client connects; a client being served is never
  *       timed out. shutdown behavior is unchanged.
+ *
+ * v4.6.1 -- Re-Attach to network (detach then attach):
+ *   The first attempt at this feature tried TLV 0x18 "Service Domain
+ *   Preference" on QMI_NAS_SET_SYSTEM_SELECTION_PREFERENCE (the same
+ *   MSG_SET already used for RAT/GSM/WCDMA/LTE/NR/PLMN/usage preferences)
+ *   with action values FORCE_PS_DETACH (0x07) / PS_ATTACH (0x03). Field-
+ *   tested via a standalone tool against a real device first, per this
+ *   project's usual practice: the SET was structurally accepted (correct
+ *   TLV id/length) but rejected with QMI_RESULT_FAILURE / error 0x0030
+ *   (QMI_ERR_INVALID_ARG) -- that device's firmware does not implement
+ *   those two action values on that message. TLV 0x18/MSG_SET/MSG_GET are
+ *   NOT used for this feature; nothing about this finding touches the
+ *   existing PLMN/usage-preference code, which uses the same message id
+ *   for unrelated TLVs that do work.
+ *
+ *   Implemented instead with QMI_NAS_INITIATE_ATTACH, NAS message id
+ *   0x0023 -- a dedicated message for exactly this, unrelated to system-
+ *   selection-preference entirely:
+ *     Mandatory TLVs: none.
+ *     Optional TLV 0x10 "PS Attach Action": enum8 ps_attach_action
+ *     (1 byte) -- 0x01=NAS_PS_ACTION_ATTACH, 0x02=NAS_PS_ACTION_DETACH.
+ *     Response: message type response, sender service. Mandatory TLVs:
+ *     the Result Code TLV (0x02) is always present. Optional TLVs: none
+ *     -- unlike every other feature in this file, there is genuinely no
+ *     GET counterpart and no state to read back for this message, so
+ *     unlike plmn_lock/usage_pref/cell-lock there is no new "state.*"
+ *     field and no query_*() function; the Result Code TLV (accepted/
+ *     rejected) is the only signal available, same as this tool's own
+ *     standalone test confirmed.
+ *
+ *   New commands, all field-free: "attach" (TLV 0x10=0x01), "detach"
+ *   (TLV 0x10=0x02), and "reattach" -- detach, a REATTACH_DELAY_MS (2s)
+ *   pause via the new sleep_ms()/SYS_nanosleep (giving the modem time to
+ *   actually tear the PS context down before being asked to bring it back
+ *   up), then attach. cmd_reattach() aborts before attempting the attach
+ *   half if detach itself is rejected -- attaching on top of an unknown
+ *   detach state isn't what the feature is for -- and its status message
+ *   distinguishes "aborted" (detach failed, network left as it was) from
+ *   the worse case, "detach OK but attach failed" (network left detached
+ *   until a future attach/reattach succeeds; last_op/"modem_rejected"
+ *   still carries the attach step's own exact result/error codes for the
+ *   app to act on). *did_set is left 0 for all three -- there is no
+ *   query()-visible field this changes, so an automatic post-command
+ *   query() would add a round trip for nothing. See cmd_attach()/
+ *   cmd_detach()/cmd_reattach() below.
  */
 
 typedef unsigned char u8;
@@ -382,6 +427,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define MSG_SET 0x0033u
 #define MSG_GET 0x0034u
 #define MSG_BIND 0x0045u
+#define MSG_INITIATE_ATTACH 0x0023u  /* QMI_NAS_INITIATE_ATTACH -- v4.6.1 Re-Attach feature, unrelated to MSG_SET/MSG_GET's system-selection-preference TLVs. See the v4.6.1 header note. */
 #define TLV_RESULT 0x02u
 #define TLV_MODE 0x11u
 #define TLV_LEGACY 0x12u
@@ -402,6 +448,10 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NAS_USAGE_UNKNOWN 0u        /* GET-only report value -- never documented as a valid value to SET */
 #define NAS_USAGE_VOICE_CENTRIC 1u
 #define NAS_USAGE_DATA_CENTRIC 2u
+#define TLV_PS_ATTACH_ACTION 0x10u  /* optional TLV on MSG_INITIATE_ATTACH (0x0023): enum8 ps_attach_action, 1 byte. Note this "0x10" is a DIFFERENT namespace from every 0x10 used elsewhere in this file (e.g. TLV_LTECELL_SET_APPLY/TLV_NRCELL_SET_PCI) -- QMI TLV numbering is per-message, not global, same reasoning as the cell-lock TLVs above. See the v4.6.1 header note. */
+#define NAS_PS_ACTION_ATTACH 0x01u
+#define NAS_PS_ACTION_DETACH 0x02u
+#define REATTACH_DELAY_MS 2000u  /* pause between the detach and attach requests in cmd_reattach(), giving the modem time to actually tear the PS context down first -- same value field-tested via the standalone test tool. */
 
 /* ── Cell lock: a separate QMI feature from the band-family locking above.
  * Its own message ids, and TLV ids that are only meaningful *within* those
@@ -439,7 +489,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.6.0"
+#define DAEMON_VERSION "4.6.1"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
@@ -549,6 +599,12 @@ static void put16(u8*p,u16 v){p[0]=(u8)v;p[1]=(u8)(v>>8);}
 static void put32(u8*p,u32 v){p[0]=(u8)v;p[1]=(u8)(v>>8);p[2]=(u8)(v>>16);p[3]=(u8)(v>>24);}
 static void put64(u8*p,u64 v){int i;for(i=0;i<8;i++){p[i]=(u8)v;v>>=8;}}
 static void setstatus(struct state*s,const char*x){u64 i=0;while(x[i]&&i+1<sizeof(s->status)){s->status[i]=x[i];i++;}s->status[i]=0;}
+/* v4.6.1: used only by cmd_reattach()'s detach-then-attach pause. Blocking
+ * the accept loop here is intentional and safe -- a client's request is
+ * already being served synchronously (see serve_client()/run()), so this
+ * is no different in kind from any other slow modem round trip; it simply
+ * doesn't return control to the accept loop for REATTACH_DELAY_MS. */
+static void sleep_ms(u32 ms){struct timespec64 t;t.sec=(s64)(ms/1000u);t.nsec=(s64)(ms%1000u)*1000000L;sc2(SYS_nanosleep,(s64)&t,0);}
 /* Daemon-startup diagnostics only (before any client is connected -- there
  * is no JSON response channel yet to report a NAS-open/SIM-bind failure
  * through). Whoever launches this process (the app, via libsu or similar)
@@ -1401,6 +1457,44 @@ static int cmd_nr_cell_lock_clear(struct state*s){
  return 1;
 }
 
+/* v4.6.1 Re-Attach to network -- QMI_NAS_INITIATE_ATTACH (0x0023), TLV 0x10
+ * (enum8 ps_attach_action, 1 byte). Uses setter_msg() with its own message
+ * id, same as the LTE/NR cell-lock setters above -- not setter(), which is
+ * hardwired to MSG_SET (0x0033) and would send this on the wrong message
+ * entirely. No state to update on success (see the v4.6.1 header note: this
+ * message has no GET counterpart), so unlike every setter above there's
+ * nothing to write back into *s beyond what setter_msg() already recorded
+ * into s->last_op for the JSON layer. */
+static int cmd_ps_attach_action(struct state*s,u32 action){
+ u8 p[8],v;int pos=0;
+ v=(u8)action;
+ pos=addtlv(p,pos,TLV_PS_ATTACH_ACTION,&v,1);
+ return setter_msg(s,MSG_INITIATE_ATTACH,p,(u16)pos);
+}
+static int cmd_attach(struct state*s){return cmd_ps_attach_action(s,NAS_PS_ACTION_ATTACH);}
+static int cmd_detach(struct state*s){return cmd_ps_attach_action(s,NAS_PS_ACTION_DETACH);}
+/* The actual feature: DETACH, a short pause (sleep_ms(REATTACH_DELAY_MS))
+ * so the modem has time to actually tear the PS context down before being
+ * asked to bring it back up, then ATTACH -- field-tested via the
+ * standalone test tool before being ported here, same practice as every
+ * other feature in this file. Aborts before attempting the attach half if
+ * detach itself is rejected: attaching on top of an unknown detach state
+ * isn't what "re-attach" is for. setstatus()'s final message distinguishes
+ * the two failure shapes so the app isn't left guessing which one
+ * happened -- see the v4.6.1 header note for why "detach OK, attach
+ * failed" is the worse of the two (network is left detached). Either
+ * failure path also leaves s->last_op (from whichever setter_msg() call
+ * actually failed) intact for do_command()/build_response() to derive the
+ * normal "error.stage"/"error.result"/"error.code" fields from, exactly
+ * as cmd_detach()/cmd_attach() would on their own. */
+static int cmd_reattach(struct state*s){
+ if(!cmd_detach(s)){setstatus(s,"Re-attach aborted: detach step failed/rejected.");return 0;}
+ sleep_ms(REATTACH_DELAY_MS);
+ if(!cmd_attach(s)){setstatus(s,"Re-attach failed: detach OK but attach step failed/rejected -- network may be left detached.");return 0;}
+ setstatus(s,"Re-attach complete: detach + attach both accepted.");
+ return 1;
+}
+
 /* ── Everything below is new: JSON state/diagnostics serialization, and
  * the socket/request-dispatch/response layer. ─────────────────────────── */
 
@@ -1904,6 +1998,17 @@ static void do_command(struct state*s,const char*req,int*ok,int*did_set,int*shut
   if(!json_get_string(req,"mode",arg,sizeof(arg))){setstatus(s,"Missing 'mode' string field (\"sa\"/\"nsa\"/\"both\").");set_stage(stage,stage_cap,"bad_request");return;}
   *ok=cmd_mode(s,arg);*did_set=*ok;return;
  }
+ /* v4.6.1 Re-Attach to network. Field-free commands -- did_set=0 for all
+    three, since there's no query()-visible field this message changes
+    (see the v4.6.1 header note: QMI_NAS_INITIATE_ATTACH has no GET
+    counterpart, so an automatic post-command query() would add a round
+    trip for nothing new). Failures surface the normal way, inferred from
+    s->last_op by build_response() (explicit_stage left empty here), same
+    as cmd_detach()/cmd_attach()/cmd_reattach() leave it for any other
+    setter_msg()-based command. */
+ if(eq(cmd,"attach")){*ok=cmd_attach(s);*did_set=0;return;}
+ if(eq(cmd,"detach")){*ok=cmd_detach(s);*did_set=0;return;}
+ if(eq(cmd,"reattach")){*ok=cmd_reattach(s);*did_set=0;return;}
  if(eq(cmd,"reset")){*ok=cmd_reset(s);*did_set=*ok;return;}
 
  setstatus(s,"Unknown command.");set_stage(stage,stage_cap,"bad_request");

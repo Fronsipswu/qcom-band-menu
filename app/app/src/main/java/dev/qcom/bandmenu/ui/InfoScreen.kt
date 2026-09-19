@@ -36,7 +36,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun InfoScreen(
     contentPadding: PaddingValues = PaddingValues(),
     debugEnabled: Boolean = false,
-    onDebugToggle: () -> Unit = {}
+    onDebugToggle: () -> Unit = {},
+    onDetach: () -> Unit = {},
+    onAttach: () -> Unit = {},
+    onReattach: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     val navbarHeightDp = 64.dp
@@ -99,15 +102,25 @@ fun InfoScreen(
         }
 
         WindowIconDropdownMenu(
-            entry = DropdownEntry(
-                items = listOf(
-                    DropdownItem(
-                        text = "Debug logging",
-                        selected = debugEnabled,
-                        onClick = { onDebugToggle() }
+            entries = listOf(
+                DropdownEntry(
+                    items = listOf(
+                        DropdownItem(
+                            text = "Debug logging",
+                            selected = debugEnabled,
+                            onClick = { onDebugToggle() }
+                        )
+                    )
+                ),
+                DropdownEntry(
+                    items = listOf(
+                        DropdownItem("Detach", onClick = onDetach),
+                        DropdownItem("Attach", onClick = onAttach),
+                        DropdownItem("Re-Attach", onClick = onReattach)
                     )
                 )
             ),
+            collapseOnSelection = true,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = statusBarInset + 8.dp, end = 8.dp)
         ) {
             Icon(

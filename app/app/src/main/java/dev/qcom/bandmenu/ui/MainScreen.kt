@@ -44,6 +44,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun MainScreen(
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
+    onDetach: () -> Unit,
+    onAttach: () -> Unit,
+    onReattach: () -> Unit,
     refreshingSlots: Set<Int>,
     onRefresh: (Int) -> Unit,
     refreshKey0: Int,
@@ -119,6 +122,9 @@ fun MainScreen(
                         refreshKey1 = refreshKey1,
                         onApply = onApply,
                         onReset = onReset,
+                        onDetach = onDetach,
+                        onAttach = onAttach,
+                        onReattach = onReattach,
                         nrIndependentSupported = nrIndependentSupported,
                         bandFilter = bandFilter,
                         onSaveFilter = onSaveFilter,
@@ -138,6 +144,9 @@ fun MainScreen(
                         onClear5G = onCellLockClear5G,
                         onClear4G = onCellLockClear4G,
                         onClearPlmn = onCellLockClearPlmn,
+                        onDetach = onDetach,
+                        onAttach = onAttach,
+                        onReattach = onReattach,
                         lockResult = cellLockResult,
                         onLockResultConsumed = onCellLockResultConsumed,
                         snackbarHostState = snackbarHostState,
@@ -146,7 +155,10 @@ fun MainScreen(
                     else -> InfoScreen(
                         contentPadding = topPadding,
                         debugEnabled = debugEnabled,
-                        onDebugToggle = onDebugToggle
+                        onDebugToggle = onDebugToggle,
+                        onDetach = onDetach,
+                        onAttach = onAttach,
+                        onReattach = onReattach
                     )
                 }
             }

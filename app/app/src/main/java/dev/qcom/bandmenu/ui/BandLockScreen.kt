@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.captionBar
 import androidx.compose.animation.animateColorAsState
@@ -18,8 +19,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -117,6 +119,9 @@ fun BandLockScreen(
     refreshKey1: Int,
     onApply: (Int, SimState) -> Unit,
     onReset: (Int) -> Unit,
+    onDetach: () -> Unit = {},
+    onAttach: () -> Unit = {},
+    onReattach: () -> Unit = {},
     nrIndependentSupported: Boolean? = null,
     bandFilter: BandFilterState = BandFilterState(),
     onSaveFilter: (BandFilterState) -> Unit = {},
@@ -129,9 +134,14 @@ fun BandLockScreen(
     val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
     val navbarSpace = navbarHeightDp + 16.dp + navInset
     val applyResetSpace = 72.dp
-    val statusBarInset = WindowInsets.statusBars.asPaddingValues(density).calculateTopPadding()
+    // Match the overlay SmallTopAppBar's own inset source (systemBars top) so
+    // the content offset equals the bar's real height in every window mode.
+    // statusBars alone is equal in full screen but diverges in a floating /
+    // freeform window, which made the bar overlap the SIM tab row.
+    val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top)
+        .asPaddingValues(density).calculateTopPadding()
     val filterHintSpace = if (bandFilter.enabled) 30.dp else 0.dp
-    val topBarHeight = statusBarInset + TopAppBarDefaults.CollapsedHeight + filterHintSpace
+    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight + filterHintSpace
 
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -293,11 +303,16 @@ fun BandLockScreen(
                             )
                         )))
                     }
+                    add(DropdownEntry(items = listOf(
+                        DropdownItem("Detach", onClick = onDetach),
+                        DropdownItem("Attach", onClick = onAttach),
+                        DropdownItem("Re-Attach", onClick = onReattach)
+                    )))
                 }
                 WindowIconDropdownMenu(
                     entries = menuEntries,
                     modifier = Modifier.align(Alignment.TopEnd)
-                        .padding(top = statusBarInset + 8.dp, end = 8.dp),
+                        .padding(top = topBarInset + 8.dp, end = 8.dp),
                     collapseOnSelection = true
                 ) {
                     Icon(

@@ -220,6 +220,12 @@ object JsonRequestBuilder {
 
     fun reset(): JSONObject = JSONObject().put("cmd", "reset")
 
+    fun attach(): JSONObject = JSONObject().put("cmd", "attach")
+
+    fun detach(): JSONObject = JSONObject().put("cmd", "detach")
+
+    fun reattach(): JSONObject = JSONObject().put("cmd", "reattach")
+
     fun shutdown(): JSONObject = JSONObject().put("cmd", "shutdown")
 
     fun verboseSet(verbose: Boolean): JSONObject =

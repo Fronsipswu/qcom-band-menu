@@ -705,6 +705,89 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onDetach = {
+                        scope.launch {
+                            modemLock.withLock {
+                                var errorMsg: String? = null
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        val resp = JsonStateParser.parseResponse(daemonManager.detach())
+                                        if (!resp.ok) {
+                                            errorMsg = resp.error?.message ?: "Detach failed"
+                                        }
+                                    } catch (e: Exception) {
+                                        errorMsg = "Detach failed: ${e.message}"
+                                        AppLog.e(TAG, "Detach: error", e)
+                                    }
+                                }
+                                snackbarIsError = errorMsg != null
+                                snackbarMessage = errorMsg ?: "Detached from network"
+                            }
+                        }
+                    },
+                    onAttach = {
+                        scope.launch {
+                            modemLock.withLock {
+                                var errorMsg: String? = null
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        val resp = JsonStateParser.parseResponse(daemonManager.attach())
+                                        if (!resp.ok) {
+                                            errorMsg = resp.error?.message ?: "Attach failed"
+                                        }
+                                    } catch (e: Exception) {
+                                        errorMsg = "Attach failed: ${e.message}"
+                                        AppLog.e(TAG, "Attach: error", e)
+                                    }
+                                }
+                                snackbarIsError = errorMsg != null
+                                snackbarMessage = errorMsg ?: "Attached to network"
+                            }
+                        }
+                    },
+                    onReattach = {
+                        scope.launch {
+                            modemLock.withLock {
+                                var errorMsg: String? = null
+                                var ok = false
+                                var recovered = false
+                                snackbarIsError = false
+                                snackbarMessage = "Re-attaching to network…"
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        val resp = JsonStateParser.parseResponse(daemonManager.reattach())
+                                        if (resp.ok) {
+                                            ok = true
+                                        } else {
+                                            val msg = resp.error?.message
+                                            if (msg?.contains("network may be left detached") == true) {
+                                                val retryResp =
+                                                    JsonStateParser.parseResponse(daemonManager.attach())
+                                                if (retryResp.ok) {
+                                                    recovered = true
+                                                } else {
+                                                    errorMsg = "Re-attach failed; network may be left detached" +
+                                                        (retryResp.error?.message?.let { ": $it" } ?: "")
+                                                }
+                                            } else {
+                                                errorMsg = msg ?: "Re-attach failed"
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        errorMsg = "Re-attach failed: ${e.message}"
+                                        AppLog.e(TAG, "Re-attach: error", e)
+                                    }
+                                }
+                                snackbarIsError = errorMsg != null
+                                snackbarMessage = when {
+                                    errorMsg != null -> errorMsg
+                                    recovered -> "Re-attach recovered: attach succeeded"
+                                    ok -> "Re-attach complete"
+                                    else -> "Re-attach complete"
+                                }
+                            }
+                        }
+                    },
                     refreshingSlots = refreshingSlots,
                     onRefresh = { slot ->
                         scope.launch {

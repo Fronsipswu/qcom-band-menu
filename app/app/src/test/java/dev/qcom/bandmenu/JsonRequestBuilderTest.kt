@@ -87,6 +87,30 @@ class JsonRequestBuilderTest {
     }
 
     @Test
+    fun attach() {
+        val json = JsonRequestBuilder.attach()
+        assertEquals(1, json.length())
+        assertEquals("attach", json.getString("cmd"))
+        assertEquals(setOf("cmd"), json.keys().asSequence().toSet())
+    }
+
+    @Test
+    fun detach() {
+        val json = JsonRequestBuilder.detach()
+        assertEquals(1, json.length())
+        assertEquals("detach", json.getString("cmd"))
+        assertEquals(setOf("cmd"), json.keys().asSequence().toSet())
+    }
+
+    @Test
+    fun reattach() {
+        val json = JsonRequestBuilder.reattach()
+        assertEquals(1, json.length())
+        assertEquals("reattach", json.getString("cmd"))
+        assertEquals(setOf("cmd"), json.keys().asSequence().toSet())
+    }
+
+    @Test
     fun shutdown() {
         val json = JsonRequestBuilder.shutdown()
         assertEquals("shutdown", json.getString("cmd"))
