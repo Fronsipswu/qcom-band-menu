@@ -1,12 +1,20 @@
 package dev.qcom.bandmenu
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -221,6 +229,29 @@ class MainActivity : ComponentActivity() {
                                 showErrorDialog = true
                             }
                             isLoading = false
+                        }
+                    }
+                }
+
+                var simLabels by remember { mutableStateOf(listOf("SIM 1", "SIM 2")) }
+                var phonePerm by remember {
+                    mutableStateOf(
+                        ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.READ_PHONE_STATE
+                        ) == PackageManager.PERMISSION_GRANTED
+                    )
+                }
+                val permLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { phonePerm = it }
+                LaunchedEffect(Unit) {
+                    if (!phonePerm) permLauncher.launch(Manifest.permission.READ_PHONE_STATE)
+                }
+                LaunchedEffect(phonePerm, modemState) {
+                    if (phonePerm) {
+                        simLabels = withContext(Dispatchers.IO) {
+                            simTabLabels(resolveOperators(this@MainActivity))
                         }
                     }
                 }
@@ -565,6 +596,7 @@ class MainActivity : ComponentActivity() {
                     },
                     cellLockRefreshKey = cellLockRefreshKey,
                     nrIndependentSupported = nrIndependentSupported,
+                    simLabels = simLabels,
                     bandFilter = bandFilter,
                     onSaveFilter = { state ->
                         scope.launch { BandPreferences.saveBandFilter(bandDataStore, state) }
@@ -871,6 +903,37 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
+    }
+
+    private fun resolveOperators(ctx: Context): List<String?> {
+        val empty = arrayOfNulls<String>(2).toList()
+        return try {
+            val sm = ctx.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+                ?: return empty
+            val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+                ?: return empty
+            val out = MutableList<String?>(2) { null }
+            sm.activeSubscriptionInfoList?.forEach { info ->
+                val slot = info.simSlotIndex
+                if (slot in 0..1) {
+                    val n = try {
+                        val per = tm.createForSubscriptionId(info.subscriptionId)
+                        per.networkOperatorName.takeIf { it.isNotBlank() }
+                            ?: per.simOperatorName.takeIf { it.isNotBlank() }
+                    } catch (_: SecurityException) {
+                        null
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (!n.isNullOrBlank()) out[slot] = n
+                }
+            }
+            out
+        } catch (_: SecurityException) {
+            empty
+        } catch (_: Exception) {
+            empty
         }
     }
 

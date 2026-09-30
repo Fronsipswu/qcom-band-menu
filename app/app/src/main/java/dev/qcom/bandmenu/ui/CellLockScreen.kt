@@ -97,6 +97,7 @@ fun CellLockScreen(
     onDetach: () -> Unit = {},
     onAttach: () -> Unit = {},
     onReattach: () -> Unit = {},
+    simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     lockResult: CellLockResult?,
     onLockResultConsumed: () -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -171,7 +172,7 @@ fun CellLockScreen(
                             .padding(horizontal = 16.dp)
                     ) {
                         TabRowWithContour(
-                            tabs = listOf("SIM 1", "SIM 2"),
+                            tabs = simLabels,
                             selectedTabIndex = selectedSim,
                             onTabSelected = { index ->
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)

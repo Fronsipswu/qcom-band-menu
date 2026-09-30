@@ -78,6 +78,7 @@ fun MainScreen(
     onCellLockRefresh: () -> Unit,
     cellLockRefreshKey: Int,
     nrIndependentSupported: Boolean?,
+    simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     bandFilter: dev.qcom.bandmenu.BandFilterState,
     onSaveFilter: (dev.qcom.bandmenu.BandFilterState) -> Unit,
     onClearFilter: () -> Unit
@@ -126,6 +127,7 @@ fun MainScreen(
                         onAttach = onAttach,
                         onReattach = onReattach,
                         nrIndependentSupported = nrIndependentSupported,
+                        simLabels = simLabels,
                         bandFilter = bandFilter,
                         onSaveFilter = onSaveFilter,
                         onClearFilter = onClearFilter,
@@ -148,6 +150,7 @@ fun MainScreen(
                         onAttach = onAttach,
                         onReattach = onReattach,
                         lockResult = cellLockResult,
+                        simLabels = simLabels,
                         onLockResultConsumed = onCellLockResultConsumed,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop

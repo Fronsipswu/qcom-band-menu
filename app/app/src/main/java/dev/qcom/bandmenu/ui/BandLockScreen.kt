@@ -69,6 +69,7 @@ import dev.qcom.bandmenu.copyForOtherSim
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.DropdownEntry
@@ -123,6 +124,7 @@ fun BandLockScreen(
     onAttach: () -> Unit = {},
     onReattach: () -> Unit = {},
     nrIndependentSupported: Boolean? = null,
+    simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     bandFilter: BandFilterState = BandFilterState(),
     onSaveFilter: (BandFilterState) -> Unit = {},
     onClearFilter: () -> Unit = {},
@@ -205,7 +207,7 @@ fun BandLockScreen(
                             .padding(bottom = navbarSpace + applyResetSpace)
                     ) {
                         TabRowWithContour(
-                            tabs = listOf("SIM 1", "SIM 2"),
+                            tabs = simLabels,
                             selectedTabIndex = selectedSim,
                             onTabSelected = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -528,8 +530,8 @@ private fun SimBandLockPage(
             visibleNr.all { state.nrNsaChecked[it] == true } && visibleNr.all { state.nrSaChecked[it] == true }
         else
             visibleNr.all { state.nrChecked[it] == true }
-        val allNsaEnabled = if (useIndependentLock) visibleNr.all { state.nrNsaChecked[it] == true } else allNrEnabled
-        val allSaEnabled = if (useIndependentLock) visibleNr.all { state.nrSaChecked[it] == true } else allNrEnabled
+        val allNsaEnabled = if (useIndependentLock) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
+        val allSaEnabled = if (useIndependentLock) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
         val allLteEnabled = visibleLte.all { state.lteChecked[it] == true }
         val allWcdmaEnabled = visibleWcdma.all { state.wcdmaChecked[it] == true }
         val allGsmEnabled = visibleGsm.all { state.gsmChecked[it] == true }
@@ -666,39 +668,99 @@ private fun SimBandLockPage(
         if (visibleNr.isNotEmpty()) {
             if (useIndependentLock) {
                 if (visibleSa.isNotEmpty()) {
-                    SmallTitle("NR-SA")
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    val modified = visibleSa.any { state.nrSaChecked[it] != true }
+                    BandSectionTitle(
+                        text = "NR-SA",
+                        hapticFeedback = hapticFeedback,
+                        onToggleAll = { visibleSa.forEach { state.nrSaChecked[it] = !allSaEnabled } }
+                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        colors = if (modified)
+                            CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                        else CardDefaults.defaultColors()
+                    ) {
                         BandCheckboxGrid(visibleSa.sorted(), state.nrSaChecked, "n")
                     }
                 }
                 if (visibleNsa.isNotEmpty()) {
-                    SmallTitle("NR-NSA")
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    val modified = visibleNsa.any { state.nrNsaChecked[it] != true }
+                    BandSectionTitle(
+                        text = "NR-NSA",
+                        hapticFeedback = hapticFeedback,
+                        onToggleAll = { visibleNsa.forEach { state.nrNsaChecked[it] = !allNsaEnabled } }
+                    )
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        colors = if (modified)
+                            CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                        else CardDefaults.defaultColors()
+                    ) {
                         BandCheckboxGrid(visibleNsa.sorted(), state.nrNsaChecked, "n")
                     }
                 }
             } else {
-                SmallTitle("NR")
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                val modified = visibleNr.any { state.nrChecked[it] != true }
+                BandSectionTitle(
+                    text = "NR",
+                    hapticFeedback = hapticFeedback,
+                    onToggleAll = { visibleNr.forEach { state.nrChecked[it] = !allNrEnabled } }
+                )
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    colors = if (modified)
+                        CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                    else CardDefaults.defaultColors()
+                ) {
                     BandCheckboxGrid(visibleNr.sorted(), state.nrChecked, "n")
                 }
             }
         }
         if (visibleLte.isNotEmpty()) {
-            SmallTitle("LTE")
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            val modified = visibleLte.any { state.lteChecked[it] != true }
+            BandSectionTitle(
+                text = "LTE",
+                hapticFeedback = hapticFeedback,
+                onToggleAll = { visibleLte.forEach { state.lteChecked[it] = !allLteEnabled } }
+            )
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                colors = if (modified)
+                    CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                else CardDefaults.defaultColors()
+            ) {
                 BandCheckboxGrid(visibleLte.sorted(), state.lteChecked, "B")
             }
         }
         if (visibleWcdma.isNotEmpty()) {
-            SmallTitle("WCDMA")
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            val modified = visibleWcdma.any { state.wcdmaChecked[it] != true }
+            BandSectionTitle(
+                text = "WCDMA",
+                hapticFeedback = hapticFeedback,
+                onToggleAll = { visibleWcdma.forEach { state.wcdmaChecked[it] = !allWcdmaEnabled } }
+            )
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                colors = if (modified)
+                    CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                else CardDefaults.defaultColors()
+            ) {
                 BandCheckboxGrid(visibleWcdma.sorted(), state.wcdmaChecked, "B")
             }
         }
         if (visibleGsm.isNotEmpty()) {
-            SmallTitle("GSM")
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            val modified = visibleGsm.any { state.gsmChecked[it] != true }
+            BandSectionTitle(
+                text = "GSM",
+                hapticFeedback = hapticFeedback,
+                onToggleAll = { visibleGsm.forEach { state.gsmChecked[it] = !allGsmEnabled } }
+            )
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                colors = if (modified)
+                    CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                else CardDefaults.defaultColors()
+            ) {
                 BandCheckboxGrid(visibleGsm.sorted(), state.gsmChecked, "")
             }
         }
@@ -1048,6 +1110,20 @@ private fun FilterSectionTitle(
     ) {
         SmallTitle(text)
     }
+}
+
+@Composable
+private fun BandSectionTitle(
+    text: String,
+    hapticFeedback: HapticFeedback,
+    onToggleAll: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxWidth().clickable {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+            onToggleAll()
+        }
+    ) { SmallTitle(text) }
 }
 
 @Composable

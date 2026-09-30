@@ -3,6 +3,12 @@ package dev.qcom.bandmenu
 import org.json.JSONArray
 import org.json.JSONObject
 
+fun simTabLabels(operators: List<String?>): List<String> =
+    List(2) { i ->
+        val name = operators.getOrNull(i)
+        if (name.isNullOrBlank()) "SIM ${i + 1}" else "SIM ${i + 1} - $name"
+    }
+
 enum class RatType { GSM, WCDMA, LTE, NR }
 
 enum class NrMode { SA, NSA, BOTH, UNKNOWN }
