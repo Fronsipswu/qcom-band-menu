@@ -72,6 +72,27 @@ class DaemonManager(private val context: Context) {
     @Volatile
     var onConnectionEvent: ((Boolean) -> Unit)? = null
 
+    // Launch callbacks are re-bound by every start() call, so an activity
+    // recreated while a launch is in flight still gets the outcome, and
+    // retry() reports failures through the same UI as the first attempt.
+    @Volatile
+    private var onDenied: () -> Unit = {}
+    @Volatile
+    private var onLaunchFailed: (String) -> Unit = {}
+
+    @Volatile
+    private var launching = false
+
+    @Volatile
+    private var stopped = false
+
+    /** Kills any running daemon by exact process name (not a command-line
+     *  substring match, which could hit unrelated processes). */
+    private val killCmd = "pkill -9 -x $BINARY_NAME 2>/dev/null; true"
+
+    /** The token must never reach logcat. */
+    private fun redact(s: String): String = s.replace(token, "<token>")
+
     private fun loadOrCreateToken(): String {
         val prefs = context.getSharedPreferences(AUTH_PREFS, Context.MODE_PRIVATE)
         val existing = prefs.getString(AUTH_TOKEN_KEY, null)
@@ -92,15 +113,30 @@ class DaemonManager(private val context: Context) {
         return f
     }
 
+    /** Starts (or adopts) the daemon. Only re-binds the callbacks when a
+     *  launch is already in flight or a connection exists, e.g. after the
+     *  activity was recreated by a configuration change. */
     fun start(onDenied: () -> Unit, onLaunchFailed: (String) -> Unit = {}) {
+        this.onDenied = onDenied
+        this.onLaunchFailed = onLaunchFailed
+        if (launching || socket != null) {
+            AppLog.d(TAG, "start: already launching/connected, callbacks re-bound")
+            return
+        }
+        launch()
+    }
+
+    private fun launch() {
         AppLog.d(TAG, "start: requesting shell...")
+        launching = true
+        stopped = false
         launchError.value = null
         Shell.getShell { shell ->
             AppLog.d(TAG, "start: shell obtained, isRoot=${shell.isRoot}, status=${shell.status}")
             if (shell.isRoot) {
                 Thread {
                     try {
-                        launchAndConnect(onLaunchFailed)
+                        launchAndConnect { msg -> onLaunchFailed(msg) }
                     } catch (t: Throwable) {
                         AppLog.e(TAG, "start: launchAndConnect crashed", t)
                         val msg = "Daemon launch failed: ${t.message ?: t.javaClass.simpleName}"
@@ -109,10 +145,13 @@ class DaemonManager(private val context: Context) {
                             isReady.value = false
                             onLaunchFailed(msg)
                         }
+                    } finally {
+                        launching = false
                     }
                 }.start()
             } else {
                 AppLog.e(TAG, "start: root denied")
+                launching = false
                 Handler(Looper.getMainLooper()).post {
                     isRootDenied.value = true
                     onDenied()
@@ -144,15 +183,14 @@ class DaemonManager(private val context: Context) {
         AppLog.i(TAG, "launchAndConnect: no existing daemon, starting fresh")
 
         // No existing daemon reachable — kill any stale process before copying.
-        // Use SIGKILL (-9) since the daemon may not handle SIGTERM.
-        Shell.cmd("pkill -9 -f qcom-bandlockd 2>/dev/null; true").exec()
-        Thread.sleep(500)
+        // Use SIGKILL (-9) since the daemon may not handle SIGTERM. No fixed
+        // sleep: copyBinary() retries while a dying daemon still holds the file
+        // busy, so the usual cold start (nothing running) does not wait at all.
+        Shell.cmd(killCmd).exec()
 
         try {
             val destFile = File(context.filesDir, BINARY_NAME)
-            context.assets.open(BINARY_NAME).use { input ->
-                destFile.outputStream().use { output -> input.copyTo(output) }
-            }
+            copyBinary(destFile)
             destFile.setExecutable(true)
             AppLog.i(TAG, "launchAndConnect: binary copied, size=${destFile.length()}")
         } catch (e: Exception) {
@@ -257,6 +295,24 @@ class DaemonManager(private val context: Context) {
         }
     }
 
+    /** Copies the bundled daemon binary. A daemon that was just killed can
+     *  keep the old file busy (ETXTBSY) for a moment, so retry briefly
+     *  (max ~2 s) rather than sleeping before every launch. */
+    private fun copyBinary(dest: File) {
+        var attempt = 0
+        while (true) {
+            try {
+                context.assets.open(BINARY_NAME).use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                return
+            } catch (e: IOException) {
+                if (++attempt >= 40) throw e
+                Thread.sleep(50)
+            }
+        }
+    }
+
     private fun tryConnect(): Boolean {
         val s = LocalSocket()
         // F3: do NOT reset the launch-level auth flags here — a squatter must
@@ -287,7 +343,7 @@ class DaemonManager(private val context: Context) {
             probe.put("id", ++requestId)
             probe.put("token", token)
             val reqStr = probe.toString()
-            AppLog.i(TAG, "tryConnect: sending probe: $reqStr")
+            AppLog.d(TAG, "tryConnect: sending probe: ${redact(reqStr)}")
             writer!!.write(reqStr)
             writer!!.write("\n")
             writer!!.flush()
@@ -380,7 +436,7 @@ class DaemonManager(private val context: Context) {
         val r = reader ?: throw IOException("Not connected")
 
         val reqStr = request.toString()
-        AppLog.d(TAG, "sendRequest: $reqStr")
+        AppLog.d(TAG, "sendRequest: ${redact(reqStr)}")
         try {
             w.write(reqStr)
             w.write("\n")
@@ -402,15 +458,15 @@ class DaemonManager(private val context: Context) {
             throw IOException("Connection closed")
         }
 
-        AppLog.d(TAG, "sendRequest: response: $responseLine")
+        AppLog.d(TAG, "sendRequest: response: ${redact(responseLine)}")
 
         // I4: Catch malformed JSON, treat as connection error
         val resp = try {
             JSONObject(responseLine)
         } catch (e: JSONException) {
-            AppLog.w(TAG, "sendRequest: malformed JSON: $responseLine", e)
+            AppLog.w(TAG, "sendRequest: malformed JSON: ${redact(responseLine)}", e)
             disconnect()
-            throw IOException("Malformed JSON response: $responseLine")
+            throw IOException("Malformed JSON response: ${redact(responseLine)}")
         }
 
         // M9: Verify response id matches request id
@@ -480,6 +536,8 @@ class DaemonManager(private val context: Context) {
 
     @Synchronized
     fun stop() {
+        if (stopped) return
+        stopped = true
         AppLog.i(TAG, "stop: sending shutdown...")
         var sentShutdown = false
         try {
@@ -502,7 +560,7 @@ class DaemonManager(private val context: Context) {
         // shutdown command didn't reach it.
         Thread {
             try {
-                Shell.cmd("pkill -9 -f qcom-bandlockd 2>/dev/null; true").exec()
+                Shell.cmd(killCmd).exec()
                 AppLog.i(TAG, "stop: pkill fallback done")
             } catch (e: Exception) {
                 AppLog.w(TAG, "stop: pkill fallback failed", e)
@@ -517,6 +575,8 @@ class DaemonManager(private val context: Context) {
      */
     @Synchronized
     fun stopBlocking() {
+        if (stopped) return
+        stopped = true
         AppLog.i(TAG, "stopBlocking: sending shutdown...")
         var sentShutdown = false
         try {
@@ -537,7 +597,7 @@ class DaemonManager(private val context: Context) {
         isReady.value = false
         // Synchronous pkill — blocks until confirmed dead
         try {
-            Shell.cmd("pkill -9 -f qcom-bandlockd 2>/dev/null; true").exec()
+            Shell.cmd(killCmd).exec()
             AppLog.i(TAG, "stopBlocking: pkill done, daemon should be dead")
         } catch (e: Exception) {
             AppLog.w(TAG, "stopBlocking: pkill failed", e)
@@ -553,6 +613,14 @@ class DaemonManager(private val context: Context) {
         socket = null
         writer = null
         reader = null
-        start({})
+        // libsu caches the main shell. After a denial that cached shell is a
+        // non-root one and getShell() would hand it back without asking su
+        // again, so close it to make the retry actually re-request root.
+        Shell.getCachedShell()?.let { cached ->
+            if (!cached.isRoot) {
+                try { cached.close() } catch (_: IOException) {}
+            }
+        }
+        launch()
     }
 }

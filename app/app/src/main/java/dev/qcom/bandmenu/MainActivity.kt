@@ -23,13 +23,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.qcom.bandmenu.ui.MainScreen
 import dev.qcom.bandmenu.ui.CellLockResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
@@ -45,7 +47,15 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "QcomBand"
     }
 
-    private val daemonManager by lazy { DaemonManager(applicationContext) }
+    // Held by a ViewModel so a configuration change (dark mode, font scale,
+    // window resize...) keeps the daemon and its connection instead of
+    // killing and relaunching it. Stopped in DaemonHolder.onCleared().
+    private val daemonHolder by lazy {
+        ViewModelProvider(this, viewModelFactory {
+            initializer { DaemonHolder(DaemonManager(applicationContext)) }
+        })[DaemonHolder::class.java]
+    }
+    private val daemonManager get() = daemonHolder.daemonManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,7 +90,7 @@ class MainActivity : ComponentActivity() {
                 var refreshKey1 by remember { mutableIntStateOf(0) }
                 var debugEnabled by remember { mutableStateOf(false) }
                 val scope = rememberCoroutineScope()
-                val modemLock = remember { Mutex() }
+                val modemLock = daemonHolder.modemLock
 
                 var cellLockResult by remember { mutableStateOf<CellLockResult?>(null) }
                 var cellLockRefreshing by remember { mutableStateOf(false) }
@@ -137,98 +147,97 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // Full init runs only while no modem state is loaded. A reconnect
+                // (isReady false -> true inside sendRequest) happens while a user
+                // operation holds modemLock; re-running init then would slip a
+                // sim_set between that operation's commands and send the rest to
+                // the other SIM. Init also takes the lock, so the two never overlap.
                 LaunchedEffect(daemonManager.isReady.value) {
-                    if (daemonManager.isReady.value) {
+                    if (daemonManager.isReady.value && modemState == null) {
                         scope.launch {
-                            isLoading = true
-                            var initModemState: ModemState? = null
-                            var initErrorTitle: String? = null
-                            var initError: String? = null
-                            var initNrIndependentSupported: Boolean? = null
-                            withContext(Dispatchers.IO) {
-                                try {
-                                    // C5: Explicitly select SIM 1 before query
-                                    val simSet1Parsed = JsonStateParser.parseResponse(daemonManager.simSet(1))
-                                    if (!simSet1Parsed.ok) {
-                                        initErrorTitle = "Initialization Failed"
-                                        initError = "Failed to select SIM 1: ${simSet1Parsed.error?.message ?: "unknown"}"
-                                        return@withContext
-                                    }
+                            modemLock.withLock {
+                                isLoading = true
+                                var initModemState: ModemState? = null
+                                var initErrorTitle: String? = null
+                                var initError: String? = null
+                                var initNrIndependentSupported: Boolean? = null
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        // sim_set binds the SIM, then the daemon runs the GET and
+                                        // both cell-lock reads, so each reply is that SIM's full
+                                        // state (hardware and NR capability come with every reply).
+                                        // SIM 2 first, then SIM 1: two requests, and the daemon
+                                        // ends bound to SIM 1, which detach/attach act on.
+                                        // I8: Check ok on each response
+                                        val sim2Parsed = JsonStateParser.parseResponse(daemonManager.simSet(2))
+                                        if (!sim2Parsed.ok) {
+                                            initErrorTitle = "Initialization Failed"
+                                            initError = "Failed to select SIM 2: ${sim2Parsed.error?.message ?: "unknown"}"
+                                            return@withContext
+                                        }
+                                        val sim2State = sim2Parsed.simState ?: SimState()
+                                        val sim2CellLock = sim2Parsed.cellLockState ?: CellLockState()
+                                        val sim2PlmnLock = sim2Parsed.plmnLockState ?: PlmnLockState()
 
-                                    // I8: Check ok on each response
-                                    val sim1Resp = daemonManager.query()
-                                    val sim1Parsed = JsonStateParser.parseResponse(sim1Resp)
-                                    if (!sim1Parsed.ok) {
-                                        initErrorTitle = "Initialization Failed"
-                                        initError = "Failed to query SIM 1: ${sim1Parsed.error?.message ?: "unknown"}"
-                                        return@withContext
-                                    }
-                                    val sim1State = sim1Parsed.simState ?: SimState()
-                                    val hardware = sim1Parsed.hardware ?: HardwareBands()
-                                    val sim1CellLock = sim1Parsed.cellLockState ?: CellLockState()
-                                    val sim1PlmnLock = sim1Parsed.plmnLockState ?: PlmnLockState()
+                                        val sim1Parsed = JsonStateParser.parseResponse(daemonManager.simSet(1))
+                                        if (!sim1Parsed.ok) {
+                                            initErrorTitle = "Initialization Failed"
+                                            initError = "Failed to select SIM 1: ${sim1Parsed.error?.message ?: "unknown"}"
+                                            return@withContext
+                                        }
+                                        val sim1State = sim1Parsed.simState ?: SimState()
+                                        val hardware = sim1Parsed.hardware ?: HardwareBands()
+                                        val sim1CellLock = sim1Parsed.cellLockState ?: CellLockState()
+                                        val sim1PlmnLock = sim1Parsed.plmnLockState ?: PlmnLockState()
 
-                                    // Read NR independent capability from daemon response
-                                    val nrCap = sim1Parsed.nrIndependentCapability
-                                    if (nrCap != null && nrCap.checked && nrCap.independentLockSupported != null) {
-                                        if (nrIndependentSupported == null) {
-                                            initNrIndependentSupported = nrCap.independentLockSupported
-                                            AppLog.i(TAG, "NR independent supported (daemon): ${nrCap.independentLockSupported}")
-                                            // Persist to DataStore
-                                            launch {
-                                                BandPreferences.setNrIndependentSupported(
-                                                    bandDataStore, nrCap.independentLockSupported
-                                                )
+                                        // Read NR independent capability from daemon response
+                                        val nrCap = sim1Parsed.nrIndependentCapability
+                                        if (nrCap != null && nrCap.checked && nrCap.independentLockSupported != null) {
+                                            if (nrIndependentSupported == null) {
+                                                initNrIndependentSupported = nrCap.independentLockSupported
+                                                AppLog.i(TAG, "NR independent supported (daemon): ${nrCap.independentLockSupported}")
+                                                // Persist to DataStore
+                                                launch {
+                                                    BandPreferences.setNrIndependentSupported(
+                                                        bandDataStore, nrCap.independentLockSupported
+                                                    )
+                                                }
                                             }
                                         }
-                                    }
 
-                                    val sim2Resp = daemonManager.simSet(2)
-                                    val sim2Parsed = JsonStateParser.parseResponse(sim2Resp)
-                                    if (!sim2Parsed.ok) {
+                                        initModemState = ModemState(
+                                            sim1State, sim2State, hardware, true,
+                                            sim1CellLock, sim2CellLock,
+                                            sim1PlmnLock, sim2PlmnLock,
+                                            initNrIndependentSupported ?: nrIndependentSupported
+                                        )
+
+                                        // I6: Enable verbose logging on startup if debug is enabled
+                                        if (debugEnabled) {
+                                            daemonManager.verboseSet(true)
+                                        }
+
+                                        AppLog.i(TAG, "Init: success")
+                                    } catch (e: Exception) {
+                                        AppLog.e(TAG, "Init: failed", e)
                                         initErrorTitle = "Initialization Failed"
-                                        initError = "Failed to select SIM 2: ${sim2Parsed.error?.message ?: "unknown"}"
-                                        return@withContext
+                                        initError = "Failed to query modem state: ${e.message}"
                                     }
-                                    val sim2State = sim2Parsed.simState ?: SimState()
-                                    val sim2CellLock = sim2Parsed.cellLockState ?: CellLockState()
-                                    val sim2PlmnLock = sim2Parsed.plmnLockState ?: PlmnLockState()
-
-                                    // Switch back to SIM 1 as default
-                                    daemonManager.simSet(1)
-
-                                    initModemState = ModemState(
-                                        sim1State, sim2State, hardware, true,
-                                        sim1CellLock, sim2CellLock,
-                                        sim1PlmnLock, sim2PlmnLock,
-                                        initNrIndependentSupported ?: nrIndependentSupported
-                                    )
-
-                                    // I6: Enable verbose logging on startup if debug is enabled
-                                    if (debugEnabled) {
-                                        daemonManager.verboseSet(true)
-                                    }
-
-                                    AppLog.i(TAG, "Init: success")
-                                } catch (e: Exception) {
-                                    AppLog.e(TAG, "Init: failed", e)
-                                    initErrorTitle = "Initialization Failed"
-                                    initError = "Failed to query modem state: ${e.message}"
                                 }
+                                // C4: Back on Main dispatcher - update Compose state
+                                if (initModemState != null) {
+                                    modemState = initModemState
+                                }
+                                if (initNrIndependentSupported != null && nrIndependentSupported == null) {
+                                    nrIndependentSupported = initNrIndependentSupported
+                                }
+                                if (initError != null) {
+                                    errorTitle = initErrorTitle ?: "Initialization Failed"
+                                    errorMessage = initError
+                                    showErrorDialog = true
+                                }
+                                isLoading = false
                             }
-                            // C4: Back on Main dispatcher - update Compose state
-                            if (initModemState != null) {
-                                modemState = initModemState
-                            }
-                            if (initNrIndependentSupported != null && nrIndependentSupported == null) {
-                                nrIndependentSupported = initNrIndependentSupported
-                            }
-                            if (initError != null) {
-                                errorTitle = initErrorTitle ?: "Initialization Failed"
-                                errorMessage = initError
-                                showErrorDialog = true
-                            }
-                            isLoading = false
                         }
                     }
                 }
@@ -935,17 +944,5 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             empty
         }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        if (isFinishing) {
-            daemonManager.stop()
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        daemonManager.stop()
     }
 }

@@ -29,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -402,12 +403,21 @@ private fun SimBandLockPage(
 ) {
     val hapticFeedback = LocalHapticFeedback.current
 
-    val visibleGsm = SimBandFilter.visibleBands(hardware.gsm, filter.gsm)
-    val visibleWcdma = SimBandFilter.visibleBands(hardware.wcdma, filter.wcdma)
-    val visibleLte = SimBandFilter.visibleBands(hardware.lte, filter.lte)
-    val visibleNsa = SimBandFilter.visibleBands(hardware.nr, filter.nrNsa)
-    val visibleSa = SimBandFilter.visibleBands(hardware.nr, filter.nrSa)
-    val visibleNr = SimBandFilter.visibleBands(hardware.nr, filter.nrNsa + filter.nrSa)
+    // Remembered so the sets and sorted lists keep their identity across
+    // recompositions: BandCheckboxGrid then skips, and a checkbox tap only
+    // recomposes the grid whose map changed instead of the whole page.
+    val visibleGsm = remember(hardware, filter) { SimBandFilter.visibleBands(hardware.gsm, filter.gsm) }
+    val visibleWcdma = remember(hardware, filter) { SimBandFilter.visibleBands(hardware.wcdma, filter.wcdma) }
+    val visibleLte = remember(hardware, filter) { SimBandFilter.visibleBands(hardware.lte, filter.lte) }
+    val visibleNsa = remember(hardware, filter) { SimBandFilter.visibleBands(hardware.nr, filter.nrNsa) }
+    val visibleSa = remember(hardware, filter) { SimBandFilter.visibleBands(hardware.nr, filter.nrSa) }
+    val visibleNr = remember(hardware, filter) { SimBandFilter.visibleBands(hardware.nr, filter.nrNsa + filter.nrSa) }
+    val sortedGsm = remember(visibleGsm) { visibleGsm.sorted() }
+    val sortedWcdma = remember(visibleWcdma) { visibleWcdma.sorted() }
+    val sortedLte = remember(visibleLte) { visibleLte.sorted() }
+    val sortedNsa = remember(visibleNsa) { visibleNsa.sorted() }
+    val sortedSa = remember(visibleSa) { visibleSa.sorted() }
+    val sortedNr = remember(visibleNr) { visibleNr.sorted() }
 
     LaunchedEffect(simState, refreshKey) {
         simState?.let { s ->
@@ -526,15 +536,36 @@ private fun SimBandLockPage(
         SmallTitle("Band lock")
         Spacer(modifier = Modifier.height(4.dp))
 
-        val allNrEnabled = if (useIndependentLock)
-            visibleNr.all { state.nrNsaChecked[it] == true } && visibleNr.all { state.nrSaChecked[it] == true }
-        else
-            visibleNr.all { state.nrChecked[it] == true }
-        val allNsaEnabled = if (useIndependentLock) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
-        val allSaEnabled = if (useIndependentLock) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
-        val allLteEnabled = visibleLte.all { state.lteChecked[it] == true }
-        val allWcdmaEnabled = visibleWcdma.all { state.wcdmaChecked[it] == true }
-        val allGsmEnabled = visibleGsm.all { state.gsmChecked[it] == true }
+        // Derived, so the page recomposes only when a flag flips, not on every
+        // map write. Event handlers must read a flag once before mutating the
+        // maps: a derived flag re-evaluates as soon as the first band changes.
+        val allNrEnabled by remember(state, visibleNr, useIndependentLock) {
+            derivedStateOf {
+                if (useIndependentLock)
+                    visibleNr.all { state.nrNsaChecked[it] == true } && visibleNr.all { state.nrSaChecked[it] == true }
+                else
+                    visibleNr.all { state.nrChecked[it] == true }
+            }
+        }
+        val allNsaEnabled by remember(state, visibleNsa, useIndependentLock) {
+            derivedStateOf {
+                if (useIndependentLock) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
+            }
+        }
+        val allSaEnabled by remember(state, visibleSa, useIndependentLock) {
+            derivedStateOf {
+                if (useIndependentLock) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
+            }
+        }
+        val allLteEnabled by remember(state, visibleLte) {
+            derivedStateOf { visibleLte.all { state.lteChecked[it] == true } }
+        }
+        val allWcdmaEnabled by remember(state, visibleWcdma) {
+            derivedStateOf { visibleWcdma.all { state.wcdmaChecked[it] == true } }
+        }
+        val allGsmEnabled by remember(state, visibleGsm) {
+            derivedStateOf { visibleGsm.all { state.gsmChecked[it] == true } }
+        }
         val all5gEnabled = allNrEnabled
         val allBandsEnabled = allGsmEnabled && allWcdmaEnabled && allLteEnabled && allNrEnabled
 
@@ -668,11 +699,11 @@ private fun SimBandLockPage(
         if (visibleNr.isNotEmpty()) {
             if (useIndependentLock) {
                 if (visibleSa.isNotEmpty()) {
-                    val modified = visibleSa.any { state.nrSaChecked[it] != true }
+                    val modified = !allSaEnabled
                     BandSectionTitle(
                         text = "NR-SA",
                         hapticFeedback = hapticFeedback,
-                        onToggleAll = { visibleSa.forEach { state.nrSaChecked[it] = !allSaEnabled } }
+                        onToggleAll = { val v = !allSaEnabled; visibleSa.forEach { state.nrSaChecked[it] = v } }
                     )
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -680,15 +711,15 @@ private fun SimBandLockPage(
                             CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
                         else CardDefaults.defaultColors()
                     ) {
-                        BandCheckboxGrid(visibleSa.sorted(), state.nrSaChecked, "n")
+                        BandCheckboxGrid(sortedSa, state.nrSaChecked, "n")
                     }
                 }
                 if (visibleNsa.isNotEmpty()) {
-                    val modified = visibleNsa.any { state.nrNsaChecked[it] != true }
+                    val modified = !allNsaEnabled
                     BandSectionTitle(
                         text = "NR-NSA",
                         hapticFeedback = hapticFeedback,
-                        onToggleAll = { visibleNsa.forEach { state.nrNsaChecked[it] = !allNsaEnabled } }
+                        onToggleAll = { val v = !allNsaEnabled; visibleNsa.forEach { state.nrNsaChecked[it] = v } }
                     )
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -696,15 +727,15 @@ private fun SimBandLockPage(
                             CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
                         else CardDefaults.defaultColors()
                     ) {
-                        BandCheckboxGrid(visibleNsa.sorted(), state.nrNsaChecked, "n")
+                        BandCheckboxGrid(sortedNsa, state.nrNsaChecked, "n")
                     }
                 }
             } else {
-                val modified = visibleNr.any { state.nrChecked[it] != true }
+                val modified = !allNrEnabled
                 BandSectionTitle(
                     text = "NR",
                     hapticFeedback = hapticFeedback,
-                    onToggleAll = { visibleNr.forEach { state.nrChecked[it] = !allNrEnabled } }
+                    onToggleAll = { val v = !allNrEnabled; visibleNr.forEach { state.nrChecked[it] = v } }
                 )
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -712,16 +743,16 @@ private fun SimBandLockPage(
                         CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
                     else CardDefaults.defaultColors()
                 ) {
-                    BandCheckboxGrid(visibleNr.sorted(), state.nrChecked, "n")
+                    BandCheckboxGrid(sortedNr, state.nrChecked, "n")
                 }
             }
         }
         if (visibleLte.isNotEmpty()) {
-            val modified = visibleLte.any { state.lteChecked[it] != true }
+            val modified = !allLteEnabled
             BandSectionTitle(
                 text = "LTE",
                 hapticFeedback = hapticFeedback,
-                onToggleAll = { visibleLte.forEach { state.lteChecked[it] = !allLteEnabled } }
+                onToggleAll = { val v = !allLteEnabled; visibleLte.forEach { state.lteChecked[it] = v } }
             )
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -729,15 +760,15 @@ private fun SimBandLockPage(
                     CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
                 else CardDefaults.defaultColors()
             ) {
-                BandCheckboxGrid(visibleLte.sorted(), state.lteChecked, "B")
+                BandCheckboxGrid(sortedLte, state.lteChecked, "B")
             }
         }
         if (visibleWcdma.isNotEmpty()) {
-            val modified = visibleWcdma.any { state.wcdmaChecked[it] != true }
+            val modified = !allWcdmaEnabled
             BandSectionTitle(
                 text = "WCDMA",
                 hapticFeedback = hapticFeedback,
-                onToggleAll = { visibleWcdma.forEach { state.wcdmaChecked[it] = !allWcdmaEnabled } }
+                onToggleAll = { val v = !allWcdmaEnabled; visibleWcdma.forEach { state.wcdmaChecked[it] = v } }
             )
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -745,15 +776,15 @@ private fun SimBandLockPage(
                     CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
                 else CardDefaults.defaultColors()
             ) {
-                BandCheckboxGrid(visibleWcdma.sorted(), state.wcdmaChecked, "B")
+                BandCheckboxGrid(sortedWcdma, state.wcdmaChecked, "B")
             }
         }
         if (visibleGsm.isNotEmpty()) {
-            val modified = visibleGsm.any { state.gsmChecked[it] != true }
+            val modified = !allGsmEnabled
             BandSectionTitle(
                 text = "GSM",
                 hapticFeedback = hapticFeedback,
-                onToggleAll = { visibleGsm.forEach { state.gsmChecked[it] = !allGsmEnabled } }
+                onToggleAll = { val v = !allGsmEnabled; visibleGsm.forEach { state.gsmChecked[it] = v } }
             )
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -761,7 +792,7 @@ private fun SimBandLockPage(
                     CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
                 else CardDefaults.defaultColors()
             ) {
-                BandCheckboxGrid(visibleGsm.sorted(), state.gsmChecked, "")
+                BandCheckboxGrid(sortedGsm, state.gsmChecked, "")
             }
         }
         Spacer(modifier = Modifier.height(16.dp))

@@ -16,6 +16,7 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
+        manifestPlaceholders["appLabel"] = "Qualcomm Band Menu"
     }
 
     buildTypes {
@@ -35,6 +36,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        // On-device test build: minified like release, but installs next to it
+        // (own package and label) and is signed with the local debug key.
+        create("staging") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            manifestPlaceholders["appLabel"] = "QBM Staging"
+            signingConfig = signingConfigs.getByName("debug")
+            isProfileable = true
+            matchingFallbacks += listOf("release")
         }
     }
 

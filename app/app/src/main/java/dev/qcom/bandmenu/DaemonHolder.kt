@@ -1,0 +1,22 @@
+package dev.qcom.bandmenu
+
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.sync.Mutex
+
+/**
+ * Owns the [DaemonManager] across activity recreation (configuration changes),
+ * so the daemon and its socket survive instead of being killed and relaunched.
+ * Cleared only when the activity really finishes.
+ */
+class DaemonHolder(val daemonManager: DaemonManager) : ViewModel() {
+    /** Serializes multi-request modem sequences (SIM select + commands). Lives
+     *  here, not in the composition, so an operation still running in a
+     *  destroyed activity and the new activity's init can never interleave. */
+    val modemLock = Mutex()
+
+    override fun onCleared() {
+        // Off the main thread: stopBlocking() waits for any in-flight request,
+        // sends shutdown and runs pkill. A no-op if Back already stopped it.
+        Thread { daemonManager.stopBlocking() }.start()
+    }
+}

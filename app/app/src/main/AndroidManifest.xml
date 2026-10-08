@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
-        android:label="Qualcomm Band Menu"
+        android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.QcomBandMenu"
         android:supportsRtl="true">

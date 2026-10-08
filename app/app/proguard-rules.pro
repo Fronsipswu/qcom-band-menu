@@ -1,5 +1,2 @@
-# libsu AIDL interfaces
--keep class com.topjohnwu.superuser.** { *; }
-
-# Keep app entry points and AIDL
--keep class dev.qcom.bandmenu.** { *; }
+# libsu ships its own consumer R8 rules (Shell.Initializer / RootService
+# subclasses); nothing in this app needs a blanket keep.
