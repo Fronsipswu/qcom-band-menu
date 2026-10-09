@@ -566,7 +566,9 @@ private fun SimBandLockPage(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Separates the RAT settings from Quick selections; without that card
+        // the 8 dp spacer before the band sections is gap enough.
+        if (showQuickSelect) Spacer(modifier = Modifier.height(16.dp))
 
         // Derived, so the page recomposes only when a flag flips, not on every
         // map write. Event handlers must read a flag once before mutating the
