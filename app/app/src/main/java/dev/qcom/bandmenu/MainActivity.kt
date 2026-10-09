@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
                 var cellLockSelectedSim by remember { mutableIntStateOf(0) }
                 var nrIndependentSupported by remember { mutableStateOf<Boolean?>(null) }
                 var bandFilter by remember { mutableStateOf(BandFilterState()) }
+                var quickSelectHidden by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -109,6 +110,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getBandFilter(bandDataStore).collectLatest { state ->
                         bandFilter = state
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getQuickSelectHidden(bandDataStore).collectLatest { hidden ->
+                        quickSelectHidden = hidden
                     }
                 }
 
@@ -612,6 +619,12 @@ class MainActivity : ComponentActivity() {
                     },
                     onClearFilter = {
                         scope.launch { BandPreferences.clearBandFilter(bandDataStore) }
+                    },
+                    quickSelectHidden = quickSelectHidden,
+                    onToggleQuickSelect = {
+                        val hidden = !quickSelectHidden
+                        quickSelectHidden = hidden
+                        scope.launch { BandPreferences.setQuickSelectHidden(bandDataStore, hidden) }
                     },
                     onApply = { slot, state ->
                         scope.launch {

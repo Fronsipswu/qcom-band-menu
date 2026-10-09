@@ -81,7 +81,9 @@ fun MainScreen(
     simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     bandFilter: dev.qcom.bandmenu.BandFilterState,
     onSaveFilter: (dev.qcom.bandmenu.BandFilterState) -> Unit,
-    onClearFilter: () -> Unit
+    onClearFilter: () -> Unit,
+    quickSelectHidden: Boolean = false,
+    onToggleQuickSelect: () -> Unit = {}
 ) {
     var selectedIndex by remember { mutableIntStateOf(0) }
     val pagerState = rememberPagerState(pageCount = { 3 })
@@ -131,6 +133,8 @@ fun MainScreen(
                         bandFilter = bandFilter,
                         onSaveFilter = onSaveFilter,
                         onClearFilter = onClearFilter,
+                        quickSelectHidden = quickSelectHidden,
+                        onToggleQuickSelect = onToggleQuickSelect,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop
                     )

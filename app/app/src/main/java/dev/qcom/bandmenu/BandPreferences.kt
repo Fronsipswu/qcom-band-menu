@@ -27,6 +27,7 @@ object BandPreferences {
     private val NR_MODE_SIM2 = stringPreferencesKey("nr_mode_sim2")
     private val DEBUG_LOGGING = booleanPreferencesKey("debug_logging")
     private val NR_INDEPENDENT_SUPPORTED = booleanPreferencesKey("nr_independent_supported")
+    private val QUICK_SELECT_HIDDEN = booleanPreferencesKey("quick_select_hidden")
 
     internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
     internal val BAND_FILTER_GSM_SIM1 = stringSetPreferencesKey("band_filter_gsm_sim1")
@@ -171,6 +172,14 @@ object BandPreferences {
 
     suspend fun setDebugLogging(dataStore: DataStore<Preferences>, enabled: Boolean) {
         dataStore.edit { it[DEBUG_LOGGING] = enabled }
+    }
+
+    fun getQuickSelectHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[QUICK_SELECT_HIDDEN] ?: false }
+    }
+
+    suspend fun setQuickSelectHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
+        dataStore.edit { it[QUICK_SELECT_HIDDEN] = hidden }
     }
 
     fun getNrIndependentSupported(dataStore: DataStore<Preferences>): Flow<Boolean?> {

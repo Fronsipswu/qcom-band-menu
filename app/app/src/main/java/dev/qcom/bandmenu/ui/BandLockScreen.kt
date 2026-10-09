@@ -129,6 +129,8 @@ fun BandLockScreen(
     bandFilter: BandFilterState = BandFilterState(),
     onSaveFilter: (BandFilterState) -> Unit = {},
     onClearFilter: () -> Unit = {},
+    quickSelectHidden: Boolean = false,
+    onToggleQuickSelect: () -> Unit = {},
     snackbarHostState: SnackbarHostState,
     backdrop: Backdrop? = null
 ) {
@@ -143,8 +145,7 @@ fun BandLockScreen(
     // freeform window, which made the bar overlap the SIM tab row.
     val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top)
         .asPaddingValues(density).calculateTopPadding()
-    val filterHintSpace = if (bandFilter.enabled) 30.dp else 0.dp
-    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight + filterHintSpace
+    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight
 
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -250,7 +251,8 @@ fun BandLockScreen(
                                     hardware = hardware,
                                     useIndependentLock = useIndependentLock,
                                     filter = SimBandFilter.effectiveFilter(bandFilter, hardware, page),
-                                    refreshKey = refreshKey
+                                    refreshKey = refreshKey,
+                                    showQuickSelect = !quickSelectHidden
                                 )
                             }
                         }
@@ -268,26 +270,26 @@ fun BandLockScreen(
                                 onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                             )
                     ) {
-                        Column {
-                            SmallTopAppBar(
-                                title = "Bands",
-                                color = Color.Transparent
-                            )
-                            if (bandFilter.enabled) {
-                                FilterActiveHint()
-                            }
-                        }
+                        SmallTopAppBar(
+                            title = "Bands",
+                            color = Color.Transparent
+                        )
                     }
                 } else {
-                    Column(
+                    SmallTopAppBar(title = "Bands")
+                }
+
+                // Sits in the bar row, left of the centered title, so an active
+                // filter no longer adds a second row under the bar.
+                if (bandFilter.enabled) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MiuixTheme.colorScheme.surface)
+                            .align(Alignment.TopStart)
+                            .padding(top = topBarInset, start = 20.dp)
+                            .height(TopAppBarDefaults.CollapsedHeight),
+                        contentAlignment = Alignment.CenterStart
                     ) {
-                        SmallTopAppBar(title = "Bands")
-                        if (bandFilter.enabled) {
-                            FilterActiveHint()
-                        }
+                        FilterActiveHint()
                     }
                 }
 
@@ -306,6 +308,12 @@ fun BandLockScreen(
                             )
                         )))
                     }
+                    add(DropdownEntry(items = listOf(
+                        DropdownItem(
+                            text = if (quickSelectHidden) "Show quick select" else "Hide quick select",
+                            onClick = onToggleQuickSelect
+                        )
+                    )))
                     add(DropdownEntry(items = listOf(
                         DropdownItem("Detach", onClick = onDetach),
                         DropdownItem("Attach", onClick = onAttach),
@@ -399,7 +407,8 @@ private fun SimBandLockPage(
     hardware: HardwareBands,
     useIndependentLock: Boolean,
     filter: SimBandFilter,
-    refreshKey: Int
+    refreshKey: Int,
+    showQuickSelect: Boolean
 ) {
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -627,7 +636,7 @@ private fun SimBandLockPage(
             quickItems.filter { it.second in 4..6 }
         ).filter { it.isNotEmpty() }
 
-        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        if (showQuickSelect) Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
             WindowDropdownPreference(
                 entries = quickGroups.map { group ->
                     DropdownEntry(items = group.map { (label, idx) ->
@@ -1194,10 +1203,6 @@ private fun FilterActiveHint() {
         fontSize = 14.sp,
         fontWeight = FontWeight.Bold,
         color = MiuixTheme.colorScheme.primary,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
     )
 }
 
