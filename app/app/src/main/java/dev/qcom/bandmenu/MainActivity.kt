@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
                 var nrIndependentSupported by remember { mutableStateOf<Boolean?>(null) }
                 var bandFilter by remember { mutableStateOf(BandFilterState()) }
                 var quickSelectHidden by remember { mutableStateOf(false) }
+                var usageSettingHidden by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -116,6 +117,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getQuickSelectHidden(bandDataStore).collectLatest { hidden ->
                         quickSelectHidden = hidden
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getUsageSettingHidden(bandDataStore).collectLatest { hidden ->
+                        usageSettingHidden = hidden
                     }
                 }
 
@@ -625,6 +632,12 @@ class MainActivity : ComponentActivity() {
                         val hidden = !quickSelectHidden
                         quickSelectHidden = hidden
                         scope.launch { BandPreferences.setQuickSelectHidden(bandDataStore, hidden) }
+                    },
+                    usageSettingHidden = usageSettingHidden,
+                    onToggleUsageSetting = {
+                        val hidden = !usageSettingHidden
+                        usageSettingHidden = hidden
+                        scope.launch { BandPreferences.setUsageSettingHidden(bandDataStore, hidden) }
                     },
                     onApply = { slot, state ->
                         scope.launch {

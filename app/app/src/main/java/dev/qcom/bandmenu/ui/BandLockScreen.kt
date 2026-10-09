@@ -131,6 +131,8 @@ fun BandLockScreen(
     onClearFilter: () -> Unit = {},
     quickSelectHidden: Boolean = false,
     onToggleQuickSelect: () -> Unit = {},
+    usageSettingHidden: Boolean = false,
+    onToggleUsageSetting: () -> Unit = {},
     snackbarHostState: SnackbarHostState,
     backdrop: Backdrop? = null
 ) {
@@ -252,7 +254,8 @@ fun BandLockScreen(
                                     useIndependentLock = useIndependentLock,
                                     filter = SimBandFilter.effectiveFilter(bandFilter, hardware, page),
                                     refreshKey = refreshKey,
-                                    showQuickSelect = !quickSelectHidden
+                                    showQuickSelect = !quickSelectHidden,
+                                    showUsageSetting = !usageSettingHidden
                                 )
                             }
                         }
@@ -312,6 +315,10 @@ fun BandLockScreen(
                         DropdownItem(
                             text = if (quickSelectHidden) "Show quick select" else "Hide quick select",
                             onClick = onToggleQuickSelect
+                        ),
+                        DropdownItem(
+                            text = if (usageSettingHidden) "Show usage setting" else "Hide usage setting",
+                            onClick = onToggleUsageSetting
                         )
                     )))
                     add(DropdownEntry(items = listOf(
@@ -408,7 +415,8 @@ private fun SimBandLockPage(
     useIndependentLock: Boolean,
     filter: SimBandFilter,
     refreshKey: Int,
-    showQuickSelect: Boolean
+    showQuickSelect: Boolean,
+    showUsageSetting: Boolean
 ) {
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -452,7 +460,6 @@ private fun SimBandLockPage(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        SmallTitle("RAT lock")
         val supportedRats = BandConstants.ALL_RAT_TYPES.filter { rt ->
             when (rt) {
                 RatType.GSM -> hardware.gsm.isNotEmpty()
@@ -524,26 +531,26 @@ private fun SimBandLockPage(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        SmallTitle("Usage setting")
-        val usageEnabled = state.usageMode != UsageMode.UNKNOWN
-        TabRowWithContour(
-            tabs = listOf("Voice-centric", "Data-centric"),
-            selectedTabIndex = if (state.usageMode == UsageMode.DATA) 1 else 0,
-            onTabSelected = { index ->
-                if (usageEnabled) {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                    state.usageMode = if (index == 1) UsageMode.DATA else UsageMode.VOICE
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (usageEnabled) Modifier else Modifier.alpha(0.4f))
-        )
+        if (showUsageSetting) {
+            Spacer(modifier = Modifier.height(16.dp))
+            SmallTitle("Usage setting")
+            val usageEnabled = state.usageMode != UsageMode.UNKNOWN
+            TabRowWithContour(
+                tabs = listOf("Voice-centric", "Data-centric"),
+                selectedTabIndex = if (state.usageMode == UsageMode.DATA) 1 else 0,
+                onTabSelected = { index ->
+                    if (usageEnabled) {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                        state.usageMode = if (index == 1) UsageMode.DATA else UsageMode.VOICE
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (usageEnabled) Modifier else Modifier.alpha(0.4f))
+            )
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
-        SmallTitle("Band lock")
-        Spacer(modifier = Modifier.height(4.dp))
 
         // Derived, so the page recomposes only when a flag flips, not on every
         // map write. Event handlers must read a flag once before mutating the

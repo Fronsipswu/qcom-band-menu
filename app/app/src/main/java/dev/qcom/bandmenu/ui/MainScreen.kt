@@ -83,7 +83,9 @@ fun MainScreen(
     onSaveFilter: (dev.qcom.bandmenu.BandFilterState) -> Unit,
     onClearFilter: () -> Unit,
     quickSelectHidden: Boolean = false,
-    onToggleQuickSelect: () -> Unit = {}
+    onToggleQuickSelect: () -> Unit = {},
+    usageSettingHidden: Boolean = false,
+    onToggleUsageSetting: () -> Unit = {}
 ) {
     var selectedIndex by remember { mutableIntStateOf(0) }
     val pagerState = rememberPagerState(pageCount = { 3 })
@@ -135,6 +137,8 @@ fun MainScreen(
                         onClearFilter = onClearFilter,
                         quickSelectHidden = quickSelectHidden,
                         onToggleQuickSelect = onToggleQuickSelect,
+                        usageSettingHidden = usageSettingHidden,
+                        onToggleUsageSetting = onToggleUsageSetting,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop
                     )
