@@ -900,7 +900,13 @@ private fun BandFilterSheet(
         if (show) {
             tabIndex = 0
             fun prefill(f: SimBandFilter): SimBandFilter {
-                if (!bandFilter.enabled) {
+                // "Clear filter" only disables the filter and keeps the saved
+                // selection, so reopening the sheet shows the last ticked bands
+                // and Save brings that filter straight back. Fall back to all
+                // hardware bands only when nothing was ever saved for this SIM.
+                val hasSaved = f.gsm.isNotEmpty() || f.wcdma.isNotEmpty() || f.lte.isNotEmpty() ||
+                    f.nrNsa.isNotEmpty() || f.nrSa.isNotEmpty()
+                if (!bandFilter.enabled && !hasSaved) {
                     return SimBandFilter(hardware.gsm, hardware.wcdma, hardware.lte, hardware.nr, hardware.nr)
                 }
                 return SimBandFilter(
