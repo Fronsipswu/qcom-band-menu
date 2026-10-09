@@ -11,8 +11,8 @@ android {
         applicationId = "dev.qcom.bandmenu"
         minSdk = 30
         targetSdk = 37
-        versionCode = 63
-        versionName = "4.6.2"
+        versionCode = 64
+        versionName = "4.7.0"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
