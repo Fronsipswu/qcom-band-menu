@@ -23,9 +23,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.round
 import androidx.compose.foundation.layout.size
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -101,6 +111,43 @@ fun MainScreen(
         selectedIndex = pagerState.targetPage
     }
 
+    // An inner SIM pager on its last page hands an edge swipe to this pager
+    // through nested scroll, but the release fling stays with the inner pager,
+    // which can't move. This pager then gets no fling of its own: it either
+    // stopped between pages or snapped back to the nearest page, so only a
+    // long, slow drag reached the next page. When a child's horizontal fling
+    // starts while this pager is off a page boundary, settle it here (toward
+    // the fling, or to the nearest page if slow) and take the velocity.
+    val density = LocalDensity.current
+    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val settleAfterChildFling = remember(pagerState, density, isLtr) {
+        object : NestedScrollConnection {
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                val offset = pagerState.currentPageOffsetFraction
+                if (abs(offset) < 0.001f || abs(available.x) < abs(available.y)) return Velocity.Zero
+                val position = pagerState.currentPage + offset
+                // Finger moving toward the start of the layout = next page.
+                val towardNext = if (isLtr) -available.x else available.x
+                val threshold = with(density) { SettleVelocityThreshold.toPx() }
+                val target = when {
+                    towardNext > threshold -> ceil(position)
+                    towardNext < -threshold -> floor(position)
+                    else -> round(position)
+                }.toInt().coerceIn(0, pagerState.pageCount - 1)
+                // Run the settle here, not in a separate coroutine: the fling
+                // then carries on only after it, so this pager's own post-fling
+                // snap (velocity already taken) finds it on a page and does
+                // nothing. A launched animation was cancelled by that snap.
+                try {
+                    pagerState.animateScrollToPage(target)
+                } catch (e: CancellationException) {
+                    // A new touch took over; let it.
+                }
+                return Velocity(available.x, 0f)
+            }
+        }
+    }
+
     val surfaceColor = MiuixTheme.colorScheme.surface
     val backdrop = rememberLayerBackdrop(onDraw = {
         drawRect(surfaceColor)
@@ -119,62 +166,64 @@ fun MainScreen(
                 userScrollEnabled = true,
                 modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
             ) { page ->
-                when (page) {
-                    0 -> BandLockScreen(
-                        modemState = modemState,
-                        isLoading = isLoading,
-                        refreshingSlots = refreshingSlots,
-                        onRefresh = onRefresh,
-                        refreshKey0 = refreshKey0,
-                        refreshKey1 = refreshKey1,
-                        onApply = onApply,
-                        onReset = onReset,
-                        onDetach = onDetach,
-                        onAttach = onAttach,
-                        onReattach = onReattach,
-                        nrIndependentSupported = nrIndependentSupported,
-                        simLabels = simLabels,
-                        bandFilter = bandFilter,
-                        onSaveFilter = onSaveFilter,
-                        onClearFilter = onClearFilter,
-                        quickSelectHidden = quickSelectHidden,
-                        onToggleQuickSelect = onToggleQuickSelect,
-                        usageSettingHidden = usageSettingHidden,
-                        onToggleUsageSetting = onToggleUsageSetting,
-                        nrModeHidden = nrModeHidden,
-                        onToggleNrMode = onToggleNrMode,
-                        snackbarHostState = snackbarHostState,
-                        backdrop = backdrop
-                    )
-                    1 -> CellLockScreen(
-                        modemState = modemState,
-                        isLoading = isLoading,
-                        isRefreshing = cellLockRefreshing,
-                        onRefresh = onCellLockRefresh,
-                        refreshKey = cellLockRefreshKey,
-                        onSimSwitch = onCellLockSimSwitch,
-                        onApplyLock = onCellLockApply,
-                        onClearAll = onCellLockClearAll,
-                        onClear5G = onCellLockClear5G,
-                        onClear4G = onCellLockClear4G,
-                        onClearPlmn = onCellLockClearPlmn,
-                        onDetach = onDetach,
-                        onAttach = onAttach,
-                        onReattach = onReattach,
-                        lockResult = cellLockResult,
-                        simLabels = simLabels,
-                        onLockResultConsumed = onCellLockResultConsumed,
-                        snackbarHostState = snackbarHostState,
-                        backdrop = backdrop
-                    )
-                    else -> InfoScreen(
-                        contentPadding = topPadding,
-                        debugEnabled = debugEnabled,
-                        onDebugToggle = onDebugToggle,
-                        onDetach = onDetach,
-                        onAttach = onAttach,
-                        onReattach = onReattach
-                    )
+                Box(modifier = Modifier.fillMaxSize().nestedScroll(settleAfterChildFling)) {
+                    when (page) {
+                        0 -> BandLockScreen(
+                            modemState = modemState,
+                            isLoading = isLoading,
+                            refreshingSlots = refreshingSlots,
+                            onRefresh = onRefresh,
+                            refreshKey0 = refreshKey0,
+                            refreshKey1 = refreshKey1,
+                            onApply = onApply,
+                            onReset = onReset,
+                            onDetach = onDetach,
+                            onAttach = onAttach,
+                            onReattach = onReattach,
+                            nrIndependentSupported = nrIndependentSupported,
+                            simLabels = simLabels,
+                            bandFilter = bandFilter,
+                            onSaveFilter = onSaveFilter,
+                            onClearFilter = onClearFilter,
+                            quickSelectHidden = quickSelectHidden,
+                            onToggleQuickSelect = onToggleQuickSelect,
+                            usageSettingHidden = usageSettingHidden,
+                            onToggleUsageSetting = onToggleUsageSetting,
+                            nrModeHidden = nrModeHidden,
+                            onToggleNrMode = onToggleNrMode,
+                            snackbarHostState = snackbarHostState,
+                            backdrop = backdrop
+                        )
+                        1 -> CellLockScreen(
+                            modemState = modemState,
+                            isLoading = isLoading,
+                            isRefreshing = cellLockRefreshing,
+                            onRefresh = onCellLockRefresh,
+                            refreshKey = cellLockRefreshKey,
+                            onSimSwitch = onCellLockSimSwitch,
+                            onApplyLock = onCellLockApply,
+                            onClearAll = onCellLockClearAll,
+                            onClear5G = onCellLockClear5G,
+                            onClear4G = onCellLockClear4G,
+                            onClearPlmn = onCellLockClearPlmn,
+                            onDetach = onDetach,
+                            onAttach = onAttach,
+                            onReattach = onReattach,
+                            lockResult = cellLockResult,
+                            simLabels = simLabels,
+                            onLockResultConsumed = onCellLockResultConsumed,
+                            snackbarHostState = snackbarHostState,
+                            backdrop = backdrop
+                        )
+                        else -> InfoScreen(
+                            contentPadding = topPadding,
+                            debugEnabled = debugEnabled,
+                            onDebugToggle = onDebugToggle,
+                            onDetach = onDetach,
+                            onAttach = onAttach,
+                            onReattach = onReattach
+                        )
+                    }
                 }
             }
 
@@ -212,7 +261,6 @@ fun MainScreen(
             }
 
             // Snackbar overlay (above the floating navbar)
-            val density = LocalDensity.current
             val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
             val navbarHeightDp = 64.dp
             // Bands page has Apply/Reset buttons (~72dp) at the bottom, so the snackbar
@@ -304,3 +352,6 @@ fun MainScreen(
         }
     }
 }
+
+/** Same fling threshold as Compose's pager snapping (PagerDefaults). */
+private val SettleVelocityThreshold = 400.dp
