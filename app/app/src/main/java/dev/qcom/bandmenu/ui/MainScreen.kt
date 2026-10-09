@@ -85,7 +85,9 @@ fun MainScreen(
     quickSelectHidden: Boolean = false,
     onToggleQuickSelect: () -> Unit = {},
     usageSettingHidden: Boolean = false,
-    onToggleUsageSetting: () -> Unit = {}
+    onToggleUsageSetting: () -> Unit = {},
+    nrModeHidden: Boolean = false,
+    onToggleNrMode: () -> Unit = {}
 ) {
     var selectedIndex by remember { mutableIntStateOf(0) }
     val pagerState = rememberPagerState(pageCount = { 3 })
@@ -139,6 +141,8 @@ fun MainScreen(
                         onToggleQuickSelect = onToggleQuickSelect,
                         usageSettingHidden = usageSettingHidden,
                         onToggleUsageSetting = onToggleUsageSetting,
+                        nrModeHidden = nrModeHidden,
+                        onToggleNrMode = onToggleNrMode,
                         snackbarHostState = snackbarHostState,
                         backdrop = backdrop
                     )

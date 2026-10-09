@@ -133,6 +133,8 @@ fun BandLockScreen(
     onToggleQuickSelect: () -> Unit = {},
     usageSettingHidden: Boolean = false,
     onToggleUsageSetting: () -> Unit = {},
+    nrModeHidden: Boolean = false,
+    onToggleNrMode: () -> Unit = {},
     snackbarHostState: SnackbarHostState,
     backdrop: Backdrop? = null
 ) {
@@ -255,7 +257,8 @@ fun BandLockScreen(
                                     filter = SimBandFilter.effectiveFilter(bandFilter, hardware, page),
                                     refreshKey = refreshKey,
                                     showQuickSelect = !quickSelectHidden,
-                                    showUsageSetting = !usageSettingHidden
+                                    showUsageSetting = !usageSettingHidden,
+                                    showNrMode = !nrModeHidden
                                 )
                             }
                         }
@@ -311,16 +314,23 @@ fun BandLockScreen(
                             )
                         )))
                     }
-                    add(DropdownEntry(items = listOf(
-                        DropdownItem(
-                            text = if (quickSelectHidden) "Show quick select" else "Hide quick select",
-                            onClick = onToggleQuickSelect
-                        ),
-                        DropdownItem(
+                    // Same top-to-bottom order as the sections on the page.
+                    add(DropdownEntry(items = buildList {
+                        if (hardware.nr.isNotEmpty()) {
+                            add(DropdownItem(
+                                text = if (nrModeHidden) "Show NR mode" else "Hide NR mode",
+                                onClick = onToggleNrMode
+                            ))
+                        }
+                        add(DropdownItem(
                             text = if (usageSettingHidden) "Show usage setting" else "Hide usage setting",
                             onClick = onToggleUsageSetting
-                        )
-                    )))
+                        ))
+                        add(DropdownItem(
+                            text = if (quickSelectHidden) "Show quick select" else "Hide quick select",
+                            onClick = onToggleQuickSelect
+                        ))
+                    }))
                     add(DropdownEntry(items = listOf(
                         DropdownItem("Detach", onClick = onDetach),
                         DropdownItem("Attach", onClick = onAttach),
@@ -416,7 +426,8 @@ private fun SimBandLockPage(
     filter: SimBandFilter,
     refreshKey: Int,
     showQuickSelect: Boolean,
-    showUsageSetting: Boolean
+    showUsageSetting: Boolean,
+    showNrMode: Boolean
 ) {
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -502,7 +513,7 @@ private fun SimBandLockPage(
             )
         }
 
-        if (hardware.nr.isNotEmpty()) {
+        if (showNrMode && hardware.nr.isNotEmpty()) {
             Spacer(modifier = Modifier.height(16.dp))
             SmallTitle("NR mode")
             val nrModeIndex = when (state.nrMode) {

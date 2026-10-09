@@ -29,6 +29,7 @@ object BandPreferences {
     private val NR_INDEPENDENT_SUPPORTED = booleanPreferencesKey("nr_independent_supported")
     private val QUICK_SELECT_HIDDEN = booleanPreferencesKey("quick_select_hidden")
     private val USAGE_SETTING_HIDDEN = booleanPreferencesKey("usage_setting_hidden")
+    private val NR_MODE_HIDDEN = booleanPreferencesKey("nr_mode_hidden")
 
     internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
     internal val BAND_FILTER_GSM_SIM1 = stringSetPreferencesKey("band_filter_gsm_sim1")
@@ -189,6 +190,14 @@ object BandPreferences {
 
     suspend fun setUsageSettingHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
         dataStore.edit { it[USAGE_SETTING_HIDDEN] = hidden }
+    }
+
+    fun getNrModeHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[NR_MODE_HIDDEN] ?: false }
+    }
+
+    suspend fun setNrModeHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
+        dataStore.edit { it[NR_MODE_HIDDEN] = hidden }
     }
 
     fun getNrIndependentSupported(dataStore: DataStore<Preferences>): Flow<Boolean?> {
