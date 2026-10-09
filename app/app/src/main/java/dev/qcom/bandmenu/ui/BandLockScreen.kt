@@ -831,6 +831,8 @@ private fun SimBandLockPage(
     }
 }
 
+private val BandCellVerticalPadding = 4.dp
+
 /**
  * One band in a checkbox grid. The whole cell (circle and label) is the
  * tap target, not only the 26 dp circle; the Checkbox itself is display-only.
@@ -855,7 +857,8 @@ private fun BandCheckboxCell(
                         if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn
                     )
                 }
-            ),
+            )
+            .padding(vertical = BandCellVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -877,18 +880,12 @@ private fun BandCheckboxGrid(
     checked: MutableMap<Int, Boolean>,
     prefix: String
 ) {
-    val density = LocalDensity.current
-    val rowMargin = with(density) { 3f.toDp() }
-    val rowCount = (bands.size + 3) / 4
-    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-        bands.chunked(4).forEachIndexed { index, group ->
+    // Row spacing comes from the cells' own vertical padding, so the gap
+    // between rows is part of the tap target rather than a dead zone.
+    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp - BandCellVerticalPadding)) {
+        bands.chunked(4).forEach { group ->
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        top = if (index == 0) 0.dp else rowMargin,
-                        bottom = if (index == rowCount - 1) 0.dp else rowMargin
-                    ),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 group.forEach { band ->
@@ -1294,18 +1291,12 @@ private fun FilterCheckboxGrid(
     prefix: String,
     onToggle: (Int) -> Unit
 ) {
-    val density = LocalDensity.current
-    val rowMargin = with(density) { 3f.toDp() }
-    val rowCount = (bands.size + 3) / 4
-    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-        bands.chunked(4).forEachIndexed { index, group ->
+    // Row spacing comes from the cells' own vertical padding, so the gap
+    // between rows is part of the tap target rather than a dead zone.
+    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp - BandCellVerticalPadding)) {
+        bands.chunked(4).forEach { group ->
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        top = if (index == 0) 0.dp else rowMargin,
-                        bottom = if (index == rowCount - 1) 0.dp else rowMargin
-                    ),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 group.forEach { band ->
