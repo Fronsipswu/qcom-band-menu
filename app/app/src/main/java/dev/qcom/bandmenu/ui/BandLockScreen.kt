@@ -3,6 +3,7 @@ package dev.qcom.bandmenu.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedback
@@ -46,6 +48,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
@@ -828,6 +831,46 @@ private fun SimBandLockPage(
     }
 }
 
+/**
+ * One band in a checkbox grid. The whole cell (circle and label) is the
+ * tap target, not only the 26 dp circle; the Checkbox itself is display-only.
+ */
+@Composable
+private fun BandCheckboxCell(
+    label: String,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val haptic = LocalHapticFeedback.current
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .toggleable(
+                value = checked,
+                role = Role.Checkbox,
+                onValueChange = {
+                    onToggle()
+                    haptic.performHapticFeedback(
+                        if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn
+                    )
+                }
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Checkbox(
+            state = if (checked) ToggleableState.On else ToggleableState.Off,
+            onClick = null
+        )
+        Text(
+            text = label,
+            style = MiuixTheme.textStyles.body1,
+            color = MiuixTheme.colorScheme.onBackground
+        )
+    }
+}
+
 @Composable
 private fun BandCheckboxGrid(
     bands: List<Int>,
@@ -849,22 +892,13 @@ private fun BandCheckboxGrid(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 group.forEach { band ->
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        val isChecked = checked[band] == true
-                        Checkbox(
-                            state = if (isChecked) ToggleableState.On else ToggleableState.Off,
-                            onClick = { checked[band] = !isChecked }
-                        )
-                        Text(
-                            text = "$prefix$band",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onBackground
-                        )
-                    }
+                    val isChecked = checked[band] == true
+                    BandCheckboxCell(
+                        label = "$prefix$band",
+                        checked = isChecked,
+                        onToggle = { checked[band] = !isChecked },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
                 repeat(4 - group.size) {
                     Spacer(modifier = Modifier.weight(1f))
@@ -1275,21 +1309,12 @@ private fun FilterCheckboxGrid(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 group.forEach { band ->
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Checkbox(
-                            state = if (band in selected) ToggleableState.On else ToggleableState.Off,
-                            onClick = { onToggle(band) }
-                        )
-                        Text(
-                            text = "$prefix$band",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onBackground
-                        )
-                    }
+                    BandCheckboxCell(
+                        label = "$prefix$band",
+                        checked = band in selected,
+                        onToggle = { onToggle(band) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
                 repeat(4 - group.size) {
                     Spacer(modifier = Modifier.weight(1f))
