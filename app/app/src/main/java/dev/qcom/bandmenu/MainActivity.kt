@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "QcomBand"
+        private const val SIM2_UNAVAILABLE_MESSAGE =
+            "SIM 2 is not available (single-SIM mode or DSDS off)"
     }
 
     // Held by a ViewModel so a configuration change (dark mode, font scale,
@@ -190,15 +192,28 @@ class MainActivity : ComponentActivity() {
                                         // SIM 2 first, then SIM 1: two requests, and the daemon
                                         // ends bound to SIM 1, which detach/attach act on.
                                         // I8: Check ok on each response
-                                        val sim2Parsed = JsonStateParser.parseResponse(daemonManager.simSet(2))
-                                        if (!sim2Parsed.ok) {
-                                            initErrorTitle = "Initialization Failed"
-                                            initError = "Failed to select SIM 2: ${sim2Parsed.error?.message ?: "unknown"}"
-                                            return@withContext
+                                        // SIM 2 is optional: on a single-SIM phone, or with DSDS
+                                        // off, the modem refuses to bind subscription 2. That
+                                        // marks SIM 2 unavailable instead of failing init, so
+                                        // SIM 1 still works. Only a SIM 1 failure is fatal.
+                                        val modemCount = (getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)
+                                            ?.activeModemCount ?: 2
+                                        var sim2Available = modemCount >= 2
+                                        var sim2Parsed: DaemonResponse? = null
+                                        if (sim2Available) {
+                                            val r = JsonStateParser.parseResponse(daemonManager.simSet(2))
+                                            if (r.ok) {
+                                                sim2Parsed = r
+                                            } else {
+                                                sim2Available = false
+                                                AppLog.w(TAG, "Init: SIM 2 unavailable (${r.error?.message ?: "unknown"}), continuing with SIM 1")
+                                            }
+                                        } else {
+                                            AppLog.i(TAG, "Init: activeModemCount=$modemCount, skipping SIM 2")
                                         }
-                                        val sim2State = sim2Parsed.simState ?: SimState()
-                                        val sim2CellLock = sim2Parsed.cellLockState ?: CellLockState()
-                                        val sim2PlmnLock = sim2Parsed.plmnLockState ?: PlmnLockState()
+                                        val sim2State = sim2Parsed?.simState ?: SimState()
+                                        val sim2CellLock = sim2Parsed?.cellLockState ?: CellLockState()
+                                        val sim2PlmnLock = sim2Parsed?.plmnLockState ?: PlmnLockState()
 
                                         val sim1Parsed = JsonStateParser.parseResponse(daemonManager.simSet(1))
                                         if (!sim1Parsed.ok) {
@@ -230,7 +245,8 @@ class MainActivity : ComponentActivity() {
                                             sim1State, sim2State, hardware, true,
                                             sim1CellLock, sim2CellLock,
                                             sim1PlmnLock, sim2PlmnLock,
-                                            initNrIndependentSupported ?: nrIndependentSupported
+                                            initNrIndependentSupported ?: nrIndependentSupported,
+                                            sim2Available = sim2Available
                                         )
 
                                         // I6: Enable verbose logging on startup if debug is enabled
@@ -286,9 +302,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Commands for a SIM 2 the modem refused would fail anyway (or, for
+                // refresh, read SIM 1); explain instead of sending them.
+                fun sim2Unavailable(sim: Int): Boolean {
+                    if (sim != 2 || modemState?.sim2Available != false) return false
+                    snackbarIsError = true
+                    snackbarMessage = SIM2_UNAVAILABLE_MESSAGE
+                    return true
+                }
+
                 MainScreen(
-                    onCellLockSimSwitch = { slot ->
+                    onCellLockSimSwitch = simSwitch@{ slot ->
                         cellLockSelectedSim = slot
+                        if (slot == 1 && modemState?.sim2Available == false) return@simSwitch
                         scope.launch {
                             modemLock.withLock {
                                 val sim = slot + 1
@@ -320,7 +346,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onCellLockApply = { sim, fieldIndex, input ->
+                    onCellLockApply = cellApply@{ sim, fieldIndex, input ->
+                        if (sim2Unavailable(sim)) return@cellApply
                         scope.launch {
                             modemLock.withLock {
                                 var success = false
@@ -422,7 +449,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onCellLockClearAll = { sim ->
+                    onCellLockClearAll = clearAll@{ sim ->
+                        if (sim2Unavailable(sim)) return@clearAll
                         scope.launch {
                             modemLock.withLock {
                                 var newCellLock: CellLockState? = null
@@ -465,7 +493,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onCellLockClear5G = { sim ->
+                    onCellLockClear5G = clear5g@{ sim ->
+                        if (sim2Unavailable(sim)) return@clear5g
                         scope.launch {
                             modemLock.withLock {
                                 var newCellLock: CellLockState? = null
@@ -507,7 +536,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onCellLockClear4G = { sim ->
+                    onCellLockClear4G = clear4g@{ sim ->
+                        if (sim2Unavailable(sim)) return@clear4g
                         scope.launch {
                             modemLock.withLock {
                                 var newCellLock: CellLockState? = null
@@ -539,7 +569,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onCellLockClearPlmn = { sim ->
+                    onCellLockClearPlmn = clearPlmn@{ sim ->
+                        if (sim2Unavailable(sim)) return@clearPlmn
                         scope.launch {
                             modemLock.withLock {
                                 var newPlmnLock: PlmnLockState? = null
@@ -576,7 +607,8 @@ class MainActivity : ComponentActivity() {
                     cellLockResult = cellLockResult,
                     onCellLockResultConsumed = { cellLockResult = null },
                     cellLockRefreshing = cellLockRefreshing,
-                    onCellLockRefresh = {
+                    onCellLockRefresh = cellRefresh@{
+                        if (sim2Unavailable(cellLockSelectedSim + 1)) return@cellRefresh
                         scope.launch {
                             cellLockRefreshing = true
                             modemLock.withLock {
@@ -652,7 +684,8 @@ class MainActivity : ComponentActivity() {
                         nrModeHidden = hidden
                         scope.launch { BandPreferences.setNrModeHidden(bandDataStore, hidden) }
                     },
-                    onApply = { slot, state ->
+                    onApply = apply@{ slot, state ->
+                        if (sim2Unavailable(slot + 1)) return@apply
                         scope.launch {
                             modemLock.withLock {
                                 val sim = slot + 1
@@ -740,7 +773,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onReset = { slot ->
+                    onReset = reset@{ slot ->
+                        if (sim2Unavailable(slot + 1)) return@reset
                         scope.launch {
                             modemLock.withLock {
                                 val sim = slot + 1
@@ -869,7 +903,8 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     refreshingSlots = refreshingSlots,
-                    onRefresh = { slot ->
+                    onRefresh = refresh@{ slot ->
+                        if (sim2Unavailable(slot + 1)) return@refresh
                         scope.launch {
                             refreshingSlots = refreshingSlots + slot
                             val sim = slot + 1
@@ -890,6 +925,13 @@ class MainActivity : ComponentActivity() {
                                             }
                                             if (!parsed.ok) {
                                                 errorMsg = parsed.error?.message ?: "Refresh failed"
+                                                return@withContext
+                                            }
+                                            // The refresh fallback re-reads whichever SIM the
+                                            // daemon is bound to; never show that under the
+                                            // wrong SIM's tab.
+                                            if (parsed.sim != sim) {
+                                                errorMsg = "Refresh failed: could not select SIM $sim"
                                                 return@withContext
                                             }
                                             newState = parsed.simState

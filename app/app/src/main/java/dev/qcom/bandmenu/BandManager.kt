@@ -139,7 +139,9 @@ data class ModemState(
     val sim2CellLock: CellLockState = CellLockState(),
     val sim1PlmnLock: PlmnLockState = PlmnLockState(),
     val sim2PlmnLock: PlmnLockState = PlmnLockState(),
-    val nrIndependentSupported: Boolean? = null
+    val nrIndependentSupported: Boolean? = null,
+    /** False when the modem refused SIM 2 (single-SIM phone, DSDS off). */
+    val sim2Available: Boolean = true
 )
 
 object BandConstants {

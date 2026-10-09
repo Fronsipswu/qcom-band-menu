@@ -249,7 +249,9 @@ fun BandLockScreen(
                                     .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                     .onSizeChanged { size -> pageHeights[page] = size.height }
                             ) {
-                                SimBandLockPage(
+                                if (page == 1 && modemState?.sim2Available == false) {
+                                    Sim2UnavailableNote()
+                                } else SimBandLockPage(
                                     state = slotStates[page],
                                     simState = simState,
                                     hardware = hardware,
@@ -351,7 +353,7 @@ fun BandLockScreen(
                 }
             }
 
-            Row(
+            if (!(selectedSim == 1 && modemState?.sim2Available == false)) Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -1217,6 +1219,27 @@ private fun CopySelectionRow(
             style = MiuixTheme.textStyles.body1,
             color = MiuixTheme.colorScheme.primary
         )
+    }
+}
+
+/** Shown in place of a SIM 2 page when the modem refused SIM 2. */
+@Composable
+internal fun Sim2UnavailableNote() {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "SIM 2 is not available",
+                style = MiuixTheme.textStyles.title4,
+                color = MiuixTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "The modem refused to select SIM 2. This is expected on single-SIM " +
+                    "phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
     }
 }
 

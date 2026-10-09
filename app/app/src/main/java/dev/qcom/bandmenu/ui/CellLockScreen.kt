@@ -187,7 +187,9 @@ fun CellLockScreen(
                             beyondViewportPageCount = 1,
                             modifier = Modifier.fillMaxWidth().weight(1f)
                         ) { page ->
-                            SimCellLockPage(
+                            if (page == 1 && !modemState.sim2Available) {
+                                Column(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) { Sim2UnavailableNote() }
+                            } else SimCellLockPage(
                                 simSlot = page,
                                 cellLockState = if (page == 0) modemState.sim1CellLock else modemState.sim2CellLock,
                                 plmnLockState = if (page == 0) modemState.sim1PlmnLock else modemState.sim2PlmnLock,
