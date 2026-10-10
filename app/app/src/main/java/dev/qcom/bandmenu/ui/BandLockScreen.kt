@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.alpha
@@ -75,6 +76,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.basic.CheckboxDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -744,7 +746,7 @@ private fun SimBandLockPage(
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         colors = if (modified)
-                            CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                            CardDefaults.defaultColors(color = unfinishedGroupGlow())
                         else CardDefaults.defaultColors()
                     ) {
                         BandCheckboxGrid(sortedSa, state.nrSaChecked, "n")
@@ -760,7 +762,7 @@ private fun SimBandLockPage(
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         colors = if (modified)
-                            CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                            CardDefaults.defaultColors(color = unfinishedGroupGlow())
                         else CardDefaults.defaultColors()
                     ) {
                         BandCheckboxGrid(sortedNsa, state.nrNsaChecked, "n")
@@ -776,7 +778,7 @@ private fun SimBandLockPage(
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     colors = if (modified)
-                        CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                        CardDefaults.defaultColors(color = unfinishedGroupGlow())
                     else CardDefaults.defaultColors()
                 ) {
                     BandCheckboxGrid(sortedNr, state.nrChecked, "n")
@@ -793,7 +795,7 @@ private fun SimBandLockPage(
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 colors = if (modified)
-                    CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                    CardDefaults.defaultColors(color = unfinishedGroupGlow())
                 else CardDefaults.defaultColors()
             ) {
                 BandCheckboxGrid(sortedLte, state.lteChecked, "B")
@@ -809,7 +811,7 @@ private fun SimBandLockPage(
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 colors = if (modified)
-                    CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                    CardDefaults.defaultColors(color = unfinishedGroupGlow())
                 else CardDefaults.defaultColors()
             ) {
                 BandCheckboxGrid(sortedWcdma, state.wcdmaChecked, "B")
@@ -825,7 +827,7 @@ private fun SimBandLockPage(
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 colors = if (modified)
-                    CardDefaults.defaultColors(color = MiuixTheme.colorScheme.tertiaryContainer)
+                    CardDefaults.defaultColors(color = unfinishedGroupGlow())
                 else CardDefaults.defaultColors()
             ) {
                 BandCheckboxGrid(sortedGsm, state.gsmChecked, "")
@@ -836,6 +838,15 @@ private fun SimBandLockPage(
 }
 
 private val BandCellVerticalPadding = 4.dp
+
+/**
+ * Card tint for a band group that isn't fully ticked: the normal card colour
+ * lifted towards white, so it reads as a soft white glow. (Plain white at low
+ * alpha would sit on the black background and come out darker than the card.)
+ */
+@Composable
+private fun unfinishedGroupGlow(): Color =
+    lerp(MiuixTheme.colorScheme.surfaceContainer, Color.White, 0.15f)
 
 /**
  * One band in a checkbox grid. The whole cell (circle and label) is the
@@ -866,9 +877,14 @@ private fun BandCheckboxCell(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        // Ticked bands: a white circle with a black tick.
         Checkbox(
             state = if (checked) ToggleableState.On else ToggleableState.Off,
-            onClick = null
+            onClick = null,
+            colors = CheckboxDefaults.checkboxColors(
+                checkedBackgroundColor = Color.White,
+                checkedForegroundColor = Color.Black
+            )
         )
         Text(
             text = label,

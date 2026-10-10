@@ -453,7 +453,10 @@ private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
         Text(v ?: "–", style = MiuixTheme.textStyles.body2, fontWeight = if (bold) FontWeight.SemiBold else null,
             color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1)
 
-    row("", header = true) { text(it.role, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+    // The primary cell's role is blue; the secondaries stay grey.
+    row("", header = true) {
+        text(it.role, color = if (it.role == "P") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    }
     row("Band") { text(it.band, bold = true) }
     row("EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
