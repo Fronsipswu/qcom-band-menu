@@ -348,8 +348,8 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
         val extra = serving.filter { it != primary }
         if (extra.isEmpty()) return null
         return CarrierGroup(
-            title = "NR carrier aggregation",
-            summary = "${serving.size} NR serving frequencies reported",
+            title = "NR secondary",
+            summary = "",
             carriers = extra.map { ch ->
                 Carrier("SCell", null, ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${mhz(it)})" } ?: ""), null, null, null)
             },

@@ -32,7 +32,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -121,12 +120,6 @@ fun NetworkScreen(
         }
     }
 
-    // Ticks the "updated N s ago" label.
-    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(isActive) {
-        while (isActive) { now = SystemClock.elapsedRealtime(); kotlinx.coroutines.delay(1000) }
-    }
-
     val surfaceColor = MiuixTheme.colorScheme.surface
     val screenBackdrop = rememberLayerBackdrop(onDraw = { drawRect(surfaceColor); drawContent() })
 
@@ -161,7 +154,7 @@ fun NetworkScreen(
                     state.sim == 2 && !sim2Available -> Sim2UnavailableNote()
                     snap == null && state.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
                     snap == null -> NoticeCard(state.error!!)
-                    else -> NetworkContent(snap, state, now)
+                    else -> NetworkContent(snap, state)
                 }
             }
         }
@@ -195,8 +188,8 @@ fun NetworkScreen(
 }
 
 @Composable
-private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, now: Long) {
-    SummaryCard(snap, state, now)
+private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
+    SummaryCard(snap, state)
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
     snap.cells.forEach { CellSection(it) }
@@ -205,8 +198,10 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, n
     }
     snap.carrierGroups.forEach { CarrierSection(it) }
     if (snap.antennas.isNotEmpty()) {
-        Expandable("Antennas (${snap.antennas.sumOf { a -> a.chains.count { it.tuned } }} tuned)") {
-            snap.antennas.forEach { AntennaRows(it) }
+        Expandable("Per antenna measurements") {
+            // Headings only when LTE and NR chains are shown together (NSA).
+            val showHeadings = snap.antennas.size > 1
+            snap.antennas.forEach { AntennaRows(it, showHeadings) }
         }
     }
     if (snap.neighbors.isNotEmpty()) {
@@ -224,35 +219,39 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, n
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, now: Long) {
+private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State) {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (snap.mode.generation.isNotEmpty()) {
-                    Box(
-                        Modifier.clip(RoundedCornerShape(8.dp)).background(MiuixTheme.colorScheme.primary)
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(snap.mode.generation, color = MiuixTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-                Text(snap.mode.label, style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.SemiBold)
+            // The mode itself is the pill (blue when in service, grey otherwise).
+            val inService = snap.mode.generation.isNotEmpty()
+            Box(
+                Modifier.clip(RoundedCornerShape(10.dp))
+                    .background(if (inService) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.1f))
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    snap.mode.label,
+                    style = MiuixTheme.textStyles.title3,
+                    fontWeight = FontWeight.Bold,
+                    color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
+                )
             }
             Spacer(Modifier.height(10.dp))
             val operator = listOfNotNull(state.operatorName, snap.plmn?.toString()).joinToString(" · ")
             if (operator.isNotEmpty()) Text(operator, style = MiuixTheme.textStyles.body1)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
-                snap.roaming?.let { Chip(if (it) "Roaming" else "Home network", highlight = it) }
+                snap.roaming?.let { Chip("Roaming: $it", highlight = it) }
                 snap.rrc.forEach { Chip("${it.label}: ${it.value}", highlight = it.value == "Connected") }
             }
-            Spacer(Modifier.height(8.dp))
-            val age = ((now - snap.takenAtElapsedMs) / 1000).coerceAtLeast(0)
-            val status = if (state.frozen) {
+            // Only a frozen reading is labelled; live needs no text.
+            if (state.frozen) {
                 val wall = System.currentTimeMillis() - (SystemClock.elapsedRealtime() - snap.takenAtElapsedMs)
-                "Frozen · reading from ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(wall))}"
-            } else if (age <= 1) "Live" else "Live · updated $age s ago"
-            Text(status, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Frozen · reading from ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(wall))}",
+                    style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
         }
     }
 }
@@ -283,30 +282,36 @@ private fun CellSection(cell: CellCard) {
     }
 }
 
-/** Two-column label/value grid; long values (ECI, DL/UL) take a full row. */
+/**
+ * Compact three-column label/value grid. A field spans 1, 2 or 3 columns by
+ * value length (ECI and DL/UL need more), packed in order.
+ */
 @Composable
 private fun FieldGrid(fields: List<Field>) {
-    val wide = setOf("ECI", "DL / UL", "Cell ID", "Timing advance", "NCI", "BSIC")
+    fun span(f: Field) = when {
+        f.value.length <= 11 -> 1
+        f.value.length <= 22 -> 2
+        else -> 3
+    }
     val rows = buildList<List<Field>> {
-        var pending: Field? = null
+        var row = mutableListOf<Field>()
+        var used = 0
         for (f in fields) {
-            if (f.label in wide || f.value.length > 14) {
-                pending?.let { add(listOf(it)); pending = null }
-                add(listOf(f))
-            } else if (pending == null) pending = f
-            else { add(listOf(pending!!, f)); pending = null }
+            if (used + span(f) > 3) { add(row); row = mutableListOf(); used = 0 }
+            row += f; used += span(f)
         }
-        pending?.let { add(listOf(it)) }
+        if (row.isNotEmpty()) add(row)
     }
     rows.forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
             row.forEach { f ->
-                Column(Modifier.weight(1f)) {
-                    Text(f.label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    Text(f.value, style = MiuixTheme.textStyles.body1)
+                Column(Modifier.weight(span(f).toFloat())) {
+                    Text(f.label, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Text(f.value, style = MiuixTheme.textStyles.body2)
                 }
             }
-            if (row.size == 1 && row[0].label !in wide && row[0].value.length <= 14) Spacer(Modifier.weight(1f))
+            val free = 3 - row.sumOf(::span)
+            if (free > 0) Spacer(Modifier.weight(free.toFloat()))
         }
     }
 }
@@ -316,8 +321,10 @@ private fun CarrierSection(group: CarrierGroup) {
     SmallTitle(group.title, modifier = Modifier.padding(top = 6.dp))
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(16.dp)) {
-            Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.height(8.dp))
+            if (group.summary.isNotEmpty()) {
+                Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(8.dp))
+            }
             group.carriers.forEach { c ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
@@ -362,26 +369,25 @@ private fun Expandable(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun AntennaRows(a: AntennaGroup) {
-    Text("${a.rat.label} receiver chains", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
+private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
+    if (showHeading) {
+        Text("${a.rat.label} receiver chains", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
+    }
     a.chains.forEach { c ->
         if (!c.tuned) {
-            Text("RX${c.chain}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
+            Text("Antenna ${c.chain + 1}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
             return@forEach
         }
-        // RSRP (LTE/NR) or RSCP (WCDMA) gets a bar; RX power is the raw level.
+        // TX_RX_INFO has only RSRP (LTE/NR), RSCP (WCDMA) or RX power per
+        // chain; per-antenna RSRQ/SINR don't exist in QMI. Numbered from 1.
+        val n = c.chain + 1
         val m = when {
-            c.rsrp != null -> Metric("RX${c.chain}", MetricKind.RSRP, a.rat, c.rsrp, "dBm")
-            c.rscp != null -> Metric("RX${c.chain}", MetricKind.RSCP, a.rat, c.rscp, "dBm")
-            else -> Metric("RX${c.chain}", MetricKind.RSSI, a.rat, c.rxPower, "dBm")
+            c.rsrp != null -> Metric("RSRP $n", MetricKind.RSRP, a.rat, c.rsrp, "dBm")
+            c.rscp != null -> Metric("RSCP $n", MetricKind.RSCP, a.rat, c.rscp, "dBm")
+            else -> Metric("RSSI $n", MetricKind.RSSI, a.rat, c.rxPower, "dBm")
         }
-        SignalBar(m, Modifier.padding(top = 4.dp))
-        c.rxPower?.let {
-            Text("RX power ${formatMetric(it)} dBm" + (c.ecio?.let { e -> " · Ec/Io ${formatMetric(e)} dB" } ?: ""),
-                style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(start = 74.dp, bottom = 2.dp))
-        }
+        SignalBar(m, Modifier.padding(vertical = 4.dp), labelWidth = 64.dp)
     }
     val tx = when {
         a.txPower != null -> "TX power ${formatMetric(a.txPower)} dBm"
