@@ -153,12 +153,10 @@ class SnapshotBuilder(
     val mode: ServiceMode = run {
         val s = sys ?: return@run ServiceMode.NO_SERVICE
         val nrLeg = s.nrPci != null || !arfcn?.nrServing.isNullOrEmpty() || arfcn?.nrRrc != null
-        // Stay in the NSA layout while the LTE cell offers EN-DC, so the NR SCG
-        // card doesn't pop in and out whenever the NR leg drops briefly (the
-        // same signal Android uses to keep the 5G icon).
-        val endcOffered = s.endcAvailable == true && s.dcnrRestricted != true
+        // NSA only while an NR leg is actually up; when the SCG drops the page
+        // falls back to the LTE layout (EN-DC availability is not used).
         when {
-            s.inService(Rat.LTE) && (nrLeg || endcOffered) -> ServiceMode.NR_NSA
+            s.inService(Rat.LTE) && nrLeg -> ServiceMode.NR_NSA
             s.inService(Rat.LTE) -> ServiceMode.LTE
             s.inService(Rat.NR) -> ServiceMode.NR_SA
             s.inService(Rat.WCDMA) -> ServiceMode.WCDMA

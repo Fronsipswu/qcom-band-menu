@@ -38,8 +38,13 @@ class NetworkMonitor(
         val operatorName: String? = null,
         val error: String? = null,
         val frozen: Boolean = false,
-        val refreshing: Boolean = false
+        val refreshing: Boolean = false,
+        /** Last good reading per SIM, so the SIM pager's neighbouring page
+         *  shows that SIM's own data while swiping. Only [sim] is polled. */
+        val lastBySim: Map<Int, Reading> = emptyMap()
     )
+
+    data class Reading(val snapshot: NetworkSnapshot, val operatorName: String?)
 
     /** NR bands the modem supports (from the band-lock hardware query). */
     @Volatile
@@ -68,8 +73,9 @@ class NetworkMonitor(
 
     fun selectSim(sim: Int) {
         if (sim == _state.value.sim) return
-        // Drop the other SIM's data at once; never show SIM 1 under SIM 2.
-        _state.update { it.copy(sim = sim, snapshot = null, operatorName = null, error = null) }
+        // Drop the other SIM's data at once; never show SIM 1 under SIM 2. The
+        // new SIM's own last reading (if any) shows until its round lands.
+        _state.update { val last = it.lastBySim[sim]; it.copy(sim = sim, snapshot = last?.snapshot, operatorName = last?.operatorName, error = null) }
         if (visible && resumed) scope.launch { round() }
         reschedule()
     }
@@ -104,7 +110,7 @@ class NetworkMonitor(
         if (_state.value.sim != sim) return@withLock
         result.fold(
             onSuccess = { (snap, name) ->
-                _state.update { it.copy(snapshot = snap, operatorName = name, error = null) }
+                _state.update { it.copy(snapshot = snap, operatorName = name, error = null, lastBySim = it.lastBySim + (sim to Reading(snap, name))) }
             },
             onFailure = { e -> _state.update { it.copy(error = e.message ?: "Read failed") } }
         )

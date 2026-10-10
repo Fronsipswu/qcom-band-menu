@@ -1,5 +1,13 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onSizeChanged
+import kotlinx.coroutines.launch
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -128,6 +136,17 @@ fun NetworkScreen(
         }
     }
 
+    // SIM pager, as on the Bands page: the pager is the source of truth and
+    // the monitor follows its target page. Sized to the current page so a
+    // short SIM page leaves no blank scroll space.
+    val pagerState = rememberPagerState(initialPage = state.sim - 1, pageCount = { 2 })
+    val pagerScope = rememberCoroutineScope()
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.targetPage }.collect { monitor.selectSim(it + 1) }
+    }
+    val pageHeights = remember { mutableStateMapOf<Int, Int>() }
+    val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }
+
     val surfaceColor = MiuixTheme.colorScheme.surface
     val screenBackdrop = rememberLayerBackdrop(onDraw = { drawRect(surfaceColor); drawContent() })
 
@@ -143,26 +162,46 @@ fun NetworkScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(top = topBarHeight)
-                    .padding(horizontal = 16.dp)
                     .padding(bottom = navbarSpace + 16.dp)
             ) {
                 TabRowWithContour(
                     tabs = simLabels,
-                    selectedTabIndex = state.sim - 1,
+                    selectedTabIndex = pagerState.targetPage,
                     onTabSelected = {
                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        monitor.selectSim(it + 1)
+                        if (pagerState.targetPage != it) pagerScope.launch { pagerState.animateScrollToPage(it) }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
                 Spacer(Modifier.height(12.dp))
 
-                val snap = state.snapshot
-                when {
-                    state.sim == 2 && !sim2Available -> Sim2UnavailableNote()
-                    snap == null && state.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
-                    snap == null -> NoticeCard(state.error!!)
-                    else -> NetworkContent(snap, state)
+                HorizontalPager(
+                    state = pagerState,
+                    beyondViewportPageCount = 1,
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth().then(pagerHeight?.let { Modifier.height(it) } ?: Modifier)
+                ) { page ->
+                    val sim = page + 1
+                    // Only the selected SIM is polled; the other page shows
+                    // that SIM's own last reading (or a spinner), never this one's.
+                    val pageState = if (sim == state.sim) state
+                        else state.copy(sim = sim, snapshot = state.lastBySim[sim]?.snapshot,
+                            operatorName = state.lastBySim[sim]?.operatorName, error = null)
+                    Column(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            // Natural height, unconstrained by the pager (see pagerHeight).
+                            .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                            .onSizeChanged { pageHeights[page] = it.height }
+                    ) {
+                        val snap = pageState.snapshot
+                        when {
+                            sim == 2 && !sim2Available -> Sim2UnavailableNote()
+                            snap == null && pageState.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
+                            snap == null -> NoticeCard(pageState.error!!)
+                            else -> NetworkContent(snap, pageState)
+                        }
+                    }
                 }
             }
         }
@@ -356,9 +395,12 @@ private fun CarrierSection(group: CarrierGroup) {
 /** Cellular-Pro-style CA table: one column per carrier, one row per parameter. */
 @Composable
 private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
-    // Bars never get wider than with three carriers (3xCA), so 2xCA doesn't
-    // stretch them across half the card; more carriers make them narrower.
-    val barMax = (maxWidth - 64.dp) / 3 - 6.dp
+    // Up to three carriers (P, S1, S2) each column is fixed at its 3xCA width
+    // and the columns sit from the left, so a lone PCell isn't centred in
+    // empty space. From four carriers (S3) the columns share the width.
+    val colWidth = (maxWidth - 64.dp) / 3
+    val fixedCols = carriers.size <= 3
+    val barMax = colWidth - 6.dp
     Column {
     val line = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     @Composable
@@ -371,7 +413,9 @@ private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
         ) {
             Text(label, modifier = Modifier.width(64.dp), style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontWeight = if (header) FontWeight.Medium else null)
-            carriers.forEach { c -> Box(Modifier.weight(1f).padding(horizontal = 3.dp), Alignment.Center) { cell(c) } }
+            carriers.forEach { c ->
+                Box((if (fixedCols) Modifier.width(colWidth) else Modifier.weight(1f)).padding(horizontal = 3.dp), Alignment.Center) { cell(c) }
+            }
         }
     }
     @Composable
