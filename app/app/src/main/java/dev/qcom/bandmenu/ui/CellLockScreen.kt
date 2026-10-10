@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -127,20 +128,23 @@ fun CellLockScreen(
         drawContent()
     })
 
-    var selectedSim by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     var experimentalEnabled by remember { mutableStateOf(false) }
 
+    // The pager is the single source of truth for the selected page. Mirroring
+    // it into a separate state with a pair of LaunchedEffects let a stale
+    // animateScrollToPage cancel the release fling (both run at
+    // MutatePriority.Default), and when that effect was itself cancelled by its
+    // key changing, the pager stayed stuck between pages.
     val pagerState = rememberPagerState(pageCount = { 2 })
+    val selectedSim by remember { derivedStateOf { pagerState.targetPage } }
+    // The SIM the caller was last told about, so a swipe and a tab tap each
+    // report a switch once.
+    var notifiedSim by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(selectedSim) {
-        if (pagerState.targetPage != selectedSim) {
-            pagerState.animateScrollToPage(selectedSim)
-        }
-    }
     LaunchedEffect(pagerState.targetPage) {
-        if (selectedSim != pagerState.targetPage) {
-            selectedSim = pagerState.targetPage
+        if (notifiedSim != pagerState.targetPage) {
+            notifiedSim = pagerState.targetPage
             onSimSwitch(pagerState.targetPage)
         }
     }
@@ -176,8 +180,11 @@ fun CellLockScreen(
                             selectedTabIndex = selectedSim,
                             onTabSelected = { index ->
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                selectedSim = index
+                                notifiedSim = index
                                 onSimSwitch(index)
+                                if (pagerState.targetPage != index) {
+                                    scope.launch { pagerState.animateScrollToPage(index) }
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         )

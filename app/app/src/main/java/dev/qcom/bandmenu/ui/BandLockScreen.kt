@@ -34,8 +34,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,6 +101,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private class SlotBandState {
     val ratChecked = mutableStateMapOf<RatType, Boolean>()
@@ -168,9 +169,15 @@ fun BandLockScreen(
     val hardware = modemState?.hardware
     val useIndependentLock = nrIndependentSupported == true
 
-    var selectedSim by remember { mutableIntStateOf(0) }
     var showFilterSheet by remember { mutableStateOf(false) }
+    // The pager is the single source of truth for the selected page. Mirroring
+    // it into a separate state with a pair of LaunchedEffects let a stale
+    // animateScrollToPage cancel the release fling (both run at
+    // MutatePriority.Default), and when that effect was itself cancelled by its
+    // key changing, the pager stayed stuck between pages.
     val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerScope = rememberCoroutineScope()
+    val selectedSim by remember { derivedStateOf { pagerState.targetPage } }
     val slotStates = remember { arrayOf(SlotBandState(), SlotBandState()) }
 
     // HorizontalPager is as tall as its tallest page, which keeps scrollable
@@ -178,15 +185,6 @@ fun BandLockScreen(
     // page's natural height and size the pager to the current page instead.
     val pageHeights = remember { mutableStateMapOf<Int, Int>() }
     val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }
-
-    LaunchedEffect(selectedSim) {
-        if (pagerState.targetPage != selectedSim) {
-            pagerState.animateScrollToPage(selectedSim)
-        }
-    }
-    LaunchedEffect(pagerState.targetPage) {
-        selectedSim = pagerState.targetPage
-    }
 
     // SmallTopAppBar owns the top system-bar inset. Applying Scaffold's top
     // padding to this parent would count the status bar twice.
@@ -220,7 +218,9 @@ fun BandLockScreen(
                             selectedTabIndex = selectedSim,
                             onTabSelected = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                selectedSim = it
+                                if (pagerState.targetPage != it) {
+                                    pagerScope.launch { pagerState.animateScrollToPage(it) }
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -916,24 +916,17 @@ private fun BandFilterSheet(
     onDismiss: () -> Unit,
     onSave: (BandFilterState) -> Unit
 ) {
-    var tabIndex by remember { mutableIntStateOf(0) }
     var sim1Selection by remember { mutableStateOf(SimBandFilter()) }
     var sim2Selection by remember { mutableStateOf(SimBandFilter()) }
+    // Same single-source-of-truth pattern as the SIM pager above.
     val sheetPagerState = rememberPagerState(pageCount = { 2 })
+    val sheetPagerScope = rememberCoroutineScope()
+    val tabIndex by remember { derivedStateOf { sheetPagerState.targetPage } }
     val hapticFeedback = LocalHapticFeedback.current
-
-    LaunchedEffect(tabIndex) {
-        if (sheetPagerState.targetPage != tabIndex) {
-            sheetPagerState.animateScrollToPage(tabIndex)
-        }
-    }
-    LaunchedEffect(sheetPagerState.targetPage) {
-        tabIndex = sheetPagerState.targetPage
-    }
 
     LaunchedEffect(show) {
         if (show) {
-            tabIndex = 0
+            sheetPagerState.scrollToPage(0)
             fun prefill(f: SimBandFilter): SimBandFilter {
                 // "Clear filter" only disables the filter and keeps the saved
                 // selection, so reopening the sheet shows the last ticked bands
@@ -1013,7 +1006,9 @@ private fun BandFilterSheet(
                     selectedTabIndex = tabIndex,
                     onTabSelected = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                        tabIndex = it
+                        if (sheetPagerState.targetPage != it) {
+                            sheetPagerScope.launch { sheetPagerState.animateScrollToPage(it) }
+                        }
                     },
                     modifier = Modifier.fillMaxWidth()
                 )

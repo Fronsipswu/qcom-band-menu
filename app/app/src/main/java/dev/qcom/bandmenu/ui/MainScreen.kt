@@ -15,11 +15,11 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -99,16 +100,18 @@ fun MainScreen(
     nrModeHidden: Boolean = false,
     onToggleNrMode: () -> Unit = {}
 ) {
-    var selectedIndex by remember { mutableIntStateOf(0) }
+    // The pager is the single source of truth for the selected page. Mirroring
+    // it into a separate state with a pair of LaunchedEffects let a stale
+    // animateScrollToPage cancel the release fling (both run at
+    // MutatePriority.Default), and when that effect was itself cancelled by its
+    // key changing, the pager could stay between pages.
     val pagerState = rememberPagerState(pageCount = { 3 })
-
-    LaunchedEffect(selectedIndex) {
-        if (pagerState.targetPage != selectedIndex) {
-            pagerState.animateScrollToPage(selectedIndex)
+    val pagerScope = rememberCoroutineScope()
+    val selectedIndex by remember { derivedStateOf { pagerState.targetPage } }
+    fun selectPage(index: Int) {
+        if (pagerState.targetPage != index) {
+            pagerScope.launch { pagerState.animateScrollToPage(index) }
         }
-    }
-    LaunchedEffect(pagerState.targetPage) {
-        selectedIndex = pagerState.targetPage
     }
 
     // An inner SIM pager on its last page hands an edge swipe to this pager
@@ -238,21 +241,21 @@ fun MainScreen(
             ) {
                 FloatingBottomBar(
                     selectedIndex = { selectedIndex },
-                    onSelected = { selectedIndex = it },
+                    onSelected = { selectPage(it) },
                     backdrop = backdrop,
                     tabsCount = 3
                 ) {
-                    FloatingBottomBarItem(onClick = { selectedIndex = 0 }) {
+                    FloatingBottomBarItem(onClick = { selectPage(0) }) {
                         Icon(imageVector = MiuixIcons.Phone, contentDescription = "Bands",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Bands", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
-                    FloatingBottomBarItem(onClick = { selectedIndex = 1 }) {
+                    FloatingBottomBarItem(onClick = { selectPage(1) }) {
                         Icon(imageVector = MiuixIcons.Search, contentDescription = "Cells",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Cells", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
-                    FloatingBottomBarItem(onClick = { selectedIndex = 2 }) {
+                    FloatingBottomBarItem(onClick = { selectPage(2) }) {
                         Icon(imageVector = MiuixIcons.Info, contentDescription = "Info",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Info", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
