@@ -47,8 +47,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.Phone
-import top.yukonga.miuix.kmp.icon.extended.Search
+import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -260,14 +259,14 @@ fun MainScreen(
                         Text("Network", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(1) }) {
-                        Icon(imageVector = MiuixIcons.Phone, contentDescription = "Bands",
+                        Icon(imageVector = dev.qcom.bandmenu.ui.component.GearIcon, contentDescription = "Bands",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Bands", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(2) }) {
-                        Icon(imageVector = MiuixIcons.Search, contentDescription = "Cells",
+                        Icon(imageVector = MiuixIcons.Lock, contentDescription = "Cell-Lock",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
-                        Text("Cells", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
+                        Text("Cell-Lock", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp), maxLines = 1, softWrap = false)
                     }
                     FloatingBottomBarItem(onClick = { selectPage(3) }) {
                         Icon(imageVector = MiuixIcons.Info, contentDescription = "Info",

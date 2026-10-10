@@ -153,8 +153,12 @@ class SnapshotBuilder(
     val mode: ServiceMode = run {
         val s = sys ?: return@run ServiceMode.NO_SERVICE
         val nrLeg = s.nrPci != null || !arfcn?.nrServing.isNullOrEmpty() || arfcn?.nrRrc != null
+        // Stay in the NSA layout while the LTE cell offers EN-DC, so the NR SCG
+        // card doesn't pop in and out whenever the NR leg drops briefly (the
+        // same signal Android uses to keep the 5G icon).
+        val endcOffered = s.endcAvailable == true && s.dcnrRestricted != true
         when {
-            s.inService(Rat.LTE) && nrLeg -> ServiceMode.NR_NSA
+            s.inService(Rat.LTE) && (nrLeg || endcOffered) -> ServiceMode.NR_NSA
             s.inService(Rat.LTE) -> ServiceMode.LTE
             s.inService(Rat.NR) -> ServiceMode.NR_SA
             s.inService(Rat.WCDMA) -> ServiceMode.WCDMA
@@ -263,16 +267,16 @@ class SnapshotBuilder(
         val pci = s?.nrPci ?: n?.pci
         val ch = s?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
         val band = rfFor(NasRadioIf.NR5G)
+        // NSA keeps a fixed set of fields ("–" when the NR leg is down) so the
+        // SCG card holds its shape instead of popping in and out.
+        fun MutableList<Field>.put(label: String, v: String?) { if (v != null) add(Field(label, v)) else if (!sa) add(Field(label, "–")) }
         val fields = buildList {
             // RF band info has no NR entry in NSA; derive it from the ARFCN.
-            (band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandForArfcn(it, nrHardwareBands) }?.let { "n$it" })
-                ?.let { add(Field("Band", it)) }
-            ch?.let {
-                add(Field("NR-ARFCN", it.toString()))
-                nrFrequencyForArfcn(it.toInt())?.let { f -> add(Field("Frequency", mhz(f))) }
-            }
-            pci?.let { add(Field("PCI", it.toString())) }
-            s?.nrScsKhz?.let { add(Field("SCS", "$it kHz")) }
+            put("Band", band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandForArfcn(it, nrHardwareBands) }?.let { "n$it" })
+            put("NR-ARFCN", ch?.toString())
+            put("Frequency", ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz))
+            put("PCI", pci?.toString())
+            put("SCS", s?.nrScsKhz?.let { "$it kHz" })
             band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
             if (sa) {
                 (s?.nrTac ?: n?.tac)?.let { add(Field("TAC", it.toString())) }
@@ -285,7 +289,7 @@ class SnapshotBuilder(
             Metric("SS-RSRQ", MetricKind.RSRQ, Rat.NR, sig?.nrRsrq?.toDouble(), "dB"),
             Metric("SS-SINR", MetricKind.SINR, Rat.NR, sig?.nrSnr, "dB")
         )
-        if (fields.isEmpty() && metrics.all { it.value == null }) return null
+        if (sa && fields.isEmpty() && metrics.all { it.value == null }) return null
         return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics)
     }
 
@@ -345,10 +349,14 @@ class SnapshotBuilder(
 
     private fun lteCarriers(): CarrierGroup? {
         if (mode != ServiceMode.LTE && mode != ServiceMode.NR_NSA) return null
-        val c = ca ?: return null
-        val p = c.pcell ?: return null
-        val configured = c.scells.filter { it.state == ScellState.CONFIGURED || it.state == ScellState.ACTIVATED }
-        if (configured.isEmpty()) return null
+        // Always shown in LTE/NSA (just the P column without CA), so the card
+        // doesn't pop in and out. The PCell comes from the CA read, else from
+        // the serving cell itself.
+        val p = ca?.pcell ?: loc?.lte?.let { l ->
+            val rfLte = rfFor(NasRadioIf.LTE)
+            LteCarrier(l.pci, l.earfcn, rfLte?.bandwidthMhz, rfLte?.bandEnum ?: -1, null, null, null)
+        } ?: return null
+        val configured = ca?.scells.orEmpty().filter { it.state == ScellState.CONFIGURED || it.state == ScellState.ACTIVATED }
         val all = listOf(p) + configured
         // Per-carrier RSRP/RSRQ: the modem's L1 measurements on each serving
         // frequency, matched by EARFCN + PCI (an SCell's PCI on its EARFCN).
@@ -367,7 +375,7 @@ class SnapshotBuilder(
                     rsrp = m?.rsrp ?: if (i == 0) sig?.lteRsrp?.toDouble() else null,
                     rsrq = m?.rsrq ?: if (i == 0) sig?.lteRsrq?.toDouble() else null,
                     sinr = if (i == 0) sig?.lteSnr else null,
-                    band = NasBands.label(x.bandEnum),
+                    band = if (x.bandEnum < 0) lteBandForEarfcn(x.earfcn.toInt())?.let { "B$it" } else NasBands.label(x.bandEnum),
                     channel = x.earfcn.toString(),
                     bandwidthMhz = x.bandwidthMhz,
                     state = when (x.state) {
@@ -382,10 +390,12 @@ class SnapshotBuilder(
 
     private fun nrCarriers(): CarrierGroup? {
         if (mode != ServiceMode.NR_SA && mode != ServiceMode.NR_NSA) return null
-        val serving = arfcn?.nrServing ?: return null
+        val serving = arfcn?.nrServing.orEmpty()
         val primary = sys?.nrArfcn ?: loc?.nrArfcn
         val extra = serving.filter { it != primary }
-        if (extra.isEmpty()) return null
+        // SA always shows the card (only the note when there's no secondary),
+        // so it doesn't pop in and out.
+        if (extra.isEmpty() && mode != ServiceMode.NR_SA) return null
         return CarrierGroup(
             title = "NR aggregation",
             summary = "",
@@ -393,7 +403,7 @@ class SnapshotBuilder(
                 Carrier(nrBandForArfcn(ch, nrHardwareBands)?.let { "n$it" } ?: "n?", null,
                     ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${mhz(it)})" } ?: ""), null, null, null)
             },
-            note = "QMI only reports the frequency of secondary NR carriers: no PCI, width or signal."
+            note = "QMI only reports frequency data for NR Scells"
         )
     }
 

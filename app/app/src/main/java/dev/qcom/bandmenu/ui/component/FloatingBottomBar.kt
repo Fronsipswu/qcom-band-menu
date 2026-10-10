@@ -98,7 +98,7 @@ fun RowScope.FloatingBottomBarItem(
             )
             .fillMaxHeight()
             .weight(1f)
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = 4.dp)
             .graphicsLayer {
                 val scale = scale()
                 scaleX = scale
