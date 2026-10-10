@@ -97,3 +97,53 @@ fun nrFrequencyForArfcn(arfcn: Int): Double? = when (arfcn) {
     in 2_016_667..3_279_165 -> 24_250.08 + (arfcn - 2_016_667) * 0.06
     else -> null
 }
+
+/** WCDMA band for a downlink UARFCN (3GPP TS 25.101 general channels); null if unknown. */
+fun wcdmaBandForUarfcn(uarfcn: Int): Int? = when (uarfcn) {
+    in 10562..10838 -> 1
+    in 9662..9938 -> 2
+    in 1162..1513 -> 3
+    in 1537..1738 -> 4
+    in 4357..4458 -> 5
+    in 2237..2563 -> 7
+    in 2937..3088 -> 8
+    in 9237..9387 -> 9
+    in 3112..3388 -> 10
+    in 3712..3787 -> 11
+    in 712..763 -> 19
+    else -> null
+}
+
+/** GSM band for an ARFCN. 512-810 is used by both DCS 1800 and PCS 1900, so it's null (ambiguous). */
+fun gsmBandForArfcn(arfcn: Int): Band? = when (arfcn) {
+    in 128..251 -> Band(Rat.GSM, 850, "850")
+    in 0..124, in 975..1023 -> Band(Rat.GSM, 900, "900")
+    in 811..885 -> Band(Rat.GSM, 1800, "1800")
+    else -> null
+}
+
+/*
+ * NR band from a downlink NR-ARFCN (3GPP TS 38.101-1/-2). NR channel ranges
+ * overlap (529950 is in both n7 and n41), so candidates are limited to the
+ * bands the modem supports when that's known, then the first band in this
+ * order (most widely deployed first) wins.
+ */
+private val NR_BAND_DL = listOf(
+    1 to 422000..434000, 3 to 361000..376000, 28 to 151600..160600, 41 to 499200..537999,
+    78 to 620000..653333, 77 to 620000..680000, 7 to 524000..538000, 5 to 173800..178800,
+    8 to 185000..192000, 20 to 158200..164200, 38 to 514000..524000, 40 to 460000..480000,
+    66 to 422000..440000, 71 to 123400..130400, 2 to 386000..398000, 25 to 386000..399000,
+    12 to 145800..149200, 13 to 149200..151200, 14 to 151600..153600, 18 to 172000..175000,
+    26 to 171800..178800, 29 to 143400..145600, 30 to 470000..472000, 34 to 402000..405000,
+    39 to 376000..384000, 48 to 636667..646666, 50 to 286400..303400, 51 to 285400..286400,
+    53 to 496700..499000, 65 to 422000..440000, 70 to 399000..404000, 74 to 295000..303600,
+    75 to 286400..303400, 76 to 285400..286400, 79 to 693334..733333,
+    257 to 2054166..2104165, 258 to 2016667..2070832, 261 to 2070833..2084999, 260 to 2229166..2279165
+)
+
+fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
+    val candidates = NR_BAND_DL.filter { (_, r) -> arfcn in r.first.toLong()..r.last.toLong() }.map { it.first }
+    if (candidates.isEmpty()) return null
+    if (supported.isNotEmpty()) candidates.firstOrNull { it in supported }?.let { return it }
+    return candidates.first()
+}

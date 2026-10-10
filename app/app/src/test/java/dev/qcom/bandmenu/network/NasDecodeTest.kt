@@ -105,4 +105,18 @@ class NasDecodeTest {
         val b = decodeArfcnList(QmiFrame.parse(frame(NasMsg.ARFCN_LIST, tlv(0x1D, 0))))
         assertEquals(emptyList<Long>(), b.nrNeighbor)
     }
+
+    @Test
+    fun bandsDerivedFromChannels() {
+        // 529950 (2649.75 MHz) is in n7 and n41; the modem's supported bands decide.
+        assertEquals(41, nrBandForArfcn(529950, setOf(1, 28, 40, 41)))
+        assertEquals(7, nrBandForArfcn(529950, setOf(7)))
+        assertEquals(28, nrBandForArfcn(153630))
+        assertEquals(78, nrBandForArfcn(636000, setOf(78)))
+        assertNull(nrBandForArfcn(5))
+        assertEquals(8, lteBandForEarfcn(3750)); assertEquals(3, lteBandForEarfcn(1275))
+        assertEquals(1, wcdmaBandForUarfcn(10563)); assertEquals(8, wcdmaBandForUarfcn(2987))
+        assertEquals("900", gsmBandForArfcn(122)?.label)
+        assertNull("1800/1900 overlap", gsmBandForArfcn(600))
+    }
 }

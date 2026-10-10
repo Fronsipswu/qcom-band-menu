@@ -280,6 +280,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(modemState) {
                     val state = modemState ?: return@LaunchedEffect
                     val monitor = daemonHolder.networkMonitor
+                    monitor.nrHardwareBands = state.hardware.nr
                     simLabels = withContext(Dispatchers.IO) {
                         simTabLabels(listOf(
                             monitor.operatorNameForLabel(1),

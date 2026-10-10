@@ -62,7 +62,11 @@ data class CarrierGroup(
     val table: Boolean = false
 )
 
-data class Neighbor(val rat: Rat, val channelLabel: String, val channel: Long, val idLabel: String, val id: String, val metrics: List<Metric>)
+data class Neighbor(
+    val rat: Rat, val channelLabel: String, val channel: Long, val idLabel: String, val id: String, val metrics: List<Metric>,
+    /** Band derived from the channel number (neighbour reports carry none); null when ambiguous. */
+    val band: Band? = null
+)
 
 data class AntennaGroup(val rat: Rat, val chains: List<RxChain>, val inTraffic: Boolean?, val txPower: Double?)
 
@@ -115,7 +119,11 @@ private fun fmt(v: Double): String =
 
 private fun mhz(v: Double) = "${fmt(v)} MHz"
 
-class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
+class SnapshotBuilder(
+    private val reads: Map<String, ReadOutcome>,
+    /** NR bands the modem supports, to resolve overlapping NR-ARFCN ranges. */
+    private val nrHardwareBands: Set<Int> = emptySet()
+) {
 
     private inline fun <T> decode(key: String, block: (QmiFrame) -> T): T? {
         val r = reads[key] as? ReadOutcome.Ok ?: return null
@@ -225,10 +233,10 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
         val earfcn = l?.earfcn ?: pcell?.earfcn
         val band = rfFor(NasRadioIf.LTE)
         val fields = buildList {
-            pci?.let { add(Field("PCI", it.toString())) }
-            earfcn?.let { add(Field("EARFCN", it.toString())) }
             (band?.bandEnum ?: pcell?.bandEnum)?.let { add(Field("Band", NasBands.label(it))) }
+            earfcn?.let { add(Field("EARFCN", it.toString())) }
             (pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
+            pci?.let { add(Field("PCI", it.toString())) }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->
                 add(Field("DL / UL", "${fmt(f.downlinkMhz)} / ${f.uplinkMhz?.let(::fmt) ?: "—"} MHz"))
             }
@@ -255,14 +263,16 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
         val ch = s?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
         val band = rfFor(NasRadioIf.NR5G)
         val fields = buildList {
-            pci?.let { add(Field("PCI", it.toString())) }
+            // RF band info has no NR entry in NSA; derive it from the ARFCN.
+            (band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandForArfcn(it, nrHardwareBands) }?.let { "n$it" })
+                ?.let { add(Field("Band", it)) }
             ch?.let {
                 add(Field("NR-ARFCN", it.toString()))
                 nrFrequencyForArfcn(it.toInt())?.let { f -> add(Field("Frequency", mhz(f))) }
             }
-            band?.let { add(Field("Band", NasBands.label(it.bandEnum))) }
-            band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
+            pci?.let { add(Field("PCI", it.toString())) }
             s?.nrScsKhz?.let { add(Field("SCS", "$it kHz")) }
+            band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
             if (sa) {
                 (s?.nrTac ?: n?.tac)?.let { add(Field("TAC", it.toString())) }
                 // NCI is never split into gNB/sector: the gNB ID length isn't reported.
@@ -374,18 +384,24 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
         val extra = serving.filter { it != primary }
         if (extra.isEmpty()) return null
         return CarrierGroup(
-            title = "NR secondary",
+            title = "NR aggregation",
             summary = "",
             carriers = extra.map { ch ->
-                Carrier("SCell", null, ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${mhz(it)})" } ?: ""), null, null, null)
+                Carrier(nrBandForArfcn(ch, nrHardwareBands)?.let { "n$it" } ?: "n?", null,
+                    ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${mhz(it)})" } ?: ""), null, null, null)
             },
-            note = "The modem reports only the frequency of secondary NR carriers: no PCI, width or signal."
+            note = "QMI only reports the frequency of secondary NR carriers: no PCI, width or signal."
         )
     }
 
     // ── Neighbours and antennas ──────────────────────────────────────────
 
-    private fun neighbors(): List<Neighbor> = buildList {
+    // Sorted by band number (unknown last), then channel.
+    private fun neighbors(): List<Neighbor> = neighborList().sortedWith(
+        compareBy<Neighbor>({ it.band?.number ?: Int.MAX_VALUE }, { it.channel })
+    )
+
+    private fun neighborList(): List<Neighbor> = buildList {
         val l = loc ?: return@buildList
         if (servingRat == Rat.LTE) {
             l.lte?.let { s ->
@@ -397,7 +413,8 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             l.wcdma?.neighbors?.forEach {
                 add(Neighbor(Rat.WCDMA, "UARFCN", it.uarfcn.toLong(), "PSC", it.psc.toString(), listOf(
                     Metric("RSCP", MetricKind.RSCP, Rat.WCDMA, it.rscp.toDouble(), "dBm"),
-                    Metric("Ec/Io", MetricKind.ECIO, Rat.WCDMA, it.ecio.toDouble(), "dB"))))
+                    Metric("Ec/Io", MetricKind.ECIO, Rat.WCDMA, it.ecio.toDouble(), "dB")),
+                    band = wcdmaBandForUarfcn(it.uarfcn)?.let { b -> Band(Rat.WCDMA, b, "B$b") }))
             }
         }
         if (servingRat == Rat.GSM) {
@@ -405,14 +422,16 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
                 val r = it.rssiRange
                 add(Neighbor(Rat.GSM, "ARFCN", it.arfcn.toLong(), "BSIC", it.bsic?.toString() ?: "—", listOf(
                     Metric("RxLev", MetricKind.RSSI, Rat.GSM, r?.first?.toDouble(), "dBm",
-                        text = r?.let { x -> "${x.first} to ${x.last} dBm" }))))
+                        text = r?.let { x -> "${x.first} to ${x.last} dBm" })),
+                    band = gsmBandForArfcn(it.arfcn)))
             }
         }
     }
 
     private fun lteNeighbor(earfcn: Long, m: LteMeas) = Neighbor(Rat.LTE, "EARFCN", earfcn, "PCI", m.pci.toString(), listOf(
         Metric("RSRP", MetricKind.RSRP, Rat.LTE, m.rsrp, "dBm"),
-        Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, m.rsrq, "dB")))
+        Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, m.rsrq, "dB")),
+        band = lteBandForEarfcn(earfcn.toInt())?.let { Band(Rat.LTE, it, "B$it") })
 
     private fun antennas(): List<AntennaGroup> = buildList {
         fun add(rat: Rat, t: TxRxInfo?) {

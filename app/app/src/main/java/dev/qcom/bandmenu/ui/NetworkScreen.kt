@@ -391,12 +391,12 @@ private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
 
 /** A value with a level-coloured bar behind it, like Cellular-Pro's cells. */
 @Composable
-private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp) {
+private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE) {
     if (v == null) {
         Text("–", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         return
     }
-    val scale = signalScale(kind, Rat.LTE)
+    val scale = signalScale(kind, rat)
     val color = signalLevelColor(scale.level(v))
     val fraction = scale.fraction(v)
     Box(
@@ -439,7 +439,11 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
         Text("${a.rat.label} receiver chains", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
     }
-    a.chains.forEach { c ->
+    // LTE/NR chains can report tuned=true with a placeholder RSRP and a bogus
+    // 0 dBm RX power (seen live on chains 3-4); without a valid RSRP the chain
+    // has nothing real to show, so it's left out.
+    val chains = if (a.rat == Rat.LTE || a.rat == Rat.NR) a.chains.filter { !it.tuned || it.rsrp != null } else a.chains
+    chains.forEach { c ->
         if (!c.tuned) {
             Text("Antenna ${c.chain + 1}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
             return@forEach
@@ -464,19 +468,33 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
 
 @Composable
 private fun NeighborRows(neighbors: List<Neighbor>) {
-    neighbors.groupBy { it.channelLabel to it.channel }.forEach { (key, cells) ->
-        Text("${key.first} ${key.second}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
-        cells.forEach { n ->
-            n.metrics.firstOrNull()?.let { m ->
-                SignalBar(m.copy(label = "${n.idLabel} ${n.id}"), Modifier.padding(vertical = 3.dp), labelWidth = 72.dp)
-            }
-            n.metrics.drop(1).takeIf { it.isNotEmpty() }?.let { rest ->
-                Text(rest.joinToString(" · ") { "${it.label} ${it.value?.let(::formatMetric) ?: "—"} ${it.unit}" },
-                    style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(start = 82.dp))
-            }
+    // NSG-style table: PCI | Band | EARFCN | RSRP bar | RSRQ bar, headers once,
+    // rows already sorted by band. Band is derived from the channel.
+    val first = neighbors.first()
+    val metricLabels = first.metrics.take(2).map { it.label }
+    val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
+
+    @Composable
+    fun cols(id: @Composable () -> Unit, band: @Composable () -> Unit, ch: @Composable () -> Unit, metrics: List<@Composable () -> Unit>) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(0.75f), Alignment.CenterStart) { id() }
+            Box(Modifier.weight(0.7f), Alignment.CenterStart) { band() }
+            Box(Modifier.weight(0.95f), Alignment.CenterStart) { ch() }
+            metrics.forEach { m -> Box(Modifier.weight(1.25f).padding(horizontal = 3.dp), Alignment.Center) { m() } }
+            repeat(2 - metrics.size) { Spacer(Modifier.weight(1.25f)) }
         }
+    }
+    @Composable
+    fun head(t: String) = Text(t, style = MiuixTheme.textStyles.footnote1, color = grey, maxLines = 1)
+
+    cols({ head(first.idLabel) }, { head("Band") }, { head(first.channelLabel) }, metricLabels.map { l -> @Composable { head(l) } })
+    neighbors.forEach { n ->
+        cols(
+            { Text(n.id, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold) },
+            { Text(n.band?.label ?: "–", style = MiuixTheme.textStyles.body2, color = if (n.band == null) grey else MiuixTheme.colorScheme.onBackground) },
+            { Text(n.channel.toString(), style = MiuixTheme.textStyles.body2) },
+            n.metrics.take(2).map { m -> @Composable { CellValueBar(m.value, m.kind, rat = m.rat) } }
+        )
     }
 }
 

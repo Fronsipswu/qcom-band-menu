@@ -41,6 +41,10 @@ class NetworkMonitor(
         val refreshing: Boolean = false
     )
 
+    /** NR bands the modem supports (from the band-lock hardware query). */
+    @Volatile
+    var nrHardwareBands: Set<Int> = emptySet()
+
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state
 
@@ -110,7 +114,7 @@ class NetworkMonitor(
         if (!daemon.isReady.value) throw IllegalStateException("Waiting for the daemon…")
         val t0 = SystemClock.elapsedRealtime()
         val reads = request(sim, NetworkReads.ROUND)
-        val snap = SnapshotBuilder(reads).build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())
+        val snap = SnapshotBuilder(reads, nrHardwareBands).build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
         val key = plmn?.let { "$it/${snap.mode}" }
