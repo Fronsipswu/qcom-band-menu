@@ -425,11 +425,12 @@ private fun CarrierSection(group: CarrierGroup) {
 /** Cellular-Pro-style CA table: one column per carrier, one row per parameter. */
 @Composable
 private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
-    // Up to three carriers (P, S1, S2) each column is fixed at its 3xCA width
-    // and the columns sit from the left, so a lone PCell isn't centred in
-    // empty space. From four carriers (S3) the columns share the width.
-    val colWidth = (maxWidth - 64.dp) / 3
-    val fixedCols = carriers.size <= 3
+    // Up to four carriers (P, S1, S2, S3) each column is fixed at the width
+    // four columns share, and the columns sit from the left, so a lone PCell
+    // isn't centred in empty space. From five carriers (S4) the columns share
+    // the width, which shrinks them further.
+    val colWidth = (maxWidth - 64.dp) / 4
+    val fixedCols = carriers.size <= 4
     val barMax = colWidth - 6.dp
     Column {
     val line = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
