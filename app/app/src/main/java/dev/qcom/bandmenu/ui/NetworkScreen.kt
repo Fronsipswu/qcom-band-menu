@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,6 +53,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -247,10 +246,13 @@ fun NetworkScreen(
 
 @Composable
 private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
-    SummaryCard(snap, state)
+    // The summary and the serving cell (the LTE MCG in NSA) share one card;
+    // any further cell (the NR SCG in NSA) keeps its own card below.
+    SmallTitle("Serving cell", modifier = Modifier.padding(top = 6.dp))
+    SummaryCard(snap, state, snap.cells.firstOrNull())
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
-    snap.cells.forEach { CellSection(it) }
+    snap.cells.drop(1).forEach { CellSection(it) }
     if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
         NoticeCard("No serving-cell details were reported.")
     }
@@ -275,31 +277,48 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serving: CellCard?) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(16.dp)) {
-            // The mode itself is the pill (blue when in service, grey otherwise).
+            // The mode itself is the pill (blue when in service, grey otherwise),
+            // with the roaming and RRC chips stacked beside it. The pill takes the
+            // stack's height so the two line up.
             val inService = snap.mode.generation.isNotEmpty()
-            Box(
-                Modifier.clip(RoundedCornerShape(10.dp))
-                    .background(if (inService) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.1f))
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    snap.modeLabel,
-                    style = MiuixTheme.textStyles.title3,
-                    fontWeight = FontWeight.Bold,
-                    color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
-                )
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.fillMaxHeight().clip(RoundedCornerShape(10.dp))
+                        .background(if (inService) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.1f))
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        snap.modeLabel,
+                        style = MiuixTheme.textStyles.title3,
+                        fontWeight = FontWeight.Bold,
+                        color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
+                    )
+                }
+                val chips = buildList {
+                    snap.roaming?.let { add("Roaming: $it" to it) }
+                    snap.rrc.forEach { add("${it.label}: ${it.value}" to (it.value == "Connected")) }
+                }
+                if (chips.isNotEmpty()) {
+                    Spacer(Modifier.width(10.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        chips.forEach { (text, highlight) -> Chip(text, highlight, compact = true) }
+                    }
+                }
             }
             Spacer(Modifier.height(10.dp))
             val operator = listOfNotNull(state.operatorName, snap.plmn?.toString()).joinToString(" | ")
             if (operator.isNotEmpty()) Text(operator, style = MiuixTheme.textStyles.body1)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
-                snap.roaming?.let { Chip("Roaming: $it", highlight = it) }
-                snap.rrc.forEach { Chip("${it.label}: ${it.value}", highlight = it.value == "Connected") }
+            // Serving cell: its bars, then all its fields.
+            if (serving != null) {
+                Spacer(Modifier.height(10.dp))
+                serving.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 5.dp)) }
+                if (serving.metrics.isNotEmpty() && serving.fields.isNotEmpty()) Spacer(Modifier.height(10.dp))
+                FieldGrid(serving.fields)
             }
             // Only a frozen reading is labelled; live needs no text.
             if (state.frozen) {
@@ -315,11 +334,11 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State) {
 }
 
 @Composable
-private fun Chip(text: String, highlight: Boolean = false) {
+private fun Chip(text: String, highlight: Boolean = false, compact: Boolean = false) {
     Box(
         Modifier.clip(RoundedCornerShape(50))
             .background(if (highlight) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f) else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.07f))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .padding(horizontal = 10.dp, vertical = if (compact) 2.dp else 4.dp)
     ) {
         Text(
             text, style = MiuixTheme.textStyles.footnote1,

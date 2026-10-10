@@ -121,7 +121,9 @@ fun SignalBar(
                 val x = size.width * scale.fraction(t)
                 drawRect(tick, topLeft = Offset(x - 0.5f, size.height * 0.2f), size = Size(1f, size.height * 0.6f))
             }
-            if (fill > 0f) {
+            // A real reading below the scale still shows a stub, so it never
+            // looks like "unavailable" (an empty track).
+            if (v != null || fill > 0f) {
                 drawRoundRect(color, size = Size(size.width * fill.coerceAtLeast(size.height / size.width), size.height), cornerRadius = r)
             }
         }

@@ -216,11 +216,12 @@ class SnapshotBuilder(
     private fun rrcFields() = buildList {
         val a = arfcn ?: return@buildList
         when (mode) {
-            ServiceMode.LTE, ServiceMode.NR_NSA -> {
-                a.lteRrc?.let { add(Field("LTE RRC", NasRrc.lte(it))) }
-                if (mode == ServiceMode.NR_NSA) a.nrRrc?.let { add(Field("NR RRC", NasRrc.nr(it))) }
-            }
-            ServiceMode.NR_SA -> a.nrRrc?.let { add(Field("NR RRC", NasRrc.nr(it))) }
+            // NSA shows only the LTE RRC state (the anchor), keeping two chips
+            // beside the mode pill; the NR leg's RRC state still counts towards
+            // detecting NSA.
+            // One "RRC" chip: the serving RAT's state (the pill already names it).
+            ServiceMode.LTE, ServiceMode.NR_NSA -> a.lteRrc?.let { add(Field("RRC", NasRrc.lte(it))) }
+            ServiceMode.NR_SA -> a.nrRrc?.let { add(Field("RRC", NasRrc.nr(it))) }
             ServiceMode.WCDMA -> a.wcdmaRrc?.let { add(Field("RRC", NasRrc.wcdma(it))) }
             else -> {}
         }
