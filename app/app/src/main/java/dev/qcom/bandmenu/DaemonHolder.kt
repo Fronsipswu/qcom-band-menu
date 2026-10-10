@@ -1,6 +1,8 @@
 package dev.qcom.bandmenu
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dev.qcom.bandmenu.network.NetworkMonitor
 import kotlinx.coroutines.sync.Mutex
 
 /**
@@ -13,6 +15,9 @@ class DaemonHolder(val daemonManager: DaemonManager) : ViewModel() {
      *  here, not in the composition, so an operation still running in a
      *  destroyed activity and the new activity's init can never interleave. */
     val modemLock = Mutex()
+
+    /** Network page poller; here so a configuration change keeps one poller. */
+    val networkMonitor = NetworkMonitor(daemonManager, viewModelScope)
 
     override fun onCleared() {
         // Off the main thread: stopBlocking() waits for any in-flight request,

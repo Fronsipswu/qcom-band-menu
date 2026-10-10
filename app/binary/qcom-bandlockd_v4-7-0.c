@@ -397,6 +397,37 @@
  *   query()-visible field this changes, so an automatic post-command
  *   query() would add a round trip for nothing. See cmd_attach()/
  *   cmd_detach()/cmd_reattach() below.
+ *
+ * v4.7.0 -- Read-only network monitoring ("nas_read"):
+ *   Feeds the app's Network page. The daemon does NOT decode anything
+ *   here: it sends whitelisted NAS GET messages and returns each raw
+ *   response frame (hex) for the app to decode, so the decoder can be
+ *   tested against captured frames without a device.
+ *     Request:  {"cmd":"nas_read","sim":1|2,
+ *                "reads":["004d","004f","005a:01010008",...]}
+ *       Each entry is "MSGHEX" or "MSGHEX:PAYLOADHEX" (TLV body only; the
+ *       daemon adds the 7-byte header). At most NAS_READ_MAX entries.
+ *     Response: the usual envelope plus
+ *       "nas_read":{"sim":N,"reads":[{"msg":77,"status":"ok","ms":2,
+ *                   "rx":"02...."},...]}
+ *       status is "ok" (rx is a complete, matched frame: response flag,
+ *       transaction id, message id and 7+body_length==size all checked;
+ *       the QMI result TLV inside is left to the app), "timeout",
+ *       "send_failed", "bad_frame" (matched but length mismatch; rx is
+ *       still included) or "not_allowed" (never sent).
+ *   Read-only by construction: only the NAS GET messages in
+ *   nas_read_allowed() are ever sent, payloads are only accepted for
+ *   GET_TX_RX_INFO (0x005A) and GET_PLMN_NAME (0x0044), and are capped.
+ *   Separate monitoring clients: each SIM gets its own NAS QRTR socket,
+ *   opened lazily and bound once with BIND_CLIENT_SIM (0x0045). The control
+ *   client (s->fd / s->sim) is never used or rebound here, so monitoring
+ *   SIM 2 cannot make a later band/cell-lock write target the wrong SIM,
+ *   and s->diag / s->last_op are untouched. Per-read receive timeout is
+ *   NAS_READ_TIMEOUT_MS; a send failure closes that SIM's monitoring
+ *   socket so the next request reopens it.
+ *   Also: build fix -- the two struct copies in nr_indep_probe_one() now
+ *   use copy() instead of `*out_diag=s->diag`, which compilers lower to a
+ *   memcpy call that a -nostdlib link cannot resolve. No behavior change.
  */
 
 typedef unsigned char u8;
@@ -489,7 +520,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.6.1"
+#define DAEMON_VERSION "4.7.0"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
@@ -578,6 +609,8 @@ struct state{
   * carry a matching "token" string and every response carries "auth". */
  int auth_configured;
  char auth_token[65];
+ /* v4.7.0 monitoring clients, one per SIM (index sim-1); -1 = not open. */
+ s64 mon_fd[2];
 };
 
 static inline s64 sc1(s64 n,s64 a){register s64 x8 __asm__("x8")=n;register s64 x0 __asm__("x0")=a;__asm__ volatile("svc 0":"+r"(x0):"r"(x8):"memory");return x0;}
@@ -850,6 +883,154 @@ static int parse_result(const u8*r,u32 n,u16*result,u16*error){
  return 0;
 }
 static int result_ok(const u8*r,u32 n){u16 res=0,err=0;if(!parse_result(r,n,&res,&err))return 0;return res==0;}
+/* ── v4.7.0 read-only monitoring (see header note) ─────────────────────── */
+static void set_stage(char*stage,u32 cap,const char*v);
+#define NAS_READ_MAX 12
+#define NAS_READ_PAYLOAD_MAX 32
+#define NAS_READ_RX_MAX 2048
+#define NAS_READ_TIMEOUT_MS 300
+enum { NR_ST_OK=0, NR_ST_TIMEOUT=1, NR_ST_SEND_FAILED=2, NR_ST_BAD_FRAME=3, NR_ST_NOT_ALLOWED=4 };
+struct nas_read_result{u16 msg;int status;u32 ms;u32 rx_len;u8 rx[NAS_READ_RX_MAX];};
+static struct nas_read_result nas_read_results[NAS_READ_MAX];
+static int nas_read_count;
+static int nas_read_sim;
+
+static u32 now_ms(void){struct timespec64 t;if(sc2(SYS_clock_gettime,CLOCK_MONOTONIC,(s64)&t)<0)return 0;return (u32)(t.sec*1000+t.nsec/1000000);}
+
+/* Whitelist: NAS GET messages only, with the payload length each accepts.
+ * Returns the max payload length, or -1 if the message is not allowed. */
+static int nas_read_allowed(u16 msg){
+ switch(msg){
+  case 0x0025: /* GET_HOME_NETWORK */
+  case 0x0031: /* GET_RF_BAND_INFO */
+  case 0x0043: /* GET_CELL_LOCATION_INFO */
+  case 0x004D: /* GET_SYS_INFO */
+  case 0x004F: /* GET_SIG_INFO */
+  case 0x0052: /* GET_ERR_RATE */
+  case 0x00AC: /* GET_LTE_CPHY_CA_INFO */
+  case 0x00D2: /* GET_ARFCN_LIST */
+  case 0x0148: /* GET_PHY_CHANNEL_INFO */
+   return 0;
+  case 0x005A: /* GET_TX_RX_INFO: radio interface (+ optional NR type) */
+   return 16;
+  case 0x0044: /* GET_PLMN_NAME: requested PLMN */
+   return NAS_READ_PAYLOAD_MAX;
+ }
+ return -1;
+}
+
+/* Same framing and matching rules as exchange(), on a monitoring socket,
+ * without touching s->diag. */
+static int mon_exchange(s64 fd,u16 msg,const u8*pl,u16 plen,u8*rsp,u32 cap,u32*rn,int*status){
+ u8 req[7+NAS_READ_PAYLOAD_MAX];u16 t=txid();s64 n;int skipped=0;
+ if(!t)t=1;if(7u+plen>sizeof(req)){*status=NR_ST_NOT_ALLOWED;return 0;}
+ req[0]=0;put16(req+1,t);put16(req+3,msg);put16(req+5,plen);if(plen)copy(req+7,pl,plen);
+ n=sc6(SYS_sendto,fd,(s64)req,7u+plen,0,0,0);
+ if(n!=(s64)(7u+plen)){*status=NR_ST_SEND_FAILED;return 0;}
+ for(;;){
+  n=sc6(SYS_recvfrom,fd,(s64)rsp,cap,0,0,0);
+  if(n<0){*status=NR_ST_TIMEOUT;return 0;}
+  if(n>=7&&rsp[0]==2&&le16(rsp+1)==t&&le16(rsp+3)==msg){
+   *rn=(u32)n;
+   *status=(7u+le16(rsp+5)==(u32)n)?NR_ST_OK:NR_ST_BAD_FRAME;
+   return 1;
+  }
+  if(++skipped>=16){*status=NR_ST_TIMEOUT;return 0;}
+ }
+}
+
+static void mon_close(struct state*s,int idx){if(s->mon_fd[idx]>=0)sc1(SYS_close,s->mon_fd[idx]);s->mon_fd[idx]=-1;}
+
+/* Opens and binds the monitoring client for one SIM, if not already open. */
+static int mon_open(struct state*s,int sim){
+ int idx=sim-1;struct sockaddr_qrtr a;struct timeval64 tv;u32 node,port;s64 fd;
+ u8 p[4]={1,1,0,0},r[128];u32 n;int st;
+ if(s->mon_fd[idx]>=0)return 1;
+ if(!discover_service(NAS_SERVICE,&node,&port)){setstatus(s,"Monitoring: NAS discovery failed.");return 0;}
+ fd=sc3(SYS_socket,AF_QIPCRTR,SOCK_DGRAM,0);if(fd<0){setstatus(s,"Monitoring: NAS socket failed.");return 0;}
+ tv.sec=0;tv.usec=NAS_READ_TIMEOUT_MS*1000;
+ if(sc5(SYS_setsockopt,fd,SOL_SOCKET,SO_RCVTIMEO,(s64)&tv,sizeof(tv))<0){sc1(SYS_close,fd);setstatus(s,"Monitoring: socket setup failed.");return 0;}
+ a.family=AF_QIPCRTR;a.pad=0;a.node=node;a.port=port;
+ if(sc3(SYS_connect,fd,(s64)&a,sizeof(a))<0){sc1(SYS_close,fd);setstatus(s,"Monitoring: NAS connect failed.");return 0;}
+ p[3]=(u8)(sim-1);
+ if(!mon_exchange(fd,MSG_BIND,p,4,r,sizeof(r),&n,&st)||st!=NR_ST_OK||!result_ok(r,n)){
+  sc1(SYS_close,fd);setstatus(s,sim==2?"Monitoring: SIM 2 bind failed.":"Monitoring: SIM 1 bind failed.");return 0;
+ }
+ s->mon_fd[idx]=fd;return 1;
+}
+
+static int hexval(char c){if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1;}
+
+/* Parses one "MSGHEX[:PAYLOADHEX]" entry. Returns 1 on success. */
+static int nas_read_parse_entry(const char*e,u16*msg,u8*pl,u16*plen){
+ u32 m=0;int i=0,d;
+ for(;i<4;i++){d=hexval(e[i]);if(d<0)return 0;m=(m<<4)|(u32)d;}
+ *msg=(u16)m;*plen=0;
+ if(e[4]==0)return 1;
+ if(e[4]!=':')return 0;
+ e+=5;
+ while(e[0]&&e[1]){
+  int hi=hexval(e[0]),lo=hexval(e[1]);
+  if(hi<0||lo<0||*plen>=NAS_READ_PAYLOAD_MAX)return 0;
+  pl[(*plen)++]=(u8)((hi<<4)|lo);e+=2;
+ }
+ return e[0]==0;
+}
+
+static int cmd_nas_read(struct state*s,const char*req,char*stage,u32 stage_cap){
+ s64 simv=0;const char*v;int sim;
+ nas_read_count=0;nas_read_sim=0;
+ if(!json_get_int(req,"sim",&simv)||(simv!=1&&simv!=2)){setstatus(s,"Missing or invalid 'sim' (1 or 2).");set_stage(stage,stage_cap,"bad_request");return 0;}
+ sim=(int)simv;
+ v=json_find(req,"reads");
+ if(!v||*v!='['){setstatus(s,"Missing 'reads' array.");set_stage(stage,stage_cap,"bad_request");return 0;}
+ if(!mon_open(s,sim)){set_stage(stage,stage_cap,"daemon");return 0;}
+ nas_read_sim=sim;
+ v++;
+ for(;;){
+  char e[8+2*NAS_READ_PAYLOAD_MAX];u32 k=0;u16 msg,plen;u8 pl[NAS_READ_PAYLOAD_MAX];
+  struct nas_read_result*r;u32 t0;int allowed;
+  while(*v==' '||*v=='\t'||*v=='\n'||*v=='\r'||*v==',')v++;
+  if(*v==']')break;
+  if(*v!='"'||nas_read_count>=NAS_READ_MAX){setstatus(s,"Invalid 'reads' entry or too many reads.");set_stage(stage,stage_cap,"bad_request");nas_read_count=0;return 0;}
+  v++;
+  while(*v&&*v!='"'){if(k+1>=sizeof(e)){setstatus(s,"'reads' entry too long.");set_stage(stage,stage_cap,"bad_request");nas_read_count=0;return 0;}e[k++]=*v++;}
+  if(*v!='"'){setstatus(s,"Unterminated 'reads' entry.");set_stage(stage,stage_cap,"bad_request");nas_read_count=0;return 0;}
+  v++;e[k]=0;
+  if(!nas_read_parse_entry(e,&msg,pl,&plen)){setstatus(s,"Malformed 'reads' entry.");set_stage(stage,stage_cap,"bad_request");nas_read_count=0;return 0;}
+  r=&nas_read_results[nas_read_count++];
+  r->msg=msg;r->rx_len=0;r->ms=0;
+  allowed=nas_read_allowed(msg);
+  if(allowed<0||plen>(u16)allowed){r->status=NR_ST_NOT_ALLOWED;continue;}
+  if(s->mon_fd[sim-1]<0&&!mon_open(s,sim)){r->status=NR_ST_SEND_FAILED;continue;}
+  t0=now_ms();
+  {u32 n=0;int st=NR_ST_TIMEOUT;
+   if(mon_exchange(s->mon_fd[sim-1],msg,pl,plen,r->rx,sizeof(r->rx),&n,&st))r->rx_len=n;
+   r->status=st;
+   if(st==NR_ST_SEND_FAILED)mon_close(s,sim-1);}
+  r->ms=now_ms()-t0;
+ }
+ setstatus(s,"nas_read done.");
+ return 1;
+}
+
+static void jnas_read(char*b,u32*pos,u32 cap){
+ static const char*names[]={"ok","timeout","send_failed","bad_frame","not_allowed"};
+ int i;
+ jput(b,pos,cap,"{\"sim\":");jint(b,pos,cap,(u32)nas_read_sim);
+ jput(b,pos,cap,",\"reads\":[");
+ for(i=0;i<nas_read_count;i++){
+  const struct nas_read_result*r=&nas_read_results[i];
+  if(i)jputc(b,pos,cap,',');
+  jput(b,pos,cap,"{\"msg\":");jint(b,pos,cap,r->msg);
+  jput(b,pos,cap,",\"status\":");jstr(b,pos,cap,names[r->status]);
+  jput(b,pos,cap,",\"ms\":");jint(b,pos,cap,r->ms);
+  if(r->rx_len){jput(b,pos,cap,",\"rx\":\"");jhex_bytes(b,pos,cap,r->rx,r->rx_len);jputc(b,pos,cap,'"');}
+  jputc(b,pos,cap,'}');
+ }
+ jput(b,pos,cap,"]}");
+}
+
 static int bind_sim(struct state*s,int sim){u8 p[4]={1,1,0,0},r[128];u32 n;p[3]=(u8)(sim-1);if(!exchange(s,MSG_BIND,p,4,r,sizeof(r),&n)||!result_ok(r,n)){setstatus(s,"SIM bind failed.");return 0;}s->sim=sim;return 1;}
 static int query(struct state*s){u8 r[2048];u32 n,p,e;zero(s->legacy,8);zero(s->lte,8);zero(s->extlte,32);zero(s->sa,64);zero(s->nsa,64);s->sa_present=0;s->nsa_present=0;s->rat=0;s->netsel_valid=0;s->net_sel_pref=0;s->plmn_mcc=0;s->plmn_mnc=0;s->manual_plmn_valid=0;s->manual_plmn_mcc=0;s->manual_plmn_mnc=0;s->manual_plmn_pcs=0;s->usage_valid=0;s->usage_setting=0;if(!exchange(s,MSG_GET,0,0,r,sizeof(r),&n)||!result_ok(r,n)){s->valid=0;setstatus(s,"State query failed.");return 0;}e=7u+le16(r+5);if(e>n)e=n;for(p=7;p+3<=e;){u8 id=r[p];u16 l=le16(r+p+1);const u8*v=r+p+3;if(p+3u+l>e)break;if(id==TLV_MODE&&l>=2)s->rat=le16(v);else if(id==TLV_LEGACY&&l==8)copy(s->legacy,v,8);else if(id==TLV_LTE&&l==8)copy(s->lte,v,8);else if(id==TLV_EXT_LTE_GET&&l==32)copy(s->extlte,v,32);else if(id==TLV_NR_SA_GET&&l==64){copy(s->sa,v,64);s->sa_present=1;}else if(id==TLV_NR_NSA_GET&&l==64){copy(s->nsa,v,64);s->nsa_present=1;}
  /* v4.3.0: TLV 0x16, "Network Selection Preference" -- SAME id and SAME
@@ -1305,8 +1486,8 @@ static int nr_indep_probe_one(struct state*s,u8 set_id,const u8*mask,u16*out_res
  pos=addtlv(p,pos,TLV_DURATION,&d,1);
  pos=addtlv(p,pos,set_id,mask,64);
  *out_result=0;*out_error=0;
- if(!exchange(s,MSG_SET,p,(u16)pos,r,sizeof(r),&n)){*out_diag=s->diag;return -1;}
- *out_diag=s->diag;
+ if(!exchange(s,MSG_SET,p,(u16)pos,r,sizeof(r),&n)){copy(out_diag,&s->diag,sizeof(*out_diag));return -1;}
+ copy(out_diag,&s->diag,sizeof(*out_diag));
  if(!parse_result(r,n,out_result,out_error))return -1;
  return (*out_result==0)?1:0;
 }
@@ -1873,6 +2054,8 @@ static void do_command(struct state*s,const char*req,int*ok,int*did_set,int*shut
     "version" field; this just gives the app an explicit, self-describing
     request/response round trip to check daemon compatibility with. */
  if(eq(cmd,"version")){*ok=1;setstatus(s,"qcom-bandlockd v" DAEMON_VERSION);return;}
+ /* v4.7.0 read-only monitoring; never touches the control client. */
+ if(eq(cmd,"nas_read")){*ok=cmd_nas_read(s,req,stage,stage_cap);return;}
  if(eq(cmd,"shutdown")){*ok=1;*shutdown_req=1;setstatus(s,"Daemon shutting down.");return;}
  if(eq(cmd,"verbose_set")){
   int v;
@@ -2048,6 +2231,7 @@ static void build_response(struct state*s,const char*req,int ok,const char*expli
   }
   jputc(out,&pos,outcap,'}');
  }
+ if(eq(cmdbuf,"nas_read")&&ok){jput(out,&pos,outcap,",\"nas_read\":");jnas_read(out,&pos,outcap);}
  jput(out,&pos,outcap,",\"state\":");jstate(out,&pos,outcap,s);
  jput(out,&pos,outcap,",\"diagnostics\":");jdiagnostics(out,&pos,outcap,s);
  jputc(out,&pos,outcap,'}');
@@ -2127,7 +2311,7 @@ static s64 read_line_fd(s64 fd,char*b,u64 cap){
 }
 static int serve_client(struct state*s,s64 cfd){
  static char line[8192];
- static char resp[32768];
+ static char resp[65536];
  for(;;){
   s64 n=read_line_fd(cfd,line,sizeof(line));
   if(n<=0)return 0;
@@ -2169,7 +2353,7 @@ static int run(int argc,char**argv){
  }
  if(!have_uid){elog("qcom-bandlockd: -uid <peer_uid> is required (refusing to start without peer authentication).\n");return 1;}
 
- zero(&s,sizeof(s));s.fd=-1;s.sim=1;s.verbose=verbose_flag;setstatus(&s,"Starting...");
+ zero(&s,sizeof(s));s.fd=-1;s.sim=1;s.mon_fd[0]=-1;s.mon_fd[1]=-1;s.verbose=verbose_flag;setstatus(&s,"Starting...");
  /* F3: optional shared-token auth. Absent/unreadable/invalid -> auth_configured
   * stays 0 and every request/response is byte-identical to v4.5.5. */
  if(tokenfile)load_token_file(&s,tokenfile);
@@ -2198,6 +2382,7 @@ static int run(int argc,char**argv){
  }
  sc1(SYS_close,listen_fd);
  if(s.fd>=0)sc1(SYS_close,s.fd);
+ mon_close(&s,0);mon_close(&s,1);
  return 0;
 }
 void c_start(u64*stack){int rc;int argc=(int)stack[0];char**argv=(char**)&stack[1];rc=run(argc,argv);sc1(SYS_exit,rc);for(;;){}}

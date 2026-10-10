@@ -21,7 +21,7 @@ class DaemonManager(private val context: Context) {
         private const val TAG = "QcomBand"
         private const val BINARY_NAME = "qcom-bandlockd"
         private const val SOCKET_NAME = "qcom_bandlockd"
-        private const val EXPECTED_DAEMON_VERSION = "4.6.1"
+        private const val EXPECTED_DAEMON_VERSION = "4.7.0"
         private const val AUTH_PREFS = "daemon_auth"
         private const val AUTH_TOKEN_KEY = "token"
         private const val AUTH_TOKEN_FILE = "auth_token"
@@ -497,6 +497,7 @@ class DaemonManager(private val context: Context) {
     fun query(): JSONObject = sendRequest(JsonRequestBuilder.query())
     fun refresh(): JSONObject = sendRequest(JsonRequestBuilder.refresh())
     fun simSet(sim: Int): JSONObject = sendRequest(JsonRequestBuilder.simSet(sim))
+    fun nasRead(sim: Int, reads: List<String>): JSONObject = sendRequest(JsonRequestBuilder.nasRead(sim, reads))
     fun ratSet(rats: Set<RatType>): JSONObject = sendRequest(JsonRequestBuilder.ratSet(rats))
     fun gsmSet(bands: Set<Int>): JSONObject = sendRequest(JsonRequestBuilder.gsmSet(bands))
     fun wcdmaSet(bands: Set<Int>): JSONObject = sendRequest(JsonRequestBuilder.wcdmaSet(bands))

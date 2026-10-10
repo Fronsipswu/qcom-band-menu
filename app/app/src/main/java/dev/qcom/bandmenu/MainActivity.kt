@@ -312,6 +312,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 MainScreen(
+                    networkMonitor = daemonHolder.networkMonitor,
                     onCellLockSimSwitch = simSwitch@{ slot ->
                         cellLockSelectedSim = slot
                         if (slot == 1 && modemState?.sim2Available == false) return@simSwitch

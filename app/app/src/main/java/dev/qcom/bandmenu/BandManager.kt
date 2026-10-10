@@ -183,6 +183,11 @@ object JsonRequestBuilder {
 
     fun simSet(sim: Int): JSONObject = JSONObject().put("cmd", "sim_set").put("sim", sim)
 
+    /** v4.7.0 read-only monitoring: whitelisted NAS GETs on the daemon's
+     *  separate per-SIM monitoring client. Each read is "MSGHEX[:PAYLOADHEX]". */
+    fun nasRead(sim: Int, reads: List<String>): JSONObject =
+        JSONObject().put("cmd", "nas_read").put("sim", sim).put("reads", org.json.JSONArray(reads))
+
     fun ratSet(rats: Set<RatType>): JSONObject {
         val ratStr = if (rats == BandConstants.ALL_RAT_TYPES) "auto"
             else rats.sortedBy { it.ordinal }.joinToString(",") { it.name.lowercase() }

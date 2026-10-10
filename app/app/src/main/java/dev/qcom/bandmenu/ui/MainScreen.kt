@@ -53,6 +53,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun MainScreen(
+    networkMonitor: dev.qcom.bandmenu.network.NetworkMonitor,
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -105,7 +106,8 @@ fun MainScreen(
     // animateScrollToPage cancel the release fling (both run at
     // MutatePriority.Default), and when that effect was itself cancelled by its
     // key changing, the pager could stay between pages.
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    // Network | Bands | Cells | Info; the app still opens on Bands.
+    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 4 })
     val pagerScope = rememberCoroutineScope()
     val selectedIndex by remember { derivedStateOf { pagerState.targetPage } }
     fun selectPage(index: Int) {
@@ -171,7 +173,14 @@ fun MainScreen(
             ) { page ->
                 Box(modifier = Modifier.fillMaxSize().nestedScroll(settleAfterChildFling)) {
                     when (page) {
-                        0 -> BandLockScreen(
+                        0 -> NetworkScreen(
+                            monitor = networkMonitor,
+                            isActive = pagerState.settledPage == 0,
+                            simLabels = simLabels,
+                            sim2Available = modemState?.sim2Available != false,
+                            backdrop = backdrop
+                        )
+                        1 -> BandLockScreen(
                             modemState = modemState,
                             isLoading = isLoading,
                             refreshingSlots = refreshingSlots,
@@ -197,7 +206,7 @@ fun MainScreen(
                             snackbarHostState = snackbarHostState,
                             backdrop = backdrop
                         )
-                        1 -> CellLockScreen(
+                        2 -> CellLockScreen(
                             modemState = modemState,
                             isLoading = isLoading,
                             isRefreshing = cellLockRefreshing,
@@ -243,19 +252,24 @@ fun MainScreen(
                     selectedIndex = { selectedIndex },
                     onSelected = { selectPage(it) },
                     backdrop = backdrop,
-                    tabsCount = 3
+                    tabsCount = 4
                 ) {
                     FloatingBottomBarItem(onClick = { selectPage(0) }) {
+                        Icon(imageVector = dev.qcom.bandmenu.ui.component.SignalBarsIcon, contentDescription = "Network",
+                            tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
+                        Text("Network", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
+                    }
+                    FloatingBottomBarItem(onClick = { selectPage(1) }) {
                         Icon(imageVector = MiuixIcons.Phone, contentDescription = "Bands",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Bands", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
-                    FloatingBottomBarItem(onClick = { selectPage(1) }) {
+                    FloatingBottomBarItem(onClick = { selectPage(2) }) {
                         Icon(imageVector = MiuixIcons.Search, contentDescription = "Cells",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Cells", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
-                    FloatingBottomBarItem(onClick = { selectPage(2) }) {
+                    FloatingBottomBarItem(onClick = { selectPage(3) }) {
                         Icon(imageVector = MiuixIcons.Info, contentDescription = "Info",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Info", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
@@ -268,7 +282,7 @@ fun MainScreen(
             val navbarHeightDp = 64.dp
             // Bands page has Apply/Reset buttons (~72dp) at the bottom, so the snackbar
             // needs extra clearance. Cells and Info pages have no buttons.
-            val buttonSpace = if (selectedIndex == 0) 62.dp else 0.dp
+            val buttonSpace = if (selectedIndex == 1) 62.dp else 0.dp
             top.yukonga.miuix.kmp.basic.SnackbarHost(
                 state = snackbarHostState,
                 modifier = Modifier
