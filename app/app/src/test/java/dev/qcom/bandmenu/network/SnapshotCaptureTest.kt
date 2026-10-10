@@ -74,7 +74,12 @@ class SnapshotCaptureTest {
         val w = rounds("wcdma-20261009-1.jsonl").map(::snapshot)
         println(dump(w.first()))
         assertTrue(w.all { it.mode == ServiceMode.WCDMA })
-        assertEquals("83", w.first().cells.single().fields.first { it.label == "PSC" }.value)
+        val wFields = w.first().cells.single().fields
+        assertEquals("83", wFields.first { it.label == "PSC" }.value)
+        assertEquals(listOf("Band", "UARFCN", "Frequency", "PSC", "Cell ID"), wFields.take(5).map { it.label })
+        assertEquals("937.4 MHz", wFields.first { it.label == "Frequency" }.value)
+        assertEquals("137711403 (2101, 20267)", wFields.first { it.label == "Cell ID" }.value)
+        assertTrue(wFields.none { it.label == "Bandwidth" })
         // WCDMA RSCP must come out negative (SIG_INFO's raw sign anomaly is not used).
         assertTrue(w.first().cells.single().metrics.first { it.label == "RSCP" }.value!! < 0)
 

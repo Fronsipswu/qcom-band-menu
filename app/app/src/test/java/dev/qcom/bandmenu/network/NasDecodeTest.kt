@@ -116,6 +116,9 @@ class NasDecodeTest {
         assertNull(nrBandForArfcn(5))
         assertEquals(8, lteBandForEarfcn(3750)); assertEquals(3, lteBandForEarfcn(1275))
         assertEquals(1, wcdmaBandForUarfcn(10563)); assertEquals(8, wcdmaBandForUarfcn(2987))
+        assertEquals(937.4, wcdmaFrequencyForUarfcn(2987)!!, 1e-9)
+        assertEquals(2112.6, wcdmaFrequencyForUarfcn(10563)!!, 1e-9)
+        assertEquals(877.4, wcdmaFrequencyForUarfcn(712)!!, 1e-9)
         assertEquals("900", gsmBandForArfcn(122)?.label)
         assertNull("1800/1900 overlap", gsmBandForArfcn(600))
     }

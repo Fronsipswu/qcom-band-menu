@@ -292,13 +292,13 @@ private fun CellSection(cell: CellCard) {
 
 /**
  * Compact three-column label/value grid. A field spans 1, 2 or 3 columns by
- * value length (ECI and DL/UL need more), packed in order.
+ * value length (ECI, DL/UL and WCDMA Cell ID need more), packed in order.
  */
 @Composable
 private fun FieldGrid(fields: List<Field>) {
     fun span(f: Field) = when {
         f.value.length <= 11 -> 1
-        f.value.length <= 22 -> 2
+        f.value.length <= 24 -> 2
         else -> 3
     }
     val rows = buildList<List<Field>> {
@@ -445,16 +445,17 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
     val chains = if (a.rat == Rat.LTE || a.rat == Rat.NR) a.chains.filter { !it.tuned || it.rsrp != null } else a.chains
     chains.forEach { c ->
         if (!c.tuned) {
-            Text("Antenna ${c.chain + 1}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
+            Text("TX${c.chain}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
             return@forEach
         }
         // TX_RX_INFO has only RSRP (LTE/NR), RSCP (WCDMA) or RX power per
-        // chain; per-antenna RSRQ/SINR don't exist in QMI. Numbered from 1.
-        val n = c.chain + 1
+        // chain; per-antenna RSRQ/SINR don't exist in QMI. Labelled TX0, TX1 and so on
+        // by chain number, whatever the metric.
+        val n = "TX${c.chain}"
         val m = when {
-            c.rsrp != null -> Metric("RSRP $n", MetricKind.RSRP, a.rat, c.rsrp, "dBm")
-            c.rscp != null -> Metric("RSCP $n", MetricKind.RSCP, a.rat, c.rscp, "dBm")
-            else -> Metric("RSSI $n", MetricKind.RSSI, a.rat, c.rxPower, "dBm")
+            c.rsrp != null -> Metric(n, MetricKind.RSRP, a.rat, c.rsrp, "dBm")
+            c.rscp != null -> Metric(n, MetricKind.RSCP, a.rat, c.rscp, "dBm")
+            else -> Metric(n, MetricKind.RSSI, a.rat, c.rxPower, "dBm")
         }
         SignalBar(m, Modifier.padding(vertical = 4.dp), labelWidth = 64.dp)
     }

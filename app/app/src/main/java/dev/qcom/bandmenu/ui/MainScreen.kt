@@ -259,7 +259,7 @@ fun MainScreen(
                         Text("Network", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(1) }) {
-                        Icon(imageVector = dev.qcom.bandmenu.ui.component.GearIcon, contentDescription = "Bands",
+                        Icon(imageVector = dev.qcom.bandmenu.ui.component.WrenchIcon, contentDescription = "Bands",
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Bands", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }

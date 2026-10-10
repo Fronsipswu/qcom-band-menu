@@ -114,6 +114,19 @@ fun wcdmaBandForUarfcn(uarfcn: Int): Int? = when (uarfcn) {
     else -> null
 }
 
+/**
+ * WCDMA downlink frequency for a UARFCN: F = offset + 0.2 x UARFCN MHz
+ * (3GPP TS 25.101 general channels, offset per band); null if unknown.
+ */
+fun wcdmaFrequencyForUarfcn(uarfcn: Int): Double? {
+    val offset = when (wcdmaBandForUarfcn(uarfcn) ?: return null) {
+        3 -> 1575.0; 4 -> 1805.0; 7 -> 2175.0; 8 -> 340.0
+        10 -> 1490.0; 11 -> 736.0; 19 -> 735.0
+        else -> 0.0
+    }
+    return offset + uarfcn * 0.2
+}
+
 /** GSM band for an ARFCN. 512-810 is used by both DCS 1800 and PCS 1900, so it's null (ambiguous). */
 fun gsmBandForArfcn(arfcn: Int): Band? = when (arfcn) {
     in 128..251 -> Band(Rat.GSM, 850, "850")

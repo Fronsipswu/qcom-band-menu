@@ -119,7 +119,7 @@ class NetworkMonitor(
         val plmn = snap.plmn
         val key = plmn?.let { "$it/${snap.mode}" }
         if (plmn != null && key != namedPlmn[sim - 1]) {
-            cachedName[sim - 1] = readOperatorName(sim, plmn)
+            cachedName[sim - 1] = readOperatorName(sim, plmn, snap.roaming)
             namedPlmn[sim - 1] = key
         }
         snap to cachedName[sim - 1].takeIf { key != null && key == namedPlmn[sim - 1] }
@@ -136,7 +136,7 @@ class NetworkMonitor(
         val s = (sys as? ReadOutcome.Ok)?.frame?.takeIf { it.ok }?.let { runCatching { decodeSysInfo(it) }.getOrNull() }
         val plmn = s?.primaryPlmn ?: s?.common?.values?.firstNotNullOfOrNull { it.plmn }
         if (plmn != null) {
-            readOperatorName(sim, plmn)
+            readOperatorName(sim, plmn, s?.common?.values?.firstNotNullOfOrNull { it.roaming })
         } else {
             val home = request(sim, listOf(NetworkReads.HOME))[NetworkReads.HOME]
             (home as? ReadOutcome.Ok)?.frame?.takeIf { it.ok }?.let { runCatching { decodeHomeNetwork(it) }.getOrNull() }?.description
@@ -146,17 +146,26 @@ class NetworkMonitor(
         null
     }
 
-    private fun readOperatorName(sim: Int, plmn: Plmn): String? = try {
+    /**
+     * The PLMN's network name, else the home network name when this PLMN is
+     * home or we're not roaming. A cell can broadcast a shared PLMN the modem
+     * has no name for (WCDMA here: 520 19 while registered on 520 04); then
+     * GET_PLMN_NAME just echoes the digits ("520 19"), which isn't a name.
+     */
+    private fun readOperatorName(sim: Int, plmn: Plmn, roaming: Boolean?): String? = try {
         val r = request(sim, listOf(NetworkReads.HOME, "0044:" + plmnNamePayload(plmn)))
         fun frame(k: String) = (r[k] as? ReadOutcome.Ok)?.frame?.takeIf { it.ok }
         val plmnName = frame(r.keys.last())?.let { runCatching { decodePlmnName(it) }.getOrNull() }
         val home = frame(NetworkReads.HOME)?.let { runCatching { decodeHomeNetwork(it) }.getOrNull() }
-        plmnName?.longName ?: plmnName?.shortName ?: plmnName?.spn
-            ?: home?.takeIf { it.mcc == plmn.mcc.toInt() && it.mnc == plmn.mnc.toInt() }?.description
+        val isHome = home != null && home.mcc == plmn.mcc.toInt() && home.mnc == plmn.mnc.toInt()
+        listOfNotNull(plmnName?.longName, plmnName?.shortName, plmnName?.spn).firstOrNull { !isNumericName(it) }
+            ?: home?.takeIf { isHome || roaming == false }?.description?.takeIf { !isNumericName(it) }
     } catch (e: Exception) {
         AppLog.w(TAG, "operator name read failed: ${e.message}")
         null
     }
+
+    private fun isNumericName(name: String) = name.all { it.isDigit() || it == ' ' || it == '-' }
 
     /** One nas_read call; results are matched to [keys] by position. */
     private fun request(sim: Int, keys: List<String>): Map<String, ReadOutcome> {

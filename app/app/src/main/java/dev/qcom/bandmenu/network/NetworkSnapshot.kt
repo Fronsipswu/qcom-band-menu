@@ -296,13 +296,16 @@ class SnapshotBuilder(
     private fun wcdmaCell(): CellCard? {
         val w = loc?.wcdma
         val band = rfFor(NasRadioIf.UMTS)
+        val uarfcn = w?.uarfcn ?: arfcn?.wcdmaServingUarfcn
         val fields = buildList {
+            (band?.let { NasBands.label(it.bandEnum) } ?: uarfcn?.let(::wcdmaBandForUarfcn)?.let { "B$it" })
+                ?.let { add(Field("Band", it)) }
+            uarfcn?.let { add(Field("UARFCN", it.toString())) }
+            uarfcn?.let(::wcdmaFrequencyForUarfcn)?.let { add(Field("Frequency", mhz(it))) }
             w?.psc?.let { add(Field("PSC", it.toString())) }
-            (w?.uarfcn ?: arfcn?.wcdmaServingUarfcn)?.let { add(Field("UARFCN", it.toString())) }
-            band?.let { add(Field("Band", NasBands.label(it.bandEnum))) }
-            band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
+            // Cell ID = RNC (high 16 bits) and CID.
+            w?.cellId?.let { add(Field("Cell ID", "$it (${it shr 16}, ${it and 0xFFFF})")) }
             w?.lac?.let { add(Field("LAC", it.toString())) }
-            w?.cellId?.let { add(Field("Cell ID", "$it (RNC ${it shr 16}, CID ${it and 0xFFFF})")) }
             errRate?.second?.let { add(Field("BLER", "$it %")) }
         }
         // SIG_INFO WCDMA signs are anomalous on this firmware; CELL_LOCATION
