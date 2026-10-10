@@ -113,6 +113,7 @@ class NasDecodeTest {
         assertEquals(7, nrBandForArfcn(529950, setOf(7)))
         assertEquals(28, nrBandForArfcn(153630))
         assertEquals(78, nrBandForArfcn(636000, setOf(78)))
+        assertEquals(3432.0, nrFrequencyForArfcn(628800)!!, 1e-9)
         assertNull(nrBandForArfcn(5))
         assertEquals(8, lteBandForEarfcn(3750)); assertEquals(3, lteBandForEarfcn(1275))
         assertEquals(1, wcdmaBandForUarfcn(10563)); assertEquals(8, wcdmaBandForUarfcn(2987))

@@ -403,7 +403,7 @@ class SnapshotBuilder(
             summary = "",
             carriers = extra.map { ch ->
                 Carrier(nrBandForArfcn(ch, nrHardwareBands)?.let { "n$it" } ?: "n?", null,
-                    ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${mhz(it)})" } ?: ""), null, null, null)
+                    ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${String.format(Locale.US, "%.1f MHz", it)})" } ?: ""), null, null, null)
             },
             note = "QMI only reports frequency data for NR Scells"
         )
