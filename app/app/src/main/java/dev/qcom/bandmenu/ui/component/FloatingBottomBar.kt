@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -147,7 +148,12 @@ fun FloatingBottomBar(
         }
     }
 
-    var currentIndex by remember(selectedIndex) { mutableIntStateOf(selectedIndex()) }
+    // Incoming selection (the pager) only moves the indicator. onSelected is
+    // reserved for the user's own indicator drag, so a pager update is never
+    // echoed back as a navigation request.
+    var currentIndex by remember { mutableIntStateOf(selectedIndex()) }
+    val currentSelectedIndex by rememberUpdatedState(selectedIndex)
+    val currentOnSelected by rememberUpdatedState(onSelected)
 
     class DampedDragAnimationHolder { var instance: DampedDragAnimation? = null }
     val holder = remember { DampedDragAnimationHolder() }
@@ -178,6 +184,7 @@ fun FloatingBottomBar(
                 val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
                 currentIndex = targetIndex
                 animateToValue(targetIndex.toFloat())
+                currentOnSelected(targetIndex)
                 animationScope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
             },
             onDrag = { _, dragAmount ->
@@ -192,13 +199,12 @@ fun FloatingBottomBar(
         ).also { holder.instance = it }
     }
 
-    LaunchedEffect(selectedIndex) {
-        snapshotFlow { selectedIndex() }.collectLatest { currentIndex = it }
+    LaunchedEffect(Unit) {
+        snapshotFlow { currentSelectedIndex() }.collectLatest { currentIndex = it }
     }
     LaunchedEffect(dampedDragAnimation) {
         snapshotFlow { currentIndex }.drop(1).collectLatest { index ->
             dampedDragAnimation.animateToValue(index.toFloat())
-            onSelected(index)
         }
     }
 
