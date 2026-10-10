@@ -53,6 +53,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun MainScreen(
     networkMonitor: dev.qcom.bandmenu.network.NetworkMonitor,
+    /** Network page pull-to-refresh (the page also takes a new reading itself). */
+    onNetworkRefresh: () -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -177,6 +179,7 @@ fun MainScreen(
                             isActive = pagerState.settledPage == 0,
                             simLabels = simLabels,
                             sim2Available = modemState?.sim2Available != false,
+                            onRefresh = onNetworkRefresh,
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(

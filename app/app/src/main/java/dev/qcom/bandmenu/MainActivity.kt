@@ -17,10 +17,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.qcom.bandmenu.ui.MainScreen
+import dev.qcom.bandmenu.network.SimSlotStatus
 import dev.qcom.bandmenu.ui.CellLockResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -169,7 +174,9 @@ class MainActivity : ComponentActivity() {
                 // operation holds modemLock; re-running init then would slip a
                 // sim_set between that operation's commands and send the rest to
                 // the other SIM. Init also takes the lock, so the two never overlap.
-                LaunchedEffect(daemonManager.isReady.value) {
+                // Bumped to run init again (SIM 2 turned on/off or inserted/removed).
+                var initGeneration by remember { mutableIntStateOf(0) }
+                LaunchedEffect(daemonManager.isReady.value, initGeneration) {
                     if (daemonManager.isReady.value && modemState == null) {
                         scope.launch {
                             modemLock.withLock {
@@ -192,9 +199,16 @@ class MainActivity : ComponentActivity() {
                                         // SIM 1 still works. Only a SIM 1 failure is fatal.
                                         val modemCount = (getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)
                                             ?.activeModemCount ?: 2
-                                        var sim2Available = modemCount >= 2
+                                        // With DSDS on, a SIM 2 turned off in Settings or taken
+                                        // out still binds; UIM card status tells those apart from
+                                        // "no service". UNKNOWN (unreadable) keeps the old rule.
+                                        val sim2Status = if (modemCount >= 2) daemonHolder.networkMonitor.simStatus(2) else SimSlotStatus.UNKNOWN
+                                        var sim2Available = modemCount >= 2 &&
+                                            sim2Status != SimSlotStatus.DISABLED && sim2Status != SimSlotStatus.NO_SIM
                                         var sim2Parsed: DaemonResponse? = null
-                                        if (sim2Available) {
+                                        if (modemCount >= 2 && !sim2Available) {
+                                            AppLog.i(TAG, "Init: SIM 2 card status $sim2Status, skipping SIM 2")
+                                        } else if (sim2Available) {
                                             val r = JsonStateParser.parseResponse(daemonManager.simSet(2))
                                             if (r.ok) {
                                                 sim2Parsed = r
@@ -240,7 +254,8 @@ class MainActivity : ComponentActivity() {
                                             sim1CellLock, sim2CellLock,
                                             sim1PlmnLock, sim2PlmnLock,
                                             initNrIndependentSupported ?: nrIndependentSupported,
-                                            sim2Available = sim2Available
+                                            sim2Available = sim2Available,
+                                            sim2Status = sim2Status
                                         )
 
                                         // I6: Enable verbose logging on startup if debug is enabled
@@ -273,6 +288,36 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // SIM 2 can be turned off or taken out at any time. Re-read its card
+                // status on resume and on every pull-to-refresh: if it became usable
+                // or unusable, init again so SIM 2's state is (un)loaded and the SIM
+                // pagers gain or drop their second page. One read-only request.
+                fun recheckSim2() {
+                    val before = modemState ?: return
+                    // UNKNOWN at init: single modem or unreadable; nothing to compare.
+                    if (isLoading || before.sim2Status == SimSlotStatus.UNKNOWN) return
+                    scope.launch {
+                        val status = withContext(Dispatchers.IO) { daemonHolder.networkMonitor.simStatus(2) }
+                        val current = modemState ?: return@launch
+                        if (status == SimSlotStatus.UNKNOWN || status == current.sim2Status) return@launch
+                        if ((status == SimSlotStatus.ACTIVE) != current.sim2Available) {
+                            AppLog.i(TAG, "SIM 2 card status ${current.sim2Status} -> $status, re-initialising")
+                            modemState = null
+                            initGeneration++
+                        } else {
+                            modemState = current.copy(sim2Status = status)
+                        }
+                    }
+                }
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) recheckSim2()
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
                 // SIM tab labels come from QMI (GET_PLMN_NAME / GET_HOME_NETWORK via
                 // the daemon's read-only monitoring client), not the telephony API,
                 // so no phone-state permission is needed.
@@ -284,7 +329,12 @@ class MainActivity : ComponentActivity() {
                     simLabels = withContext(Dispatchers.IO) {
                         simTabLabels(listOf(
                             monitor.operatorNameForLabel(1),
-                            if (state.sim2Available) monitor.operatorNameForLabel(2) else null
+                            if (state.sim2Available) monitor.operatorNameForLabel(2)
+                            else when (state.sim2Status) {
+                                SimSlotStatus.DISABLED -> "Off"
+                                SimSlotStatus.NO_SIM -> "No SIM"
+                                else -> null
+                            }
                         ))
                     }
                 }
@@ -300,6 +350,7 @@ class MainActivity : ComponentActivity() {
 
                 MainScreen(
                     networkMonitor = daemonHolder.networkMonitor,
+                    onNetworkRefresh = { recheckSim2() },
                     onCellLockSimSwitch = simSwitch@{ slot ->
                         cellLockSelectedSim = slot
                         if (slot == 1 && modemState?.sim2Available == false) return@simSwitch
@@ -596,6 +647,7 @@ class MainActivity : ComponentActivity() {
                     onCellLockResultConsumed = { cellLockResult = null },
                     cellLockRefreshing = cellLockRefreshing,
                     onCellLockRefresh = cellRefresh@{
+                        recheckSim2()
                         if (sim2Unavailable(cellLockSelectedSim + 1)) return@cellRefresh
                         scope.launch {
                             cellLockRefreshing = true
@@ -892,6 +944,7 @@ class MainActivity : ComponentActivity() {
                     },
                     refreshingSlots = refreshingSlots,
                     onRefresh = refresh@{ slot ->
+                        recheckSim2()
                         if (sim2Unavailable(slot + 1)) return@refresh
                         scope.launch {
                             refreshingSlots = refreshingSlots + slot

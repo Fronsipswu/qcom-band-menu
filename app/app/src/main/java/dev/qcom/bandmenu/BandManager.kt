@@ -140,8 +140,11 @@ data class ModemState(
     val sim1PlmnLock: PlmnLockState = PlmnLockState(),
     val sim2PlmnLock: PlmnLockState = PlmnLockState(),
     val nrIndependentSupported: Boolean? = null,
-    /** False when the modem refused SIM 2 (single-SIM phone, DSDS off). */
-    val sim2Available: Boolean = true
+    /** False when SIM 2 can't be used: the modem refused it (single-SIM
+     *  phone, DSDS off), or its card status says it's off or absent. */
+    val sim2Available: Boolean = true,
+    /** SIM 2's subscription as UIM card status reported it at init. */
+    val sim2Status: dev.qcom.bandmenu.network.SimSlotStatus = dev.qcom.bandmenu.network.SimSlotStatus.UNKNOWN
 )
 
 object BandConstants {
@@ -187,6 +190,8 @@ object JsonRequestBuilder {
      *  separate per-SIM monitoring client. Each read is "MSGHEX[:PAYLOADHEX]". */
     fun nasRead(sim: Int, reads: List<String>): JSONObject =
         JSONObject().put("cmd", "nas_read").put("sim", sim).put("reads", org.json.JSONArray(reads))
+
+    fun uimCardStatus(): JSONObject = JSONObject().put("cmd", "uim_card_status")
 
     fun ratSet(rats: Set<RatType>): JSONObject {
         val ratStr = if (rats == BandConstants.ALL_RAT_TYPES) "auto"

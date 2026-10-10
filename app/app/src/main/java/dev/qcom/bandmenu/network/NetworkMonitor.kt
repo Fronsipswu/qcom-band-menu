@@ -173,6 +173,21 @@ class NetworkMonitor(
 
     private fun isNumericName(name: String) = name.all { it.isDigit() || it == ' ' || it == '-' }
 
+    /**
+     * SIM [sim]'s subscription from UIM card status (read-only): active,
+     * turned off, no card, or UNKNOWN when it can't be read. Blocking; call
+     * off the main thread.
+     */
+    fun simStatus(sim: Int): SimSlotStatus = try {
+        val resp = daemon.uimCardStatus()
+        val rx = resp.optJSONObject("uim_card_status")?.takeIf { it.optString("status") == "ok" }?.optString("rx")
+        val frame = rx?.takeIf { it.isNotEmpty() }?.let(QmiFrame::parseHex)?.takeIf { it.ok }
+        frame?.let(::decodeCardStatus)?.statusOf(sim) ?: SimSlotStatus.UNKNOWN
+    } catch (e: Exception) {
+        AppLog.w(TAG, "card status read failed: ${e.message}")
+        SimSlotStatus.UNKNOWN
+    }
+
     /** One nas_read call; results are matched to [keys] by position. */
     private fun request(sim: Int, keys: List<String>): Map<String, ReadOutcome> {
         val resp = daemon.nasRead(sim, keys)

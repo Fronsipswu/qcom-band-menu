@@ -428,6 +428,25 @@
  *   Also: build fix -- the two struct copies in nr_indep_probe_one() now
  *   use copy() instead of `*out_diag=s->diag`, which compilers lower to a
  *   memcpy call that a -nostdlib link cannot resolve. No behavior change.
+ *
+ * v4.8.0 -- Read-only SIM card status ("uim_card_status"):
+ *   Lets the app tell a disabled or removed SIM 2 apart from one that is
+ *   merely out of service. Like nas_read, the daemon returns the raw frame.
+ *     Request:  {"cmd":"uim_card_status"}
+ *     Response: the usual envelope plus
+ *       "uim_card_status":{"status":"ok","ms":3,"rx":"02...."}
+ *       status uses the nas_read names (ok, timeout, send_failed,
+ *       bad_frame). If the UIM service can't be found or connected, the
+ *       command fails (ok:false, stage "daemon") instead.
+ *   Read-only by construction: the only message ever sent is UIM
+ *   GET_CARD_STATUS (0x002F) with no payload, on a one-shot UIM (service
+ *   0x0B) socket that is opened, used once and closed. The NAS control
+ *   and monitoring clients are untouched.
+ *   Privacy: the modem's reply also carries each card's ICCID in other
+ *   TLVs, so the daemon rewrites the frame to keep only the result TLV
+ *   (0x02) and the card status TLV (0x10: card/app states, session
+ *   indexes, AIDs) before returning it. A frame that fails validation is
+ *   not returned at all.
  */
 
 typedef unsigned char u8;
@@ -520,7 +539,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.7.0"
+#define DAEMON_VERSION "4.8.0"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
@@ -1029,6 +1048,57 @@ static void jnas_read(char*b,u32*pos,u32 cap){
   jputc(b,pos,cap,'}');
  }
  jput(b,pos,cap,"]}");
+}
+
+/* v4.8.0: UIM GET_CARD_STATUS on a one-shot socket. */
+#define UIM_SERVICE 0x0Bu
+#define UIM_GET_CARD_STATUS 0x002Fu
+static struct nas_read_result uim_result;
+
+/* Keeps only the result (0x02) and card status (0x10) TLVs. The other TLVs
+ * of this reply carry the cards' ICCIDs, which the app has no use for and
+ * must not receive. Rewrites the body length; returns the new frame size. */
+static u32 uim_keep_card_status(u8*f,u32 n){
+ u32 p=7,o=7,end=7u+le16(f+5);
+ if(end>n)return 7;
+ while(p+3<=end){
+  u8 id=f[p];u16 l=le16(f+p+1);
+  if(p+3u+l>end)break;
+  if(id==0x02||id==0x10){if(o!=p){u32 i;for(i=0;i<3u+l;i++)f[o+i]=f[p+i];}o+=3u+l;}
+  p+=3u+l;
+ }
+ put16(f+5,(u16)(o-7));
+ return o;
+}
+
+static int cmd_uim_card_status(struct state*s,char*stage,u32 stage_cap){
+ struct sockaddr_qrtr a;struct timeval64 tv;u32 node,port,n=0,t0;s64 fd;int st=NR_ST_TIMEOUT;
+ uim_result.msg=UIM_GET_CARD_STATUS;uim_result.rx_len=0;uim_result.ms=0;uim_result.status=NR_ST_SEND_FAILED;
+ if(!discover_service(UIM_SERVICE,&node,&port)){setstatus(s,"UIM discovery failed.");set_stage(stage,stage_cap,"daemon");return 0;}
+ fd=sc3(SYS_socket,AF_QIPCRTR,SOCK_DGRAM,0);if(fd<0){setstatus(s,"UIM socket failed.");set_stage(stage,stage_cap,"daemon");return 0;}
+ tv.sec=0;tv.usec=NAS_READ_TIMEOUT_MS*1000;
+ a.family=AF_QIPCRTR;a.pad=0;a.node=node;a.port=port;
+ if(sc5(SYS_setsockopt,fd,SOL_SOCKET,SO_RCVTIMEO,(s64)&tv,sizeof(tv))<0||sc3(SYS_connect,fd,(s64)&a,sizeof(a))<0){
+  sc1(SYS_close,fd);setstatus(s,"UIM connect failed.");set_stage(stage,stage_cap,"daemon");return 0;
+ }
+ t0=now_ms();
+ if(mon_exchange(fd,UIM_GET_CARD_STATUS,0,0,uim_result.rx,sizeof(uim_result.rx),&n,&st))uim_result.rx_len=n;
+ /* Never pass ICCIDs on: drop everything but TLVs 0x02 and 0x10. A frame
+    that didn't validate isn't returned at all. */
+ if(st==NR_ST_OK)uim_result.rx_len=uim_keep_card_status(uim_result.rx,uim_result.rx_len);
+ else uim_result.rx_len=0;
+ uim_result.status=st;uim_result.ms=now_ms()-t0;
+ sc1(SYS_close,fd);
+ setstatus(s,"uim_card_status done.");
+ return 1;
+}
+
+static void juim_card_status(char*b,u32*pos,u32 cap){
+ static const char*names[]={"ok","timeout","send_failed","bad_frame","not_allowed"};
+ jput(b,pos,cap,"{\"status\":");jstr(b,pos,cap,names[uim_result.status]);
+ jput(b,pos,cap,",\"ms\":");jint(b,pos,cap,uim_result.ms);
+ if(uim_result.rx_len){jput(b,pos,cap,",\"rx\":\"");jhex_bytes(b,pos,cap,uim_result.rx,uim_result.rx_len);jputc(b,pos,cap,'"');}
+ jputc(b,pos,cap,'}');
 }
 
 static int bind_sim(struct state*s,int sim){u8 p[4]={1,1,0,0},r[128];u32 n;p[3]=(u8)(sim-1);if(!exchange(s,MSG_BIND,p,4,r,sizeof(r),&n)||!result_ok(r,n)){setstatus(s,"SIM bind failed.");return 0;}s->sim=sim;return 1;}
@@ -2056,6 +2126,8 @@ static void do_command(struct state*s,const char*req,int*ok,int*did_set,int*shut
  if(eq(cmd,"version")){*ok=1;setstatus(s,"qcom-bandlockd v" DAEMON_VERSION);return;}
  /* v4.7.0 read-only monitoring; never touches the control client. */
  if(eq(cmd,"nas_read")){*ok=cmd_nas_read(s,req,stage,stage_cap);return;}
+ /* v4.8.0 read-only SIM card status; one-shot UIM socket. */
+ if(eq(cmd,"uim_card_status")){*ok=cmd_uim_card_status(s,stage,stage_cap);return;}
  if(eq(cmd,"shutdown")){*ok=1;*shutdown_req=1;setstatus(s,"Daemon shutting down.");return;}
  if(eq(cmd,"verbose_set")){
   int v;
@@ -2232,6 +2304,7 @@ static void build_response(struct state*s,const char*req,int ok,const char*expli
   jputc(out,&pos,outcap,'}');
  }
  if(eq(cmdbuf,"nas_read")&&ok){jput(out,&pos,outcap,",\"nas_read\":");jnas_read(out,&pos,outcap);}
+ if(eq(cmdbuf,"uim_card_status")&&ok){jput(out,&pos,outcap,",\"uim_card_status\":");juim_card_status(out,&pos,outcap);}
  jput(out,&pos,outcap,",\"state\":");jstate(out,&pos,outcap,s);
  jput(out,&pos,outcap,",\"diagnostics\":");jdiagnostics(out,&pos,outcap,s);
  jputc(out,&pos,outcap,'}');

@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalWindowInfo
 import kotlinx.coroutines.launch
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
@@ -108,6 +109,8 @@ fun NetworkScreen(
     isActive: Boolean,
     simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     sim2Available: Boolean = true,
+    /** Extra work on pull-to-refresh (MainActivity re-checks SIM 2's card status). */
+    onRefresh: () -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val state by monitor.state.collectAsState()
@@ -139,13 +142,20 @@ fun NetworkScreen(
     // SIM pager, as on the Bands page: the pager is the source of truth and
     // the monitor follows its target page. Sized to the current page so a
     // short SIM page leaves no blank scroll space.
-    val pagerState = rememberPagerState(initialPage = state.sim - 1, pageCount = { 2 })
+    // Without a usable SIM 2 there's one page, so a swipe goes straight on to
+    // the neighbouring screen.
+    val pagerState = rememberPagerState(initialPage = if (sim2Available) state.sim - 1 else 0,
+        pageCount = { if (sim2Available) 2 else 1 })
     val pagerScope = rememberCoroutineScope()
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.targetPage }.collect { monitor.selectSim(it + 1) }
     }
     val pageHeights = remember { mutableStateMapOf<Int, Int>() }
-    val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }
+    // At least the visible area below the tabs, so a swipe anywhere on a short
+    // page (e.g. "No service") still reaches the SIM pager, not the screen pager.
+    val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
+    val minPageHeight = (windowHeight - topBarHeight - 64.dp - navbarSpace - 16.dp).coerceAtLeast(0.dp)
+    val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }?.coerceAtLeast(minPageHeight)
 
     val surfaceColor = MiuixTheme.colorScheme.surface
     val screenBackdrop = rememberLayerBackdrop(onDraw = { drawRect(surfaceColor); drawContent() })
@@ -153,7 +163,7 @@ fun NetworkScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         PullToRefresh(
             isRefreshing = state.refreshing,
-            onRefresh = { monitor.refreshOnce() },
+            onRefresh = { onRefresh(); monitor.refreshOnce() },
             modifier = Modifier.fillMaxSize().layerBackdrop(screenBackdrop),
             contentPadding = PaddingValues(top = topBarHeight)
         ) {
@@ -168,6 +178,7 @@ fun NetworkScreen(
                     tabs = simLabels,
                     selectedTabIndex = pagerState.targetPage,
                     onTabSelected = {
+                        if (it >= pagerState.pageCount) return@TabRowWithContour
                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                         if (pagerState.targetPage != it) pagerScope.launch { pagerState.animateScrollToPage(it) }
                     },

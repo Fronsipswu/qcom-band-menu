@@ -175,7 +175,8 @@ fun BandLockScreen(
     // animateScrollToPage cancel the release fling (both run at
     // MutatePriority.Default), and when that effect was itself cancelled by its
     // key changing, the pager stayed stuck between pages.
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    // One page without a usable SIM 2: a swipe goes straight to the next screen.
+    val pagerState = rememberPagerState(pageCount = { if (modemState?.sim2Available == false) 1 else 2 })
     val pagerScope = rememberCoroutineScope()
     val selectedSim by remember { derivedStateOf { pagerState.targetPage } }
     val slotStates = remember { arrayOf(SlotBandState(), SlotBandState()) }
@@ -217,6 +218,7 @@ fun BandLockScreen(
                             tabs = simLabels,
                             selectedTabIndex = selectedSim,
                             onTabSelected = {
+                                if (it >= pagerState.pageCount) return@TabRowWithContour
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 if (pagerState.targetPage != it) {
                                     pagerScope.launch { pagerState.animateScrollToPage(it) }
