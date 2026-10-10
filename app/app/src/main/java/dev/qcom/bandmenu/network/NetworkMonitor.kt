@@ -48,8 +48,10 @@ class NetworkMonitor(
     private var resumed = false
     private var loop: Job? = null
     private val roundLock = Mutex()
-    /** Operator name cache per SIM (slow tier): PLMN it was read for, and the name. */
-    private val namedPlmn = arrayOfNulls<Plmn>(2)
+    /** Operator name cache per SIM (slow tier): the PLMN + mode it was read
+     *  for, and the name. The modem's name depends on the RAT (e.g. 520-04 is
+     *  "TRUE-H" on LTE but "TRUE5GX" on 5G), so a mode change re-reads it. */
+    private val namedPlmn = arrayOfNulls<String>(2)
     private val cachedName = arrayOfNulls<String>(2)
 
     fun setVisible(v: Boolean) { visible = v; reschedule() }
@@ -111,11 +113,33 @@ class NetworkMonitor(
         val snap = SnapshotBuilder(reads).build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
-        if (plmn != null && plmn != namedPlmn[sim - 1]) {
+        val key = plmn?.let { "$it/${snap.mode}" }
+        if (plmn != null && key != namedPlmn[sim - 1]) {
             cachedName[sim - 1] = readOperatorName(sim, plmn)
-            namedPlmn[sim - 1] = plmn
+            namedPlmn[sim - 1] = key
         }
-        snap to cachedName[sim - 1].takeIf { plmn != null && plmn == namedPlmn[sim - 1] }
+        snap to cachedName[sim - 1].takeIf { key != null && key == namedPlmn[sim - 1] }
+    }
+
+    /**
+     * Operator name for a SIM tab label, from QMI only (no telephony API):
+     * the current PLMN's network name, else the SIM's home network
+     * description when there's no service. Blocking; call off the main thread.
+     * Null when the SIM can't be read (e.g. SIM 2 unavailable).
+     */
+    fun operatorNameForLabel(sim: Int): String? = try {
+        val sys = request(sim, listOf(NetworkReads.SYS))[NetworkReads.SYS]
+        val s = (sys as? ReadOutcome.Ok)?.frame?.takeIf { it.ok }?.let { runCatching { decodeSysInfo(it) }.getOrNull() }
+        val plmn = s?.primaryPlmn ?: s?.common?.values?.firstNotNullOfOrNull { it.plmn }
+        if (plmn != null) {
+            readOperatorName(sim, plmn)
+        } else {
+            val home = request(sim, listOf(NetworkReads.HOME))[NetworkReads.HOME]
+            (home as? ReadOutcome.Ok)?.frame?.takeIf { it.ok }?.let { runCatching { decodeHomeNetwork(it) }.getOrNull() }?.description
+        }
+    } catch (e: Exception) {
+        AppLog.w(TAG, "SIM $sim operator name read failed: ${e.message}")
+        null
     }
 
     private fun readOperatorName(sim: Int, plmn: Plmn): String? = try {

@@ -45,10 +45,22 @@ data class Carrier(
     val bandwidthMhz: Double?,
     /** "Active", "Configured" etc.; null when the modem doesn't report it. */
     val state: String?,
-    val pci: Int?
+    val pci: Int?,
+    /** L1 measurement of this carrier (CELL_LOCATION, matched by channel + PCI). */
+    val rsrp: Double? = null,
+    val rsrq: Double? = null,
+    /** PCC only (SIG_INFO); QMI has no per-SCell SINR. */
+    val sinr: Double? = null
 )
 
-data class CarrierGroup(val title: String, val summary: String, val carriers: List<Carrier>, val note: String? = null)
+data class CarrierGroup(
+    val title: String,
+    val summary: String,
+    val carriers: List<Carrier>,
+    val note: String? = null,
+    /** Render as a PCC/SCC column table (LTE CA). */
+    val table: Boolean = false
+)
 
 data class Neighbor(val rat: Rat, val channelLabel: String, val channel: Long, val idLabel: String, val id: String, val metrics: List<Metric>)
 
@@ -59,6 +71,8 @@ data class NetworkSnapshot(
     val takenAtElapsedMs: Long,
     val roundMs: Int,
     val mode: ServiceMode,
+    /** Text for the mode pill, e.g. "LTE 2xCA". */
+    val modeLabel: String,
     val plmn: Plmn?,
     val roaming: Boolean?,
     val rrc: List<Field>,
@@ -168,6 +182,7 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             takenAtElapsedMs = takenAtElapsedMs,
             roundMs = roundMs,
             mode = mode,
+            modeLabel = modeLabel(),
             plmn = sys?.primaryPlmn ?: common?.plmn,
             roaming = common?.roaming,
             rrc = rrcFields(),
@@ -177,6 +192,15 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             antennas = antennas(),
             failedReads = failed.toList()
         )
+    }
+
+    /** LTE with SCells configured shows the carrier count: "LTE 2xCA". */
+    private fun modeLabel(): String {
+        if (mode != ServiceMode.LTE) return mode.label
+        val c = ca ?: return mode.label
+        if (c.pcell == null) return mode.label
+        val carriers = 1 + c.scells.count { it.state == ScellState.CONFIGURED || it.state == ScellState.ACTIVATED }
+        return if (carriers >= 2) "${mode.label} ${carriers}xCA" else mode.label
     }
 
     private fun rrcFields() = buildList {
@@ -210,11 +234,7 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             }
             (l?.tac ?: sys?.common?.get(Rat.LTE)?.tac)?.let { add(Field("TAC", it.toString())) }
             (l?.eci ?: sys?.common?.get(Rat.LTE)?.cellId)?.let { eci ->
-                add(Field("ECI", "$eci (eNB ${eci shr 8}, cell ${eci and 0xFF})"))
-            }
-            loc?.lteTimingAdvanceUs?.let { ta ->
-                // QMI reports microseconds; one-way distance = c * t / 2.
-                add(Field("Timing advance", "$ta µs (~${fmt(ta * 149.896)} m)"))
+                add(Field("ECI (eNB/sector)", "$eci (${eci shr 8}/${eci and 0xFF})"))
             }
         }
         val s = sig
@@ -225,7 +245,7 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             Metric("RSSI", MetricKind.RSSI, Rat.LTE, s?.lteRssi?.toDouble(), "dBm")
         )
         if (fields.isEmpty() && metrics.all { it.value == null }) return null
-        return CellCard(if (mode == ServiceMode.NR_NSA) "LTE anchor" else "LTE primary cell", Rat.LTE, fields, metrics)
+        return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
     }
 
     private fun nrCell(sa: Boolean): CellCard? {
@@ -255,7 +275,7 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             Metric("SS-SINR", MetricKind.SINR, Rat.NR, sig?.nrSnr, "dB")
         )
         if (fields.isEmpty() && metrics.all { it.value == null }) return null
-        return CellCard(if (sa) "NR primary cell" else "NR secondary (EN-DC)", Rat.NR, fields, metrics)
+        return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics)
     }
 
     private fun wcdmaCell(): CellCard? {
@@ -290,7 +310,6 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
             band?.let { add(Field("Band", NasBands.label(it.bandEnum))) }
             c?.lac?.let { add(Field("LAC", it.toString())) }
             c?.cellId?.let { add(Field("Cell ID", it.toString())) }
-            g?.timingAdvance?.let { add(Field("Timing advance", "$it (~${it * 550} m)")) }
             errRate?.first?.let { add(Field("RxQual", it.toString())) }
         }
         val range = c?.rssiRange
@@ -318,16 +337,23 @@ class SnapshotBuilder(private val reads: Map<String, ReadOutcome>) {
         val configured = c.scells.filter { it.state == ScellState.CONFIGURED || it.state == ScellState.ACTIVATED }
         if (configured.isEmpty()) return null
         val all = listOf(p) + configured
-        val active = configured.count { it.state == ScellState.ACTIVATED }
-        val widths = all.mapNotNull { it.bandwidthMhz }
-        val total = if (widths.size == all.size) " · ${mhz(widths.sum())} configured" else ""
-        val bands = all.joinToString("+") { NasBands.label(it.bandEnum) }
+        // Per-carrier RSRP/RSRQ: the modem's L1 measurements on each serving
+        // frequency, matched by EARFCN + PCI (an SCell's PCI on its EARFCN).
+        val meas = buildMap {
+            loc?.lte?.let { s -> s.intraFreq.forEach { put(s.earfcn to it.pci, it) } }
+            loc?.lteInterFreq?.forEach { g -> g.cells.forEach { put(g.earfcn to it.pci, it) } }
+        }
         return CarrierGroup(
-            title = "LTE carrier aggregation",
-            summary = "${all.size}CA ($bands)$total · $active of ${configured.size} SCells active",
+            title = "Carrier aggregation",
+            summary = "",
+            table = true,
             carriers = all.mapIndexed { i, x ->
+                val m = meas[x.earfcn to x.pci]
                 Carrier(
-                    role = if (i == 0) "PCell" else "SCell${x.index ?: i}",
+                    role = if (i == 0) "P" else "S${x.index ?: i}",
+                    rsrp = m?.rsrp ?: if (i == 0) sig?.lteRsrp?.toDouble() else null,
+                    rsrq = m?.rsrq ?: if (i == 0) sig?.lteRsrq?.toDouble() else null,
+                    sinr = if (i == 0) sig?.lteSnr else null,
                     band = NasBands.label(x.bandEnum),
                     channel = x.earfcn.toString(),
                     bandwidthMhz = x.bandwidthMhz,

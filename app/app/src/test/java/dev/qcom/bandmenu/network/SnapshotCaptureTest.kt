@@ -38,7 +38,7 @@ class SnapshotCaptureTest {
     private fun snapshot(r: Map<String, ReadOutcome>) = SnapshotBuilder(r).build(2, 0, 0)
 
     private fun dump(s: NetworkSnapshot) = buildString {
-        appendLine("== ${s.mode} plmn=${s.plmn} roaming=${s.roaming} rrc=${s.rrc} failed=${s.failedReads}")
+        appendLine("== ${s.modeLabel} plmn=${s.plmn} roaming=${s.roaming} rrc=${s.rrc} failed=${s.failedReads}")
         s.cells.forEach { c ->
             appendLine("  [${c.title}] " + c.fields.joinToString { "${it.label}=${it.value}" })
             appendLine("     " + c.metrics.joinToString { "${it.label}=${it.text ?: it.value}" })
@@ -63,7 +63,7 @@ class SnapshotCaptureTest {
         val nsa = rounds("nsa-qmi-20261009-3.jsonl").map(::snapshot)
         println(dump(nsa.first()))
         assertTrue(nsa.all { it.mode == ServiceMode.NR_NSA })
-        assertEquals(listOf("LTE anchor", "NR secondary (EN-DC)"), nsa.first().cells.map { it.title })
+        assertEquals(listOf("LTE MCG", "NR SCG"), nsa.first().cells.map { it.title })
         // NSA reads carry no NR TAC/NCI.
         assertTrue(nsa.first().cells[1].fields.none { it.label == "NCI" || it.label == "TAC" })
 
@@ -106,6 +106,7 @@ class SnapshotCaptureTest {
         val snaps = bySample.map(::snapshot)
         val withCa = snaps.first { s -> s.carrierGroups.any { it.carriers.size == 4 } }
         println(dump(withCa))
-        assertTrue(withCa.carrierGroups.first().summary, withCa.carrierGroups.first().summary.contains("60 MHz"))
+        assertEquals("LTE 4xCA", withCa.modeLabel)
+        assertEquals(60.0, withCa.carrierGroups.first().carriers.sumOf { it.bandwidthMhz!! }, 1e-9)
     }
 }

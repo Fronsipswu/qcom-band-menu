@@ -39,6 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -57,6 +61,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import dev.qcom.bandmenu.network.AntennaGroup
+import dev.qcom.bandmenu.network.Carrier
 import dev.qcom.bandmenu.network.CarrierGroup
 import dev.qcom.bandmenu.network.CellCard
 import dev.qcom.bandmenu.network.Field
@@ -230,7 +235,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State) {
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Text(
-                    snap.mode.label,
+                    snap.modeLabel,
                     style = MiuixTheme.textStyles.title3,
                     fontWeight = FontWeight.Bold,
                     color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
@@ -325,7 +330,7 @@ private fun CarrierSection(group: CarrierGroup) {
                 Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(8.dp))
             }
-            group.carriers.forEach { c ->
+            if (group.table) CaTable(group.carriers) else group.carriers.forEach { c ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold) }
@@ -342,6 +347,59 @@ private fun CarrierSection(group: CarrierGroup) {
                 Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
+    }
+}
+
+/** Cellular-Pro-style CA table: one column per carrier, one row per parameter. */
+@Composable
+private fun CaTable(carriers: List<Carrier>) {
+    val line = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+    @Composable
+    fun row(label: String, header: Boolean = false, cell: @Composable (Carrier) -> Unit) {
+        Row(
+            Modifier.fillMaxWidth().height(IntrinsicSize.Min).drawBehind {
+                drawLine(line, Offset(0f, size.height), Offset(size.width, size.height), 1f)
+            }.padding(vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, modifier = Modifier.width(64.dp), style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontWeight = if (header) FontWeight.Medium else null)
+            carriers.forEach { c -> Box(Modifier.weight(1f).padding(horizontal = 3.dp), Alignment.Center) { cell(c) } }
+        }
+    }
+    @Composable
+    fun text(v: String?, bold: Boolean = false, color: Color = MiuixTheme.colorScheme.onBackground) =
+        Text(v ?: "–", style = MiuixTheme.textStyles.body2, fontWeight = if (bold) FontWeight.SemiBold else null,
+            color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1)
+
+    row("", header = true) { text(it.role, bold = true) }
+    row("Band") { text(it.band, bold = true) }
+    row("EARFCN") { text(it.channel) }
+    row("PCI") { text(it.pci?.toString()) }
+    row("BW") { text(it.bandwidthMhz?.let { b -> "${formatMetric(b)} MHz" }) }
+    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP) }
+    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ) }
+    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR) }
+}
+
+/** A value with a level-coloured bar behind it, like Cellular-Pro's cells. */
+@Composable
+private fun CellValueBar(v: Double?, kind: MetricKind) {
+    if (v == null) {
+        Text("–", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        return
+    }
+    val scale = signalScale(kind, Rat.LTE)
+    val color = signalLevelColor(scale.level(v))
+    val fraction = scale.fraction(v)
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
+            .drawBehind { drawRect(color, size = Size(size.width * fraction, size.height)) }
+            .padding(vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(formatMetric(v), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground)
     }
 }
 

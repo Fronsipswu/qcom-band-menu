@@ -58,6 +58,8 @@ fun signalScale(kind: MetricKind, rat: Rat): SignalScale = when (kind) {
 private val LEVEL_COLORS = listOf(
     Color(0xFF1E9E50), Color(0xFF7CB342), Color(0xFFEAB01F), Color(0xFFF07E26), Color(0xFFE0453A)
 )
+fun signalLevelColor(level: Int): Color = LEVEL_COLORS[level.coerceIn(0, 4)]
+
 private val LEVEL_WORDS = listOf("excellent", "good", "fair", "poor", "bad")
 
 fun formatMetric(v: Double): String =
