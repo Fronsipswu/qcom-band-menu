@@ -21,7 +21,7 @@ enum class ServiceMode(val label: String, val generation: String) {
     NR_SA("NR SA", "5G")
 }
 
-enum class MetricKind { RSRP, RSRQ, SINR, RSSI, RSCP, ECIO }
+enum class MetricKind { RSRP, RSRQ, SINR, RSSI, RSCP, ECIO, TX_POWER }
 
 /** One signal value; [value] null means unavailable (never shown as 0). */
 data class Metric(
@@ -250,7 +250,8 @@ class SnapshotBuilder(
             Metric("RSRP", MetricKind.RSRP, Rat.LTE, s?.lteRsrp?.toDouble(), "dBm"),
             Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, s?.lteRsrq?.toDouble(), "dB"),
             Metric("SINR", MetricKind.SINR, Rat.LTE, s?.lteSnr, "dB"),
-            Metric("RSSI", MetricKind.RSSI, Rat.LTE, s?.lteRssi?.toDouble(), "dBm")
+            // UE transmit power (TX_RX_INFO, only while in traffic).
+            Metric("TX PWR", MetricKind.TX_POWER, Rat.LTE, txLte?.txPower, "dBm")
         )
         if (fields.isEmpty() && metrics.all { it.value == null }) return null
         return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
@@ -304,7 +305,8 @@ class SnapshotBuilder(
         // (whole dBm / dB) is the validated source.
         val metrics = listOf(
             Metric("RSCP", MetricKind.RSCP, Rat.WCDMA, w?.rscp?.toDouble(), "dBm"),
-            Metric("Ec/Io", MetricKind.ECIO, Rat.WCDMA, w?.ecio?.toDouble(), "dB")
+            Metric("Ec/Io", MetricKind.ECIO, Rat.WCDMA, w?.ecio?.toDouble(), "dB"),
+            Metric("TX PWR", MetricKind.TX_POWER, Rat.WCDMA, txWcdma?.txPower, "dBm")
         )
         if (fields.isEmpty() && w == null) return null
         return CellCard("WCDMA serving cell", Rat.WCDMA, fields, metrics)
@@ -332,7 +334,8 @@ class SnapshotBuilder(
                     c.rxlev == 0 -> "below −110 dBm"
                     c.rxlev >= 63 -> "above −48 dBm"
                     else -> null
-                })
+                }),
+            Metric("TX PWR", MetricKind.TX_POWER, Rat.GSM, txGsm?.txPower, "dBm")
         )
         if (fields.isEmpty() && g == null) return null
         return CellCard("GSM serving cell", Rat.GSM, fields, metrics)

@@ -245,7 +245,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State) {
                 )
             }
             Spacer(Modifier.height(10.dp))
-            val operator = listOfNotNull(state.operatorName, snap.plmn?.toString()).joinToString(" · ")
+            val operator = listOfNotNull(state.operatorName, snap.plmn?.toString()).joinToString(" | ")
             if (operator.isNotEmpty()) Text(operator, style = MiuixTheme.textStyles.body1)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
                 snap.roaming?.let { Chip("Roaming: $it", highlight = it) }
@@ -339,7 +339,7 @@ private fun CarrierSection(group: CarrierGroup) {
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold) }
                     Column(Modifier.weight(1f)) {
                         Text(c.channel, style = MiuixTheme.textStyles.body2)
-                        val sub = listOfNotNull(c.pci?.let { "PCI $it" }, c.bandwidthMhz?.let { "${formatMetric(it)} MHz" }).joinToString(" · ")
+                        val sub = listOfNotNull(c.pci?.let { "PCI $it" }, c.bandwidthMhz?.let { "${formatPlain(it)} MHz" }).joinToString(" · ")
                         if (sub.isNotEmpty()) Text(sub, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     c.state?.let { Chip(it, highlight = it == "Active" || it == "Primary") }
@@ -383,7 +383,7 @@ private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
     row("Band") { text(it.band, bold = true) }
     row("EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("BW") { text(it.bandwidthMhz?.let { b -> "${formatMetric(b)} MHz" }) }
+    row("BW") { text(it.bandwidthMhz?.let { b -> "${formatPlain(b)} MHz" }) }
     row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax) }
     row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax) }
     row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax) }
@@ -458,12 +458,6 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
         }
         SignalBar(m, Modifier.padding(vertical = 4.dp), labelWidth = 64.dp)
     }
-    val tx = when {
-        a.txPower != null -> "TX power ${formatMetric(a.txPower)} dBm"
-        a.inTraffic == false -> "TX: not transmitting"
-        else -> null
-    }
-    tx?.let { Text(it, style = MiuixTheme.textStyles.body2, modifier = Modifier.padding(top = 6.dp)) }
 }
 
 @Composable

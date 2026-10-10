@@ -35,9 +35,16 @@ import java.util.Locale
  * four thresholds between the five quality levels (best first). WCDMA Ec/Io
  * and GSM RSSI get their own scales, never the LTE ones.
  */
-data class SignalScale(val min: Double, val max: Double, val thresholds: List<Double>) {
+data class SignalScale(
+    val min: Double,
+    val max: Double,
+    val thresholds: List<Double>,
+    /** TX power: a fuller bar is worse (red at max), so levels count the other way. */
+    val higherIsWorse: Boolean = false
+) {
     /** 0 = excellent … 4 = bad. */
-    fun level(v: Double): Int = thresholds.indexOfFirst { v >= it }.let { if (it < 0) 4 else it }
+    fun level(v: Double): Int =
+        thresholds.indexOfFirst { if (higherIsWorse) v <= it else v >= it }.let { if (it < 0) 4 else it }
     fun fraction(v: Double): Float = ((v - min) / (max - min)).coerceIn(0.0, 1.0).toFloat()
 }
 
@@ -52,6 +59,8 @@ fun signalScale(kind: MetricKind, rat: Rat): SignalScale = when (kind) {
     }
     MetricKind.RSCP -> SignalScale(-120.0, -40.0, listOf(-75.0, -85.0, -95.0, -105.0))
     MetricKind.ECIO -> SignalScale(-24.0, 0.0, listOf(-6.0, -10.0, -14.0, -18.0))
+    // UE transmit power: -27 dBm empty/green … 26 dBm full/red (clamped).
+    MetricKind.TX_POWER -> SignalScale(-27.0, 26.0, listOf(0.0, 10.0, 17.0, 23.0), higherIsWorse = true)
 }
 
 // Mid-tone level colours, readable on both the light and the dark track.
@@ -62,7 +71,12 @@ fun signalLevelColor(level: Int): Color = LEVEL_COLORS[level.coerceIn(0, 4)]
 
 private val LEVEL_WORDS = listOf("excellent", "good", "fair", "poor", "bad")
 
+/** Signal values: always one decimal ("-10.0"), rounded half-up from finer values. */
 fun formatMetric(v: Double): String =
+    java.math.BigDecimal.valueOf(v).setScale(1, java.math.RoundingMode.HALF_UP).toPlainString()
+
+/** Plain quantities (bandwidth): no trailing ".0". */
+fun formatPlain(v: Double): String =
     if (v % 1.0 == 0.0) v.toLong().toString() else String.format(Locale.US, "%.1f", v)
 
 /**
