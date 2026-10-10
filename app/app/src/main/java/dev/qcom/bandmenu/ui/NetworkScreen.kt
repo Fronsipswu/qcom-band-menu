@@ -312,7 +312,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             }
             Spacer(Modifier.height(10.dp))
             val operator = listOfNotNull(state.operatorName, snap.plmn?.toString()).joinToString(" | ")
-            if (operator.isNotEmpty()) Text(operator, style = MiuixTheme.textStyles.body1)
+            if (operator.isNotEmpty()) Text(operator, style = MiuixTheme.textStyles.body2)
             // Serving cell: its bars, then all its fields.
             if (serving != null) {
                 Spacer(Modifier.height(10.dp))
