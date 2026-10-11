@@ -21,7 +21,7 @@ class DaemonManager(private val context: Context) {
         private const val TAG = "QcomBand"
         private const val BINARY_NAME = "qcom-bandlockd"
         private const val SOCKET_NAME = "qcom_bandlockd"
-        private const val EXPECTED_DAEMON_VERSION = "4.8.0"
+        private const val EXPECTED_DAEMON_VERSION = "5.0.0"
         private const val AUTH_PREFS = "daemon_auth"
         private const val AUTH_TOKEN_KEY = "token"
         private const val AUTH_TOKEN_FILE = "auth_token"

@@ -429,7 +429,7 @@
  *   use copy() instead of `*out_diag=s->diag`, which compilers lower to a
  *   memcpy call that a -nostdlib link cannot resolve. No behavior change.
  *
- * v4.8.0 -- Read-only SIM card status ("uim_card_status"):
+ * v5.0.0 (was 4.8.0) -- Read-only SIM card status ("uim_card_status"):
  *   Lets the app tell a disabled or removed SIM 2 apart from one that is
  *   merely out of service. Like nas_read, the daemon returns the raw frame.
  *     Request:  {"cmd":"uim_card_status"}
@@ -539,7 +539,7 @@ enum { AF_UNIX=1,AF_QIPCRTR=42,SOCK_STREAM=1,SOCK_DGRAM=2,SOL_SOCKET=1,SO_RCVTIM
 #define NR_CELL_MULTI_PCI_MAX 64u  /* cap on multi-PCI SET request PCI list, matches qcom-cell-lock-test.c's own cap */
 #define NR_CELL_GNB_MAX 32u        /* cap on gNodeB allow-list SET/GET entries, matches qcom-cell-lock-test.c's own cap */
 
-#define DAEMON_VERSION "4.8.0"
+#define DAEMON_VERSION "5.0.0"
 
 struct sockaddr_qrtr{u16 family,pad;u32 node,port;};
 struct qrtr_ctrl_pkt{u32 command,service,instance,node,port;};
