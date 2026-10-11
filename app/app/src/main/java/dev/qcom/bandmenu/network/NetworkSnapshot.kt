@@ -249,8 +249,8 @@ class SnapshotBuilder(
         val band = rfFor(NasRadioIf.LTE)
         val fields = buildList {
             (band?.bandEnum ?: pcell?.bandEnum)?.let { add(Field("Band", NasBands.label(it))) }
-            earfcn?.let { add(Field("EARFCN", it.toString())) }
             (pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
+            earfcn?.let { add(Field("EARFCN", it.toString())) }
             pci?.let { add(Field("PCI", it.toString())) }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->
                 add(Field("DL / UL", "${fmt(f.downlinkMhz)} / ${f.uplinkMhz?.let(::fmt) ?: "—"} MHz"))
@@ -285,18 +285,28 @@ class SnapshotBuilder(
         // NSA keeps a fixed set of fields ("–" when the NR leg is down) so the
         // SCG card holds its shape instead of popping in and out.
         fun MutableList<Field>.put(label: String, v: String?) { if (v != null) add(Field(label, v)) else if (!sa) add(Field(label, "–")) }
+        // RF band info has no NR entry in NSA; derive the band from the ARFCN.
+        val bandLabel = band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) }
+        val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
         val fields = buildList {
-            // RF band info has no NR entry in NSA; derive it from the ARFCN.
-            put("Band", band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) })
-            put("NR-ARFCN", ch?.toString())
-            put("Frequency", ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz))
-            put("PCI", pci?.toString())
-            put("SCS", s?.nrScsKhz?.let { "$it kHz" })
-            band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
             if (sa) {
+                // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.
+                put("Band", bandLabel)
+                band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
+                put("NR-ARFCN", ch?.toString())
+                put("PCI", pci?.toString())
+                put("SCS", s?.nrScsKhz?.let { "$it kHz" })
+                put("Frequency", frequency)
                 (s?.nrTac ?: n?.tac)?.let { add(Field("TAC", it.toString())) }
                 // NCI is never split into gNB/sector: the gNB ID length isn't reported.
                 (s?.nrNci ?: n?.nci)?.let { add(Field("NCI", it.toString())) }
+            } else {
+                put("Band", bandLabel)
+                put("NR-ARFCN", ch?.toString())
+                put("Frequency", frequency)
+                put("PCI", pci?.toString())
+                put("SCS", s?.nrScsKhz?.let { "$it kHz" })
+                band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
             }
         }
         val metrics = listOf(

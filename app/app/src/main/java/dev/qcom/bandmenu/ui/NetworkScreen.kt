@@ -289,8 +289,8 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(Modifier.padding(16.dp)) {
             // The mode itself is the pill (blue when in service, grey otherwise),
-            // with the roaming and RRC chips stacked beside it. The pill takes the
-            // stack's height so the two line up.
+            // with the RRC chip beside it. The pill takes the chip's height
+            // when that's taller, so the two line up.
             val inService = snap.mode.generation.isNotEmpty()
             Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -306,10 +306,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                         color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
                     )
                 }
-                val chips = buildList {
-                    snap.roaming?.let { add("Roaming: $it" to it) }
-                    snap.rrc.forEach { add("${it.label}: ${it.value}" to (it.value == "Connected")) }
-                }
+                val chips = snap.rrc.map { "${it.label}: ${it.value}" to (it.value == "Connected") }
                 if (chips.isNotEmpty()) {
                     Spacer(Modifier.width(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -317,22 +314,29 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            val operator = listOfNotNull(state.operatorName, snap.plmn?.toString()).joinToString(" | ")
-            if (operator.isNotEmpty()) Text(operator, style = MiuixTheme.textStyles.body2)
-            // Serving cell: its bars, then all its fields.
-            if (serving != null) {
+            // Operator, PLMN and roaming: a row of their own, second after the
+            // cell's first row (band, bandwidth, channel).
+            val operatorRow = listOf(
+                Field("Operator", state.operatorName ?: "–"),
+                Field("PLMN", snap.plmn?.toString() ?: "–"),
+                Field("Roaming", when (snap.roaming) { true -> "Yes"; false -> "No"; null -> "–" })
+            ).takeIf { state.operatorName != null || snap.plmn != null || snap.roaming != null }.orEmpty()
+            // Serving cell: its bars, then its fields.
+            if (serving != null && serving.metrics.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 serving.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 5.dp)) }
-                if (serving.metrics.isNotEmpty() && serving.fields.isNotEmpty()) Spacer(Modifier.height(10.dp))
-                FieldGrid(serving.fields)
+            }
+            val fields = serving?.fields.orEmpty()
+            if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                FieldGrid(fields, secondRow = operatorRow)
             }
             // Only a frozen reading is labelled; live needs no text.
             if (state.frozen) {
                 val wall = System.currentTimeMillis() - (SystemClock.elapsedRealtime() - snap.takenAtElapsedMs)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Frozen · reading from ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(wall))}",
+                    "Frozen: reading from ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(wall))}",
                     style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
@@ -371,21 +375,24 @@ private fun CellSection(cell: CellCard) {
  * value length (ECI, DL/UL and WCDMA Cell ID need more), packed in order.
  */
 @Composable
-private fun FieldGrid(fields: List<Field>) {
+private fun FieldGrid(fields: List<Field>, secondRow: List<Field> = emptyList()) {
     fun span(f: Field) = when {
         f.value.length <= 11 -> 1
         f.value.length <= 24 -> 2
         else -> 3
     }
-    val rows = buildList<List<Field>> {
+    fun pack(list: List<Field>) = buildList<List<Field>> {
         var row = mutableListOf<Field>()
         var used = 0
-        for (f in fields) {
+        for (f in list) {
             if (used + span(f) > 3) { add(row); row = mutableListOf(); used = 0 }
             row += f; used += span(f)
         }
         if (row.isNotEmpty()) add(row)
     }
+    // [secondRow] is packed on its own and goes right after the first row.
+    val main = pack(fields)
+    val rows = main.take(1) + pack(secondRow) + main.drop(1)
     rows.forEach { row ->
         Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
             row.forEach { f ->
@@ -468,7 +475,7 @@ private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
     row("Band") { text(it.band, bold = true) }
     row("EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("BW") { text(it.bandwidthMhz?.let { b -> "${formatPlain(b)} MHz" }) }
+    row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax) }
     row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax) }
     row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax) }
