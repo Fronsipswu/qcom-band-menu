@@ -1,10 +1,8 @@
 package dev.qcom.bandmenu
 
-import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.telephony.TelephonyManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -197,18 +195,17 @@ class MainActivity : ComponentActivity() {
                                         // off, the modem refuses to bind subscription 2. That
                                         // marks SIM 2 unavailable instead of failing init, so
                                         // SIM 1 still works. Only a SIM 1 failure is fatal.
-                                        val modemCount = (getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)
-                                            ?.activeModemCount ?: 2
-                                        // With DSDS on, a SIM 2 turned off in Settings or taken
-                                        // out still binds; UIM card status tells those apart from
-                                        // "no service". UNKNOWN (unreadable) keeps the old rule.
-                                        val sim2Status = if (modemCount >= 2) daemonHolder.networkMonitor.simStatus(2) else SimSlotStatus.UNKNOWN
-                                        var sim2Available = modemCount >= 2 &&
-                                            sim2Status != SimSlotStatus.DISABLED && sim2Status != SimSlotStatus.NO_SIM
+                                        // QMI only (no telephony API): UIM card status tells a SIM 2
+                                        // that's turned off or taken out apart from "no service"
+                                        // (both still bind with DSDS on). UNKNOWN (one-slot phone,
+                                        // unreadable) falls back to the bind: with DSDS off or a
+                                        // single SIM, the modem refuses subscription 2.
+                                        val sim2Status = daemonHolder.networkMonitor.simStatus(2)
+                                        var sim2Available = sim2Status != SimSlotStatus.DISABLED && sim2Status != SimSlotStatus.NO_SIM
                                         var sim2Parsed: DaemonResponse? = null
-                                        if (modemCount >= 2 && !sim2Available) {
+                                        if (!sim2Available) {
                                             AppLog.i(TAG, "Init: SIM 2 card status $sim2Status, skipping SIM 2")
-                                        } else if (sim2Available) {
+                                        } else {
                                             val r = JsonStateParser.parseResponse(daemonManager.simSet(2))
                                             if (r.ok) {
                                                 sim2Parsed = r
@@ -216,8 +213,6 @@ class MainActivity : ComponentActivity() {
                                                 sim2Available = false
                                                 AppLog.w(TAG, "Init: SIM 2 unavailable (${r.error?.message ?: "unknown"}), continuing with SIM 1")
                                             }
-                                        } else {
-                                            AppLog.i(TAG, "Init: activeModemCount=$modemCount, skipping SIM 2")
                                         }
                                         val sim2State = sim2Parsed?.simState ?: SimState()
                                         val sim2CellLock = sim2Parsed?.cellLockState ?: CellLockState()
@@ -292,13 +287,16 @@ class MainActivity : ComponentActivity() {
                 // status on resume and on every pull-to-refresh: if it became usable
                 // or unusable, init again so SIM 2's state is (un)loaded and the SIM
                 // pagers gain or drop their second page. One read-only request.
+                // Every check reads card status afresh, so an unreadable status at
+                // startup (UNKNOWN) doesn't stop later checks.
                 fun recheckSim2() {
-                    val before = modemState ?: return
-                    // UNKNOWN at init: single modem or unreadable; nothing to compare.
-                    if (isLoading || before.sim2Status == SimSlotStatus.UNKNOWN) return
+                    if (modemState == null || isLoading) return
                     scope.launch {
                         val status = withContext(Dispatchers.IO) { daemonHolder.networkMonitor.simStatus(2) }
                         val current = modemState ?: return@launch
+                        // Unreadable this time: can't tell, try again on the next check.
+                        // Unchanged: nothing to do (a SIM 2 that's ready but that the
+                        // modem won't bind would otherwise re-init on every check).
                         if (status == SimSlotStatus.UNKNOWN || status == current.sim2Status) return@launch
                         if ((status == SimSlotStatus.ACTIVE) != current.sim2Available) {
                             AppLog.i(TAG, "SIM 2 card status ${current.sim2Status} -> $status, re-initialising")
