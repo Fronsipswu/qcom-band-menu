@@ -69,7 +69,8 @@ class SnapshotCaptureTest {
 
         val off = rounds("nsa-n28-off-20261009-1.jsonl").map(::snapshot)
         println(dump(off.first()))
-        assertTrue(off.all { s -> s.carrierGroups.none { it.title.startsWith("NR") } })
+        // NSA without an NR secondary: the NR aggregation card stays, empty.
+        assertTrue(off.all { s -> s.carrierGroups.single { it.title == "NR aggregation" }.carriers.isEmpty() })
 
         val w = rounds("wcdma-20261009-1.jsonl").map(::snapshot)
         println(dump(w.first()))

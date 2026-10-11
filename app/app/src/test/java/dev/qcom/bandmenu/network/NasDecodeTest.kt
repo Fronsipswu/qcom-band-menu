@@ -114,6 +114,23 @@ class NasDecodeTest {
         assertEquals(28, nrBandForArfcn(153630))
         assertEquals(78, nrBandForArfcn(636000, setOf(78)))
         assertEquals(3432.0, nrFrequencyForArfcn(628800)!!, 1e-9)
+    }
+
+    @Test
+    fun nestedNrBandsAreLabelledAsPairs() {
+        // n78 inside n77, n38 inside n41, n5 inside n26: the ARFCN can't tell them apart.
+        assertEquals("n77 / n78", nrBandLabelForArfcn(628800))
+        assertEquals("n77 / n78", nrBandLabelForArfcn(653333, setOf(77, 78)))
+        assertEquals("n77", nrBandLabelForArfcn(660000))
+        assertEquals("n38 / n41", nrBandLabelForArfcn(520000))
+        assertEquals("n5 / n26", nrBandLabelForArfcn(175000))
+        // The modem's supported bands can rule one out.
+        assertEquals("n78", nrBandLabelForArfcn(636000, setOf(1, 28, 78)))
+        assertEquals("n41", nrBandLabelForArfcn(520000, setOf(28, 41)))
+        // Outside the nested ranges: as before.
+        assertEquals("n41", nrBandLabelForArfcn(529950, setOf(1, 28, 40, 41)))
+        assertEquals("n26", nrBandLabelForArfcn(172500, setOf(26)))
+        assertEquals("n28", nrBandLabelForArfcn(153630))
         assertNull(nrBandForArfcn(5))
         assertEquals(8, lteBandForEarfcn(3750)); assertEquals(3, lteBandForEarfcn(1275))
         assertEquals(1, wcdmaBandForUarfcn(10563)); assertEquals(8, wcdmaBandForUarfcn(2987))

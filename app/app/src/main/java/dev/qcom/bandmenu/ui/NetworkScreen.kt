@@ -264,8 +264,15 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
             snap.antennas.forEach { AntennaRows(it, showHeadings) }
         }
     }
-    if (snap.neighbors.isNotEmpty()) {
-        Expandable("Neighbour cells (${snap.neighbors.size})") { NeighborRows(snap.neighbors) }
+    // Kept whenever there's a serving cell, even when no neighbours are
+    // reported this round, so it doesn't come and go. Collapsed by default.
+    if (snap.cells.isNotEmpty()) {
+        Expandable("Neighbour cells (${snap.neighbors.size})") {
+            if (snap.neighbors.isEmpty()) {
+                Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            } else NeighborRows(snap.neighbors)
+        }
     }
     if (snap.failedReads.isNotEmpty()) {
         Text(
@@ -523,13 +530,13 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
     val chains = if (a.rat == Rat.LTE || a.rat == Rat.NR) a.chains.filter { !it.tuned || it.rsrp != null } else a.chains
     chains.forEach { c ->
         if (!c.tuned) {
-            Text("TX${c.chain}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
+            Text("RX${c.chain}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
             return@forEach
         }
         // TX_RX_INFO has only RSRP (LTE/NR), RSCP (WCDMA) or RX power per
-        // chain; per-antenna RSRQ/SINR don't exist in QMI. Labelled TX0, TX1 and so on
+        // chain; per-antenna RSRQ/SINR don't exist in QMI. Labelled RX0, RX1 and so on
         // by chain number, whatever the metric.
-        val n = "TX${c.chain}"
+        val n = "RX${c.chain}"
         val m = when {
             c.rsrp != null -> Metric(n, MetricKind.RSRP, a.rat, c.rsrp, "dBm")
             c.rscp != null -> Metric(n, MetricKind.RSCP, a.rat, c.rscp, "dBm")

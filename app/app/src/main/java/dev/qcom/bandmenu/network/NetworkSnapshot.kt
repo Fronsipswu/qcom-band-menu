@@ -229,6 +229,18 @@ class SnapshotBuilder(
 
     // ── Cells ────────────────────────────────────────────────────────────
 
+    /**
+     * The modem's L1 measurements on each LTE serving frequency
+     * (GET_CELL_LOCATION_INFO), keyed by EARFCN + PCI. The serving card and
+     * the CA table's P column both read the PCell from here, so they match.
+     */
+    private val lteMeas: Map<Pair<Long, Int>, LteMeas> by lazy {
+        buildMap {
+            loc?.lte?.let { s -> s.intraFreq.forEach { put(s.earfcn to it.pci, it) } }
+            loc?.lteInterFreq?.forEach { g -> g.cells.forEach { put(g.earfcn to it.pci, it) } }
+        }
+    }
+
     private fun lteCell(): CellCard? {
         val l = loc?.lte
         val pcell = ca?.pcell
@@ -249,9 +261,13 @@ class SnapshotBuilder(
             }
         }
         val s = sig
+        // RSRP/RSRQ: the PCell's CELL_LOCATION measurement, as in the CA
+        // table's P column (SIG_INFO only when it's missing). SINR exists only
+        // in SIG_INFO, for both.
+        val m = if (earfcn != null && pci != null) lteMeas[earfcn to pci] else null
         val metrics = listOf(
-            Metric("RSRP", MetricKind.RSRP, Rat.LTE, s?.lteRsrp?.toDouble(), "dBm"),
-            Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, s?.lteRsrq?.toDouble(), "dB"),
+            Metric("RSRP", MetricKind.RSRP, Rat.LTE, m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
+            Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
             Metric("SINR", MetricKind.SINR, Rat.LTE, s?.lteSnr, "dB"),
             // UE transmit power (TX_RX_INFO, only while in traffic).
             Metric("TX PWR", MetricKind.TX_POWER, Rat.LTE, txLte?.txPower, "dBm")
@@ -271,7 +287,7 @@ class SnapshotBuilder(
         fun MutableList<Field>.put(label: String, v: String?) { if (v != null) add(Field(label, v)) else if (!sa) add(Field(label, "–")) }
         val fields = buildList {
             // RF band info has no NR entry in NSA; derive it from the ARFCN.
-            put("Band", band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandForArfcn(it, nrHardwareBands) }?.let { "n$it" })
+            put("Band", band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) })
             put("NR-ARFCN", ch?.toString())
             put("Frequency", ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz))
             put("PCI", pci?.toString())
@@ -360,18 +376,13 @@ class SnapshotBuilder(
         } ?: return null
         val configured = ca?.scells.orEmpty().filter { it.state == ScellState.CONFIGURED || it.state == ScellState.ACTIVATED }
         val all = listOf(p) + configured
-        // Per-carrier RSRP/RSRQ: the modem's L1 measurements on each serving
-        // frequency, matched by EARFCN + PCI (an SCell's PCI on its EARFCN).
-        val meas = buildMap {
-            loc?.lte?.let { s -> s.intraFreq.forEach { put(s.earfcn to it.pci, it) } }
-            loc?.lteInterFreq?.forEach { g -> g.cells.forEach { put(g.earfcn to it.pci, it) } }
-        }
+        // Per-carrier RSRP/RSRQ: matched by EARFCN + PCI (an SCell's PCI on its EARFCN).
         return CarrierGroup(
             title = "Carrier aggregation",
             summary = "",
             table = true,
             carriers = all.mapIndexed { i, x ->
-                val m = meas[x.earfcn to x.pci]
+                val m = lteMeas[x.earfcn to x.pci]
                 Carrier(
                     role = if (i == 0) "P" else "S${x.index ?: i}",
                     rsrp = m?.rsrp ?: if (i == 0) sig?.lteRsrp?.toDouble() else null,
@@ -395,14 +406,13 @@ class SnapshotBuilder(
         val serving = arfcn?.nrServing.orEmpty()
         val primary = sys?.nrArfcn ?: loc?.nrArfcn
         val extra = serving.filter { it != primary }
-        // SA always shows the card (only the note when there's no secondary),
+        // Always shown in SA and NSA (only the note when there's no secondary),
         // so it doesn't pop in and out.
-        if (extra.isEmpty() && mode != ServiceMode.NR_SA) return null
         return CarrierGroup(
             title = "NR aggregation",
             summary = "",
             carriers = extra.map { ch ->
-                Carrier(nrBandForArfcn(ch, nrHardwareBands)?.let { "n$it" } ?: "n?", null,
+                Carrier(nrBandLabelForArfcn(ch, nrHardwareBands) ?: "n?", null,
                     ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${String.format(Locale.US, "%.1f MHz", it)})" } ?: ""), null, null, null)
             },
             note = "QMI only reports frequency data for NR Scells"

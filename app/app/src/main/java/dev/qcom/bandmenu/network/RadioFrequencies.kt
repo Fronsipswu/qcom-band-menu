@@ -154,6 +154,30 @@ private val NR_BAND_DL = listOf(
     257 to 2054166..2104165, 258 to 2016667..2070832, 261 to 2070833..2084999, 260 to 2229166..2279165
 )
 
+/*
+ * Channel ranges where one NR band sits inside another, so the NR-ARFCN alone
+ * can't tell them apart: n78 inside n77, n38 inside n41, n5 inside n26.
+ * (n18 also overlaps n5/n26 but is left to nrBandForArfcn's order.)
+ */
+private val NR_AMBIGUOUS_PAIRS = listOf(
+    Triple(77, 78, 620000L..653333L),
+    Triple(38, 41, 514000L..524000L),
+    Triple(5, 26, 173800L..178800L)
+)
+
+/**
+ * Band label for a derived NR band. Inside one of [NR_AMBIGUOUS_PAIRS] it's
+ * "n77 / n78" etc., unless the modem's supported bands rule one of the two
+ * out, which leaves the other. Otherwise "n<band>" from [nrBandForArfcn].
+ */
+fun nrBandLabelForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): String? {
+    NR_AMBIGUOUS_PAIRS.firstOrNull { arfcn in it.third }?.let { (a, b, _) ->
+        val possible = listOf(a, b).filter { supported.isEmpty() || it in supported }
+        return if (possible.size == 1) "n${possible[0]}" else "n$a / n$b"
+    }
+    return nrBandForArfcn(arfcn, supported)?.let { "n$it" }
+}
+
 fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
     val candidates = NR_BAND_DL.filter { (_, r) -> arfcn in r.first.toLong()..r.last.toLong() }.map { it.first }
     if (candidates.isEmpty()) return null
