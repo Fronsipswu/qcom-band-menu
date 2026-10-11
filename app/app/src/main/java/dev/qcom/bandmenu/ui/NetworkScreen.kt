@@ -314,8 +314,9 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                     }
                 }
             }
-            // Operator, PLMN and roaming: a row of their own, second after the
-            // cell's first row (band, bandwidth, channel).
+            // Operator, PLMN and roaming: a row of their own after the cell's
+            // first row (band, bandwidth, channel); in NR SA after the second
+            // (PCI, SCS, frequency) too.
             val operatorRow = listOf(
                 Field("Operator", state.operatorName ?: "–"),
                 Field("PLMN", snap.plmn?.toString() ?: "–"),
@@ -329,7 +330,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             val fields = serving?.fields.orEmpty()
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
-                FieldGrid(fields, secondRow = operatorRow)
+                FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.NR_SA) 2 else 1)
             }
             // Only a frozen reading is labelled; live needs no text.
             if (state.frozen) {
@@ -375,7 +376,7 @@ private fun CellSection(cell: CellCard) {
  * value length (ECI, DL/UL and WCDMA Cell ID need more), packed in order.
  */
 @Composable
-private fun FieldGrid(fields: List<Field>, secondRow: List<Field> = emptyList()) {
+private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1) {
     fun span(f: Field) = when {
         f.value.length <= 11 -> 1
         f.value.length <= 24 -> 2
@@ -390,9 +391,9 @@ private fun FieldGrid(fields: List<Field>, secondRow: List<Field> = emptyList())
         }
         if (row.isNotEmpty()) add(row)
     }
-    // [secondRow] is packed on its own and goes right after the first row.
+    // [extraRow] is packed on its own and goes after the first [extraRowAfter] rows.
     val main = pack(fields)
-    val rows = main.take(1) + pack(secondRow) + main.drop(1)
+    val rows = main.take(extraRowAfter) + pack(extraRow) + main.drop(extraRowAfter)
     rows.forEach { row ->
         Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
             row.forEach { f ->

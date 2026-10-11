@@ -58,4 +58,19 @@ class BandValidatorTest {
         assertEquals(setOf(1), validated.nrNsaBands)
         assertEquals(setOf(28), validated.nrSaBands)
     }
+
+    @Test
+    fun noBandsForRatLock_onlyWhenNoLockedRatHasBands() {
+        val wcdmaOnly = SimState(ratMask = setOf(RatType.WCDMA), lteBands = setOf(3))
+        assertEquals("No WCDMA bands selected", BandValidator.noBandsForRatLock(wcdmaOnly))
+        val lteNr = SimState(ratMask = setOf(RatType.NR, RatType.LTE), gsmBands = setOf(900))
+        assertEquals("No LTE or NR bands selected", BandValidator.noBandsForRatLock(lteNr))
+        // One locked RAT with bands is enough: auto with no GSM bands is normal.
+        assertEquals(null, BandValidator.noBandsForRatLock(
+            SimState(ratMask = BandConstants.ALL_RAT_TYPES, lteBands = setOf(3))))
+        assertEquals(null, BandValidator.noBandsForRatLock(
+            SimState(ratMask = setOf(RatType.LTE, RatType.NR), nrSaBands = setOf(78))))
+        // Unknown RAT mask: nothing to check.
+        assertEquals(null, BandValidator.noBandsForRatLock(SimState()))
+    }
 }

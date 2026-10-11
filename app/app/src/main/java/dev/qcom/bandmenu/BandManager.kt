@@ -509,6 +509,28 @@ object BandValidator {
 
     fun validateNr(bands: Set<Int>, hw: HardwareBands): Set<Int> = bands.intersect(hw.nr)
 
+    /**
+     * Message for a RAT lock the modem would reject because none of its RATs
+     * has a band selected (e.g. WCDMA only with no WCDMA bands), else null.
+     * Only the whole lock is checked: an empty RAT next to one with bands is
+     * fine (auto with no GSM bands is a normal setup). Pass [state] after
+     * [validateSimState] so unsupported bands don't count.
+     */
+    fun noBandsForRatLock(state: SimState): String? {
+        if (state.ratMask.isEmpty()) return null
+        fun hasBands(rat: RatType) = when (rat) {
+            RatType.GSM -> state.gsmBands.isNotEmpty()
+            RatType.WCDMA -> state.wcdmaBands.isNotEmpty()
+            RatType.LTE -> state.lteBands.isNotEmpty()
+            RatType.NR -> state.nrSaBands.isNotEmpty() || state.nrNsaBands.isNotEmpty()
+        }
+        val locked = state.ratMask.sortedBy { it.ordinal }
+        if (locked.any(::hasBands)) return null
+        val names = locked.map { it.name }
+        val list = if (names.size == 1) names[0] else names.dropLast(1).joinToString(", ") + " or " + names.last()
+        return "No $list bands selected"
+    }
+
     fun validateSimState(state: SimState, hw: HardwareBands): SimState =
         state.copy(
             gsmBands = validateGsm(state.gsmBands, hw),

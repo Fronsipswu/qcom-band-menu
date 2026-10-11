@@ -724,6 +724,14 @@ class MainActivity : ComponentActivity() {
                     },
                     onApply = apply@{ slot, state ->
                         if (sim2Unavailable(slot + 1)) return@apply
+                        // A RAT lock with no band for any of its RATs is rejected by
+                        // the modem; say why instead of sending it.
+                        val checked = modemState?.hardware?.let { BandValidator.validateSimState(state, it) } ?: state
+                        BandValidator.noBandsForRatLock(checked)?.let {
+                            snackbarIsError = true
+                            snackbarMessage = it
+                            return@apply
+                        }
                         scope.launch {
                             modemLock.withLock {
                                 val sim = slot + 1
