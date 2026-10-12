@@ -69,10 +69,6 @@ class NetworkMonitor(
     private val namedPlmn = arrayOfNulls<String>(2)
     private val cachedName = arrayOfNulls<String>(2)
 
-    /** LTE serving RSRP/RSRQ/SINR as last shown, per SIM (see [holdLteServing]). */
-    private class HeldLte(val cell: String, val atMs: Long, val metrics: Map<String, Metric>)
-    private val heldLte = arrayOfNulls<HeldLte>(2)
-
     fun setVisible(v: Boolean) { visible = v; reschedule() }
     fun setResumed(v: Boolean) { resumed = v; reschedule() }
 
@@ -166,8 +162,8 @@ class NetworkMonitor(
                 null
             }
         } else null
-        val snap = holdLteServing(sim, fresh,
-            SnapshotBuilder(reads, nrHardwareBands, diagStats).build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt()))
+        val snap = SnapshotBuilder(reads, nrHardwareBands, diagStats)
+            .build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
         val key = plmn?.let { "$it/${snap.mode}" }
@@ -176,27 +172,6 @@ class NetworkMonitor(
             namedPlmn[sim - 1] = key
         }
         RoundResult(snap, cachedName[sim - 1].takeIf { key != null && key == namedPlmn[sim - 1] }, diagError, withDiag && diagStats == null)
-    }
-
-    /**
-     * The LTE serving card's RSRP/RSRQ/SINR change at most every
-     * [LTE_SERVING_HOLD_MS]; between those, the values last shown are kept.
-     * Everything else (CA table included) still updates every round. A new
-     * serving cell (EARFCN/PCI), a SIM switch or pull-to-refresh shows the
-     * new reading at once.
-     */
-    private fun holdLteServing(sim: Int, fresh: Boolean, snap: NetworkSnapshot): NetworkSnapshot {
-        val card = snap.cells.firstOrNull()?.takeIf { it.rat == Rat.LTE }
-        if (card == null) { heldLte[sim - 1] = null; return snap }
-        val cell = card.fields.filter { it.label == "EARFCN" || it.label == "PCI" }.joinToString("/") { it.value }
-        val now = SystemClock.elapsedRealtime()
-        val held = heldLte[sim - 1]
-        if (fresh || held == null || held.cell != cell || now - held.atMs >= LTE_SERVING_HOLD_MS) {
-            heldLte[sim - 1] = HeldLte(cell, now, card.metrics.filter { it.label in LTE_HELD }.associateBy { it.label })
-            return snap
-        }
-        val shown = card.copy(metrics = card.metrics.map { held.metrics[it.label] ?: it })
-        return snap.copy(cells = listOf(shown) + snap.cells.drop(1))
     }
 
     /**
@@ -281,8 +256,5 @@ class NetworkMonitor(
     companion object {
         private const val TAG = "NetworkMonitor"
         private const val POLL_INTERVAL_MS = 1_000L
-        /** The LTE serving card's signal values update at this pace (rounds stay ~1 s). */
-        private const val LTE_SERVING_HOLD_MS = 2_000L
-        private val LTE_HELD = setOf("RSRP", "RSRQ", "SINR")
     }
 }
