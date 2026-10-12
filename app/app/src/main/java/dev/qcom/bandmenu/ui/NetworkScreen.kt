@@ -82,6 +82,7 @@ import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ReplaySession
+import dev.qcom.bandmenu.network.ThputPoint
 import dev.qcom.bandmenu.network.ServiceMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -290,7 +291,16 @@ fun NetworkScreen(
                             sim == 2 && !sim2Available -> Sim2UnavailableNote()
                             snap == null && pageState.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
                             snap == null -> NoticeCard(pageState.error!!)
-                            else -> NetworkContent(snap, pageState, servingHidden)
+                            else -> {
+                                // Throughput chart: the replay's window when scrubbing,
+                                // else the live history, centred on the reading shown.
+                                val center = snap.takenAtElapsedMs
+                                val r = replay
+                                val points = if (sim == state.sim && replayRound != null && r != null)
+                                    remember(r, center) { r.thputBetween(center - 32_000, center + 32_000) }
+                                else if (sim == state.sim) state.thput else emptyList()
+                                NetworkContent(snap, pageState, servingHidden, points)
+                            }
                         }
                     }
                 }
@@ -440,7 +450,7 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 }
 
 @Composable
-private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean) {
+private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>) {
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
@@ -458,6 +468,11 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
     }
     snap.carrierGroups.forEach { CarrierSection(it) }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
+    // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
+    if (state.diagEnabled && thput.isNotEmpty()) {
+        val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
+        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) 2000 else 500)
+    }
     if (snap.antennas.isNotEmpty()) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top.
@@ -687,7 +702,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
         row("Rank") { text(it.diag?.rank?.toString()) }
         row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
         row("RBs") { text(it.diag?.rbs?.let { r -> Math.round(r).toString() }) }
-        row("Mod") { text(it.diag?.modulation) }
+        row("Mod") { text(it.diag?.modulation?.removeSuffix("QAM")) }
         row("Thput") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
     }
 } }

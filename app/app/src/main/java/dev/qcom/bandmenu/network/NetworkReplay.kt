@@ -26,6 +26,9 @@ fun readOutcome(status: String, rx: String): ReadOutcome {
 
 fun readOutcome(o: JSONObject): ReadOutcome = readOutcome(o.optString("status"), o.optString("rx"))
 
+/** Combined DL throughput at [t] (elapsed ms), for the throughput chart. */
+data class ThputPoint(val t: Long, val mbps: Double)
+
 /** One recorded round: everything SnapshotBuilder needs. */
 class ReplayRound(
     val sim: Int,
@@ -181,6 +184,22 @@ class ReplaySession(private val entries: List<Entry>) {
     }
 
     private var cached: Pair<Int, ReplayRound?>? = null
+    private val thput = HashMap<Int, ThputPoint?>()
+
+    /** The throughput samples within [fromMs]..[toMs] (rounds with DIAG only). */
+    fun thputBetween(fromMs: Long, toMs: Long): List<ThputPoint> {
+        if (entries.isEmpty()) return emptyList()
+        val a = indexAt(fromMs)
+        val b = indexAt(toMs)
+        return (a..b).mapNotNull { i ->
+            thput.getOrPut(i) {
+                try {
+                    val d = JSONObject(String(entries[i].line, Charsets.UTF_8)).optJSONObject("d")
+                    d?.let { ThputPoint(entries[i].elapsedMs, DiagStats.parse(it).totalMbps) }
+                } catch (e: JSONException) { null }
+            }
+        }
+    }
 
     /** The round at [i], or null when its line can't be read. */
     fun round(i: Int): ReplayRound? {
