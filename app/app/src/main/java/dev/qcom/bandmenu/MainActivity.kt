@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.qcom.bandmenu.ui.MainScreen
+import dev.qcom.bandmenu.network.DiagClient
 import dev.qcom.bandmenu.network.SimSlotStatus
 import dev.qcom.bandmenu.ui.CellLockResult
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +52,7 @@ class MainActivity : ComponentActivity() {
     // killing and relaunching it. Stopped in DaemonHolder.onCleared().
     private val daemonHolder by lazy {
         ViewModelProvider(this, viewModelFactory {
-            initializer { DaemonHolder(DaemonManager(applicationContext)) }
+            initializer { DaemonHolder(DaemonManager(applicationContext), DiagClient(applicationContext)) }
         })[DaemonHolder::class.java]
     }
     private val daemonManager get() = daemonHolder.daemonManager
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 Thread {
+                    daemonHolder.networkMonitor.stopDiagBlocking()
                     daemonManager.stopBlocking()
                     runOnUiThread { finish() }
                 }.start()

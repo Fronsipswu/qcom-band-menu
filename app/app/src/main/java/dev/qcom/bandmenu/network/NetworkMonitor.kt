@@ -30,6 +30,7 @@ import org.json.JSONObject
  */
 class NetworkMonitor(
     private val daemon: DaemonManager,
+    private val diag: DiagClient,
     private val scope: CoroutineScope
 ) {
     data class State(
@@ -41,7 +42,12 @@ class NetworkMonitor(
         val refreshing: Boolean = false,
         /** Last good reading per SIM, so the SIM pager's neighbouring page
          *  shows that SIM's own data while swiping. Only [sim] is polled. */
-        val lastBySim: Map<Int, Reading> = emptyMap()
+        val lastBySim: Map<Int, Reading> = emptyMap(),
+        /** DIAG on: each round also reads the helper's PDSCH stats. Off at
+         *  every app start. QMI keeps running either way. */
+        val diagEnabled: Boolean = false,
+        /** Why DIAG stopped or a round's DIAG read failed, if it did. */
+        val diagError: String? = null
     )
 
     data class Reading(val snapshot: NetworkSnapshot, val operatorName: String?)
@@ -69,6 +75,22 @@ class NetworkMonitor(
 
     fun setVisible(v: Boolean) { visible = v; reschedule() }
     fun setResumed(v: Boolean) { resumed = v; reschedule() }
+
+    /** Turns DIAG on (the next round starts the helper) or off (unsubscribes
+     *  and stops it; the CA table goes back to QMI only). */
+    fun setDiagEnabled(on: Boolean) {
+        _state.update { it.copy(diagEnabled = on, diagError = null) }
+        if (on) {
+            if (visible && resumed) scope.launch { round() }
+        } else {
+            scope.launch(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
+            // Drop the DIAG rows at once instead of waiting for the next round.
+            if (visible && resumed) scope.launch { round() }
+        }
+    }
+
+    /** Stops the DIAG helper if it runs. Blocking; for app shutdown. */
+    fun stopDiagBlocking() = diag.stop()
 
     fun setFrozen(f: Boolean) {
         _state.update { it.copy(frozen = f) }
@@ -110,23 +132,42 @@ class NetworkMonitor(
     /** One round. [fresh]: show every value as read (pull-to-refresh, SIM switch). */
     private suspend fun round(fresh: Boolean = false) = roundLock.withLock {
         val sim = _state.value.sim
-        val result = withContext(Dispatchers.IO) { readRound(sim, fresh) }
+        val withDiag = _state.value.diagEnabled
+        val result = withContext(Dispatchers.IO) { readRound(sim, fresh, withDiag) }
         // A SIM switch during the round makes its result stale.
         if (_state.value.sim != sim) return@withLock
         result.fold(
-            onSuccess = { (snap, name) ->
-                _state.update { it.copy(snapshot = snap, operatorName = name, error = null, lastBySim = it.lastBySim + (sim to Reading(snap, name))) }
+            onSuccess = { r ->
+                _state.update {
+                    // DIAG that couldn't start is switched off, with the reason;
+                    // DIAG toggled off during the round keeps its new state.
+                    val diagOn = it.diagEnabled && !(withDiag && r.diagFailed)
+                    it.copy(snapshot = r.snapshot, operatorName = r.name, error = null,
+                        lastBySim = it.lastBySim + (sim to Reading(r.snapshot, r.name)),
+                        diagEnabled = diagOn, diagError = if (withDiag) r.diagError else it.diagError)
+                }
             },
             onFailure = { e -> _state.update { it.copy(error = e.message ?: "Read failed") } }
         )
     }
 
-    private fun readRound(sim: Int, fresh: Boolean): Result<Pair<NetworkSnapshot, String?>> = runCatching {
+    private class RoundResult(val snapshot: NetworkSnapshot, val name: String?, val diagError: String?, val diagFailed: Boolean)
+
+    private fun readRound(sim: Int, fresh: Boolean, withDiag: Boolean): Result<RoundResult> = runCatching {
         if (!daemon.isReady.value) throw IllegalStateException("Waiting for the daemon…")
         val t0 = SystemClock.elapsedRealtime()
         val reads = request(sim, NetworkReads.ROUND)
+        // DIAG only adds to the QMI round; its failure never fails the round.
+        var diagError: String? = null
+        val diagStats = if (withDiag) {
+            try { diag.stats() } catch (e: Exception) {
+                AppLog.w(TAG, "DIAG stats failed: ${e.message}")
+                diagError = e.message ?: "DIAG read failed"
+                null
+            }
+        } else null
         val snap = holdLteServing(sim, fresh,
-            SnapshotBuilder(reads, nrHardwareBands).build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt()))
+            SnapshotBuilder(reads, nrHardwareBands, diagStats).build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt()))
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
         val key = plmn?.let { "$it/${snap.mode}" }
@@ -134,7 +175,7 @@ class NetworkMonitor(
             cachedName[sim - 1] = readOperatorName(sim, plmn, snap.roaming)
             namedPlmn[sim - 1] = key
         }
-        snap to cachedName[sim - 1].takeIf { key != null && key == namedPlmn[sim - 1] }
+        RoundResult(snap, cachedName[sim - 1].takeIf { key != null && key == namedPlmn[sim - 1] }, diagError, withDiag && diagStats == null)
     }
 
     /**

@@ -84,6 +84,8 @@ import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ServiceMode
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -96,10 +98,13 @@ import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Lock
+import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Unlock
+import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 @Composable
 fun NetworkScreen(
@@ -228,18 +233,34 @@ fun NetworkScreen(
         } else {
             SmallTopAppBar(title = "Network")
         }
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                monitor.setFrozen(!state.frozen)
-            },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = topBarInset + 8.dp, end = 8.dp)
+        // Padlock (freeze), then the menu.
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = topBarInset + 8.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (state.frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
-                contentDescription = if (state.frozen) "Resume live monitoring" else "Freeze monitoring",
-                tint = if (state.frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
-            )
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    monitor.setFrozen(!state.frozen)
+                }
+            ) {
+                Icon(
+                    imageVector = if (state.frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
+                    contentDescription = if (state.frozen) "Resume live monitoring" else "Freeze monitoring",
+                    tint = if (state.frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
+                )
+            }
+            WindowIconDropdownMenu(
+                entries = listOf(DropdownEntry(items = listOf(
+                    DropdownItem(
+                        text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
+                        onClick = { monitor.setDiagEnabled(!state.diagEnabled) }
+                    )
+                ))),
+                collapseOnSelection = true
+            ) {
+                Icon(imageVector = MiuixIcons.More, contentDescription = "Menu", tint = MiuixTheme.colorScheme.onBackground)
+            }
         }
     }
 }
@@ -257,6 +278,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
         NoticeCard("No serving-cell details were reported.")
     }
     snap.carrierGroups.forEach { CarrierSection(it) }
+    state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     if (snap.antennas.isNotEmpty()) {
         Expandable("Per antenna measurements") {
             // Headings only when LTE and NR chains are shown together (NSA).
@@ -417,7 +439,7 @@ private fun CarrierSection(group: CarrierGroup) {
                 Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(8.dp))
             }
-            if (group.table) CaTable(group.carriers) else group.carriers.forEach { c ->
+            if (group.table) CaTable(group.carriers, group.diag, group.nrTable) else group.carriers.forEach { c ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold) }
@@ -439,7 +461,7 @@ private fun CarrierSection(group: CarrierGroup) {
 
 /** Cellular-Pro-style CA table: one column per carrier, one row per parameter. */
 @Composable
-private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
+private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false) = BoxWithConstraints {
     // Up to four carriers (P, S1, S2, S3) each column is fixed at the width
     // four columns share, and the columns sit from the left, so a lone PCell
     // isn't centred in empty space. From five carriers (S4) the columns share
@@ -473,14 +495,60 @@ private fun CaTable(carriers: List<Carrier>) = BoxWithConstraints {
     row("", header = true) {
         text(it.role, color = if (it.role == "P") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
+    if (nr) { NrRows(::row, ::text, barMax); return@Column }
     row("Band") { text(it.band, bold = true) }
+    row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     row("EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax) }
     row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax) }
     row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax) }
+    // PDSCH rows from DIAG, over the last round (about a second). A carrier
+    // with no grants this round has "–" for the per-grant values and 0.0 Mbps.
+    if (diag) {
+        row("Tx/Rx") { text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas} × ${d.rxAntennas}" else null }) }
+        row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
+        row("Rank") { text(it.diag?.rank?.toString()) }
+        row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
+        row("RBs") { text(it.diag?.rbs?.let { r -> Math.round(r).toString() }) }
+        row("Mod") { text(it.diag?.modulation) }
+        row("Thput") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+    }
 } }
+
+/**
+ * The NR table (DIAG only), one column per carrier:
+ * identity (B825), signal (B97F RSRP/RSRQ; B8D8/B8DD SS-SINR from SSB and
+ * CSI-SINR from TRS records), CSF (B8A7 CQI) and
+ * PDSCH over the last round (B887). Rank is the mean of scheduled layers.
+ */
+@Composable
+private fun NrRows(
+    row: @Composable (String, Boolean, @Composable (Carrier) -> Unit) -> Unit,
+    text: @Composable (String?, Boolean, Color) -> Unit,
+    barMax: Dp
+) {
+    val fg = MiuixTheme.colorScheme.onBackground
+    @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
+    @Composable fun t(v: String?, bold: Boolean = false) = text(v, bold, fg)
+    r("Band") { t(it.band, bold = true) }
+    r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
+    r("NR-ARFCN") { t(it.channel) }
+    r("PCI") { t(it.pci?.toString()) }
+    r("SCS") { t(it.nr?.scsKhz?.toString()) }
+    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR) }
+    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR) }
+    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR) }
+    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR) }
+    r("Rx") { t(it.nr?.rxAntennas?.toString()) }
+    r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+    r("CQI") { t(it.nr?.cqi?.toString()) }
+    r("MCS") { t(it.nr?.mcs?.let { m -> Math.round(m).toString() }) }
+    r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }
+    r("Mod") { t(it.nr?.modulation) }
+    r("BLER") { t(it.nr?.bler?.let { b -> String.format(Locale.US, "%.1f", b) }) }
+    r("Thput") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+}
 
 /** A value with a level-coloured bar behind it, like Cellular-Pro's cells. */
 @Composable
@@ -556,7 +624,7 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
 
 @Composable
 private fun NeighborRows(neighbors: List<Neighbor>) {
-    // NSG-style table: PCI | Band | EARFCN | RSRP bar | RSRQ bar, headers once,
+    // Table: PCI | Band | EARFCN | RSRP bar | RSRQ bar, headers once,
     // rows already sorted by band. Band is derived from the channel.
     val first = neighbors.first()
     val metricLabels = first.metrics.take(2).map { it.label }

@@ -5,7 +5,7 @@ import java.util.Locale
 /*
  * Turns one monitoring round (decoded NAS reads) into what the Network page
  * shows. Pure and device-free, so it's unit-tested with captured frames.
- * Rules carried over from Codex's guide: family-specific identifiers, no
+ * Rules: family-specific identifiers, no
  * neighbour is ever promoted to a serving carrier, an NR secondary
  * frequency stays "frequency only", and nothing from a previous mode
  * survives a mode change (each snapshot is built from this round only).
@@ -50,7 +50,11 @@ data class Carrier(
     val rsrp: Double? = null,
     val rsrq: Double? = null,
     /** PCC only (SIG_INFO); QMI has no per-SCell SINR. */
-    val sinr: Double? = null
+    val sinr: Double? = null,
+    /** PDSCH summary from DIAG; null when DIAG is off or has nothing for it. */
+    val diag: DiagCarrier? = null,
+    /** NR carrier from DIAG (NR table rows). */
+    val nr: DiagNrCarrier? = null
 )
 
 data class CarrierGroup(
@@ -59,7 +63,11 @@ data class CarrierGroup(
     val carriers: List<Carrier>,
     val note: String? = null,
     /** Render as a PCC/SCC column table (LTE CA). */
-    val table: Boolean = false
+    val table: Boolean = false,
+    /** DIAG is on: the table adds its PDSCH rows. */
+    val diag: Boolean = false,
+    /** An NR table from DIAG (NR row set). */
+    val nrTable: Boolean = false
 )
 
 data class Neighbor(
@@ -122,7 +130,9 @@ private fun mhz(v: Double) = "${fmt(v)} MHz"
 class SnapshotBuilder(
     private val reads: Map<String, ReadOutcome>,
     /** NR bands the modem supports, to resolve overlapping NR-ARFCN ranges. */
-    private val nrHardwareBands: Set<Int> = emptySet()
+    private val nrHardwareBands: Set<Int> = emptySet(),
+    /** DIAG PDSCH stats for this round; null when DIAG is off. */
+    private val diag: DiagStats? = null
 ) {
 
     private inline fun <T> decode(key: String, block: (QmiFrame) -> T): T? {
@@ -263,12 +273,14 @@ class SnapshotBuilder(
         val s = sig
         // RSRP/RSRQ: the PCell's CELL_LOCATION measurement, as in the CA
         // table's P column (SIG_INFO only when it's missing). SINR exists only
-        // in SIG_INFO, for both.
+        // in SIG_INFO, for both. With DIAG on, all three come from the PCell's
+        // B193 values, as in the DIAG CA table (QMI only where DIAG has none).
         val m = if (earfcn != null && pci != null) lteMeas[earfcn to pci] else null
+        val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
         val metrics = listOf(
-            Metric("RSRP", MetricKind.RSRP, Rat.LTE, m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
-            Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
-            Metric("SINR", MetricKind.SINR, Rat.LTE, s?.lteSnr, "dB"),
+            Metric("RSRP", MetricKind.RSRP, Rat.LTE, d?.rsrp ?: m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
+            Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, d?.rsrq ?: m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
+            Metric("SINR", MetricKind.SINR, Rat.LTE, d?.sinr ?: s?.lteSnr, "dB"),
             // UE transmit power (TX_RX_INFO, only while in traffic).
             Metric("TX PWR", MetricKind.TX_POWER, Rat.LTE, txLte?.txPower, "dBm")
         )
@@ -288,6 +300,9 @@ class SnapshotBuilder(
         // RF band info has no NR entry in NSA; derive the band from the ARFCN.
         val bandLabel = band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) }
         val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
+        // With DIAG on, this cell's values come from the DIAG NR table's entry
+        // for the same PCI and NR-ARFCN (QMI where DIAG has none).
+        val d = diag?.nr?.firstOrNull { it.pci == pci && (it.arfcn == ch || it.dlArfcn == ch) }
         val fields = buildList {
             if (sa) {
                 // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.
@@ -305,14 +320,17 @@ class SnapshotBuilder(
                 put("NR-ARFCN", ch?.toString())
                 put("Frequency", frequency)
                 put("PCI", pci?.toString())
-                put("SCS", s?.nrScsKhz?.let { "$it kHz" })
-                band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
+                put("SCS", (s?.nrScsKhz ?: d?.scsKhz)?.let { "$it kHz" })
+                // QMI has no SCG bandwidth; DIAG does (B825/B887), so with DIAG
+                // on the second row is always PCI, SCS, Bandwidth.
+                val bw = d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz
+                if (diag != null) put("Bandwidth", bw?.let(::mhz)) else bw?.let { add(Field("Bandwidth", mhz(it))) }
             }
         }
         val metrics = listOf(
-            Metric("SS-RSRP", MetricKind.RSRP, Rat.NR, sig?.nrRsrp?.toDouble(), "dBm"),
-            Metric("SS-RSRQ", MetricKind.RSRQ, Rat.NR, sig?.nrRsrq?.toDouble(), "dB"),
-            Metric("SS-SINR", MetricKind.SINR, Rat.NR, sig?.nrSnr, "dB")
+            Metric("SS-RSRP", MetricKind.RSRP, Rat.NR, d?.rsrp ?: sig?.nrRsrp?.toDouble(), "dBm"),
+            Metric("SS-RSRQ", MetricKind.RSRQ, Rat.NR, d?.rsrq ?: sig?.nrRsrq?.toDouble(), "dB"),
+            Metric("SS-SINR", MetricKind.SINR, Rat.NR, d?.sinr ?: sig?.nrSnr, "dB")
         )
         if (sa && fields.isEmpty() && metrics.all { it.value == null }) return null
         return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics)
@@ -377,6 +395,7 @@ class SnapshotBuilder(
 
     private fun lteCarriers(): CarrierGroup? {
         if (mode != ServiceMode.LTE && mode != ServiceMode.NR_NSA) return null
+        diagCarriers()?.let { return it }
         // Always shown in LTE/NSA (just the P column without CA), so the card
         // doesn't pop in and out. The PCell comes from the CA read, else from
         // the serving cell itself.
@@ -391,6 +410,7 @@ class SnapshotBuilder(
             title = "Carrier aggregation",
             summary = "",
             table = true,
+            diag = diag != null,
             carriers = all.mapIndexed { i, x ->
                 val m = lteMeas[x.earfcn to x.pci]
                 Carrier(
@@ -405,14 +425,56 @@ class SnapshotBuilder(
                         null -> "Primary"; ScellState.ACTIVATED -> "Active"; ScellState.CONFIGURED -> "Configured"
                         else -> null
                     },
-                    pci = x.pci
+                    pci = x.pci,
+                    diag = diag?.let { d -> if (i == 0) d.forPcell(x.earfcn, x.pci) else d.forScell(x.earfcn, x.pci) }
                 )
             }
         )
     }
 
+    /**
+     * With DIAG on, the whole table comes from the helper: the carrier list,
+     * band and bandwidth from B184, RSRP/RSRQ/SINR (SCells too) from B193 and
+     * the PDSCH rows from B173/B126. Until the helper has seen a B184 (the
+     * first round or so), the QMI table is used instead.
+     */
+    private fun diagCarriers(): CarrierGroup? {
+        val list = diag?.caCarriers?.takeIf { it.isNotEmpty() } ?: return null
+        return CarrierGroup(
+            title = "Carrier aggregation",
+            summary = "",
+            table = true,
+            diag = true,
+            carriers = list.map { d ->
+                Carrier(
+                    role = if (d.slot == 0) "P" else "S${d.slot}",
+                    band = d.band?.takeIf { it > 0 }?.let { "B$it" } ?: lteBandForEarfcn(d.earfcn!!.toInt())?.let { "B$it" },
+                    channel = d.earfcn.toString(),
+                    bandwidthMhz = d.bandwidthMhz ?: qmiBandwidth(d.earfcn!!, d.pci!!),
+                    state = when (d.state) { 2 -> if (d.slot == 0) "Primary" else "Active"; 1 -> "Configured"; else -> null },
+                    pci = d.pci,
+                    rsrp = d.rsrp, rsrq = d.rsrq, sinr = d.sinr,
+                    diag = d
+                )
+            }
+        )
+    }
+
+    /** QMI's bandwidth for a carrier, for DIAG rows without a current B184
+     *  (some modems only send it on CA events). */
+    private fun qmiBandwidth(earfcn: Long, pci: Int): Double? {
+        ca?.pcell?.takeIf { it.earfcn == earfcn && it.pci == pci }?.bandwidthMhz?.let { return it }
+        ca?.scells?.firstOrNull { it.earfcn == earfcn && it.pci == pci }?.bandwidthMhz?.let { return it }
+        val l = loc?.lte
+        return if (l != null && l.earfcn == earfcn && l.pci == pci) rfFor(NasRadioIf.LTE)?.bandwidthMhz else null
+    }
+
     private fun nrCarriers(): CarrierGroup? {
         if (mode != ServiceMode.NR_SA && mode != ServiceMode.NR_NSA) return null
+        diagNrCarriers()?.let { return it }
+        // NSA with DIAG on but no NR carrier from DIAG (the SCG dropped while
+        // idle): no card, rather than the QMI frequency-only fallback.
+        if (diag != null && mode == ServiceMode.NR_NSA) return null
         val serving = arfcn?.nrServing.orEmpty()
         val primary = sys?.nrArfcn ?: loc?.nrArfcn
         val extra = serving.filter { it != primary }
@@ -426,6 +488,45 @@ class SnapshotBuilder(
                     ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${String.format(Locale.US, "%.1f MHz", it)})" } ?: ""), null, null, null)
             },
             note = "QMI only reports frequency data for NR Scells"
+        )
+    }
+
+    /**
+     * With DIAG on, the NR card is a full CA table from the helper: carriers
+     * from B825 (PCell from B823), RSRP/RSRQ from B97F, SINR from B8D8, CQI
+     * from B8A7 and the PDSCH rows from B887 (bandwidth and SCS from B887
+     * when B825, sent only on reconfiguration, hasn't been seen).
+     * The PCell: B823 when the helper saw one, else QMI's NR serving cell,
+     * else the modem's carrier 0.
+     */
+    private fun diagNrCarriers(): CarrierGroup? {
+        val list = diag?.nr?.takeIf { it.isNotEmpty() } ?: return null
+        val qmiPci = sys?.nrPci ?: loc?.nr?.pci
+        val qmiArfcn = sys?.nrArfcn ?: loc?.nrArfcn
+        val primary = list.firstOrNull { it.pcell == true }
+            ?: list.firstOrNull { it.pcell == null && it.pci == qmiPci && it.arfcn == qmiArfcn }
+            ?: list.minBy { it.cc }
+        val ordered = listOf(primary) + list.filter { it !== primary }.sortedBy { it.cc }
+        return CarrierGroup(
+            title = "NR aggregation",
+            summary = "",
+            table = true,
+            diag = true,
+            nrTable = true,
+            carriers = ordered.mapIndexed { i, d ->
+                Carrier(
+                    role = if (i == 0) "P" else "S$i",
+                    band = d.band?.takeIf { it > 0 }?.let { "n$it" } ?: nrBandLabelForArfcn(d.arfcn, nrHardwareBands),
+                    channel = d.arfcn.toString(),
+                    bandwidthMhz = d.bandwidthMhz?.toDouble(),
+                    state = if (d === primary) "Primary" else "Active",
+                    pci = d.pci,
+                    // SS-SINR for every carrier (CSI-SINR has its own row;
+                    // the beam SNR, another kind, isn't shown).
+                    rsrp = d.rsrp, rsrq = d.rsrq, sinr = d.sinr,
+                    nr = d
+                )
+            }
         )
     }
 
