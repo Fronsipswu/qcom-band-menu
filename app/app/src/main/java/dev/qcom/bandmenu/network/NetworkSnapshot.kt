@@ -306,7 +306,7 @@ class SnapshotBuilder(
                 // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.
                 put("Band", bandLabel)
                 band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
-                put("NR-ARFCN", ch?.toString())
+                put("NARFCN", ch?.toString())
                 put("PCI", pci?.toString())
                 put("SCS", s?.nrScsKhz?.let { "$it kHz" })
                 put("Frequency", frequency)
@@ -315,7 +315,7 @@ class SnapshotBuilder(
                 (s?.nrNci ?: n?.nci)?.let { add(Field("NCI", it.toString())) }
             } else {
                 put("Band", bandLabel)
-                put("NR-ARFCN", ch?.toString())
+                put("NARFCN", ch?.toString())
                 put("Frequency", frequency)
                 put("PCI", pci?.toString())
                 put("SCS", (s?.nrScsKhz ?: d?.scsKhz)?.let { "$it kHz" })

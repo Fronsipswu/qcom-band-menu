@@ -229,7 +229,7 @@ fun BandLockScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         HorizontalPager(
                             state = pagerState,
@@ -492,7 +492,7 @@ private fun SimBandLockPage(
         val ratSummary = if (isAuto && supportedRats.isNotEmpty()) "AUTO (All RATs)"
             else if (state.ratChecked.values.all { it != true } || supportedRats.isEmpty()) "None"
             else supportedRats.filter { state.ratChecked[it] == true }.joinToString(", ") { it.name }
-        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
             WindowDropdownPreference(
                 entries = listOf(
                     DropdownEntry(items = listOf(
@@ -523,7 +523,7 @@ private fun SimBandLockPage(
         }
 
         if (showNrMode && hardware.nr.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             SmallTitle("NR mode")
             val nrModeIndex = when (state.nrMode) {
                 NrMode.BOTH, NrMode.UNKNOWN -> 0
@@ -552,7 +552,7 @@ private fun SimBandLockPage(
         }
 
         if (showUsageSetting) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             SmallTitle("Usage setting")
             val usageEnabled = state.usageMode != UsageMode.UNKNOWN
             TabRowWithContour(
@@ -571,8 +571,8 @@ private fun SimBandLockPage(
         }
 
         // Separates the RAT settings from Quick selections; without that card
-        // the 8 dp spacer before the band sections is gap enough.
-        if (showQuickSelect) Spacer(modifier = Modifier.height(16.dp))
+        // the 6 dp spacer before the band sections is gap enough.
+        if (showQuickSelect) Spacer(modifier = Modifier.height(12.dp))
 
         // Derived, so the page recomposes only when a flag flips, not on every
         // map write. Event handlers must read a flag once before mutating the
@@ -665,7 +665,7 @@ private fun SimBandLockPage(
             quickItems.filter { it.second in 4..6 }
         ).filter { it.isNotEmpty() }
 
-        if (showQuickSelect) Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        if (showQuickSelect) Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
             WindowDropdownPreference(
                 entries = quickGroups.map { group ->
                     DropdownEntry(items = group.map { (label, idx) ->
@@ -732,7 +732,7 @@ private fun SimBandLockPage(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         if (visibleNr.isNotEmpty()) {
             if (useIndependentLock) {
@@ -744,7 +744,7 @@ private fun SimBandLockPage(
                         onToggleAll = { val v = !allSaEnabled; visibleSa.forEach { state.nrSaChecked[it] = v } }
                     )
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                         colors = if (modified)
                             CardDefaults.defaultColors(color = unfinishedGroupGlow())
                         else CardDefaults.defaultColors()
@@ -760,7 +760,7 @@ private fun SimBandLockPage(
                         onToggleAll = { val v = !allNsaEnabled; visibleNsa.forEach { state.nrNsaChecked[it] = v } }
                     )
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                         colors = if (modified)
                             CardDefaults.defaultColors(color = unfinishedGroupGlow())
                         else CardDefaults.defaultColors()
@@ -776,7 +776,7 @@ private fun SimBandLockPage(
                     onToggleAll = { val v = !allNrEnabled; visibleNr.forEach { state.nrChecked[it] = v } }
                 )
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                     colors = if (modified)
                         CardDefaults.defaultColors(color = unfinishedGroupGlow())
                     else CardDefaults.defaultColors()
@@ -793,7 +793,7 @@ private fun SimBandLockPage(
                 onToggleAll = { val v = !allLteEnabled; visibleLte.forEach { state.lteChecked[it] = v } }
             )
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 colors = if (modified)
                     CardDefaults.defaultColors(color = unfinishedGroupGlow())
                 else CardDefaults.defaultColors()
@@ -809,7 +809,7 @@ private fun SimBandLockPage(
                 onToggleAll = { val v = !allWcdmaEnabled; visibleWcdma.forEach { state.wcdmaChecked[it] = v } }
             )
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 colors = if (modified)
                     CardDefaults.defaultColors(color = unfinishedGroupGlow())
                 else CardDefaults.defaultColors()
@@ -825,7 +825,7 @@ private fun SimBandLockPage(
                 onToggleAll = { val v = !allGsmEnabled; visibleGsm.forEach { state.gsmChecked[it] = v } }
             )
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 colors = if (modified)
                     CardDefaults.defaultColors(color = unfinishedGroupGlow())
                 else CardDefaults.defaultColors()
@@ -833,11 +833,11 @@ private fun SimBandLockPage(
                 BandCheckboxGrid(sortedGsm, state.gsmChecked, "")
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
-private val BandCellVerticalPadding = 4.dp
+private val BandCellVerticalPadding = 3.dp
 
 /**
  * Card tint for a band group that isn't fully ticked: the normal card colour

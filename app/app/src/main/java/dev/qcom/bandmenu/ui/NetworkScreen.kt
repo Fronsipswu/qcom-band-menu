@@ -257,7 +257,7 @@ fun NetworkScreen(
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(6.dp))
 
                 HorizontalPager(
                     state = pagerState,
@@ -438,7 +438,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
-        SmallTitle("Serving cell", modifier = Modifier.padding(top = 6.dp))
+        SmallTitle("Serving cell", modifier = Modifier.padding(top = 2.dp))
         SummaryCard(snap, state, snap.cells.firstOrNull())
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
@@ -456,7 +456,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
             // UE transmit power (TX_RX_INFO, only while in traffic), on top.
             snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
                 SignalBar(Metric("TX PWR", MetricKind.TX_POWER, it.rat, it.txPower, "dBm"),
-                    Modifier.padding(vertical = 4.dp), labelWidth = 64.dp)
+                    Modifier.padding(vertical = 3.dp), labelWidth = 64.dp)
             }
             // Headings only when LTE and NR chains are shown together (NSA).
             val showHeadings = snap.antennas.size > 1
@@ -485,8 +485,8 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
 
 @Composable
 private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serving: CellCard?) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Column(Modifier.padding(16.dp)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             // The mode itself is the pill (blue when in service, grey otherwise),
             // with the RRC chip beside it. The pill takes the chip's height
             // when that's taller, so the two line up.
@@ -523,12 +523,12 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             ).takeIf { state.operatorName != null || snap.plmn != null || snap.roaming != null }.orEmpty()
             // Serving cell: its bars, then its fields.
             if (serving != null && serving.metrics.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                serving.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 5.dp)) }
+                Spacer(Modifier.height(6.dp))
+                serving.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 3.dp)) }
             }
             val fields = serving?.fields.orEmpty()
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.NR_SA) 2 else 1)
             }
         }
@@ -552,11 +552,11 @@ private fun Chip(text: String, highlight: Boolean = false, compact: Boolean = fa
 
 @Composable
 private fun CellSection(cell: CellCard) {
-    SmallTitle(cell.title, modifier = Modifier.padding(top = 6.dp))
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            cell.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 5.dp)) }
-            if (cell.metrics.isNotEmpty() && cell.fields.isNotEmpty()) Spacer(Modifier.height(10.dp))
+    SmallTitle(cell.title, modifier = Modifier.padding(top = 2.dp))
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            cell.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 3.dp)) }
+            if (cell.metrics.isNotEmpty() && cell.fields.isNotEmpty()) Spacer(Modifier.height(12.dp))
             FieldGrid(cell.fields)
         }
     }
@@ -586,7 +586,7 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
     val main = pack(fields)
     val rows = main.take(extraRowAfter) + pack(extraRow) + main.drop(extraRowAfter)
     rows.forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
             row.forEach { f ->
                 Column(Modifier.weight(span(f).toFloat())) {
                     Text(f.label, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -601,15 +601,15 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
 
 @Composable
 private fun CarrierSection(group: CarrierGroup) {
-    SmallTitle(group.title, modifier = Modifier.padding(top = 6.dp))
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Column(Modifier.padding(16.dp)) {
+    SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp))
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             if (group.summary.isNotEmpty()) {
                 Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
             }
             if (group.table) CaTable(group.carriers, group.diag, group.nrTable) else group.carriers.forEach { c ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold) }
                     Column(Modifier.weight(1f)) {
@@ -645,7 +645,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
         Row(
             Modifier.fillMaxWidth().height(IntrinsicSize.Min).drawBehind {
                 drawLine(line, Offset(0f, size.height), Offset(size.width, size.height), 1f)
-            }.padding(vertical = 5.dp),
+            }.padding(vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, modifier = Modifier.width(64.dp), style = MiuixTheme.textStyles.footnote1,
@@ -703,7 +703,7 @@ private fun NrRows(
     @Composable fun t(v: String?, bold: Boolean = false) = text(v, bold, fg)
     r("Band") { t(it.band, bold = true) }
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
-    r("NR-ARFCN") { t(it.channel) }
+    r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
     r("SCS") { t(it.nr?.scsKhz?.toString()) }
     r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR) }
@@ -732,7 +732,7 @@ private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspeci
         Modifier.widthIn(max = maxWidth).fillMaxWidth().clip(RoundedCornerShape(4.dp))
             .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
             .drawBehind { drawRect(color, size = Size(size.width * fraction, size.height)) }
-            .padding(vertical = 2.dp),
+            .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(formatMetric(v), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground)
@@ -742,9 +742,9 @@ private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspeci
 @Composable
 private fun Expandable(title: String, content: @Composable () -> Unit) {
     var open by rememberSaveable(title.substringBefore(" (")) { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Row(
-            Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp),
+            Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(title, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
@@ -757,7 +757,7 @@ private fun Expandable(title: String, content: @Composable () -> Unit) {
             )
         }
         AnimatedVisibility(open) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) { content() }
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) { content() }
         }
     }
 }
@@ -786,7 +786,7 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
             c.rscp != null -> Metric(n, MetricKind.RSCP, a.rat, c.rscp, "dBm")
             else -> Metric(n, MetricKind.RSSI, a.rat, c.rxPower, "dBm")
         }
-        SignalBar(m, Modifier.padding(vertical = 4.dp), labelWidth = 64.dp)
+        SignalBar(m, Modifier.padding(vertical = 3.dp), labelWidth = 64.dp)
     }
 }
 
@@ -800,7 +800,7 @@ private fun NeighborRows(neighbors: List<Neighbor>) {
 
     @Composable
     fun cols(id: @Composable () -> Unit, band: @Composable () -> Unit, ch: @Composable () -> Unit, metrics: List<@Composable () -> Unit>) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(0.75f), Alignment.CenterStart) { id() }
             Box(Modifier.weight(0.7f), Alignment.CenterStart) { band() }
             Box(Modifier.weight(0.95f), Alignment.CenterStart) { ch() }
@@ -824,8 +824,8 @@ private fun NeighborRows(neighbors: List<Neighbor>) {
 
 @Composable
 private fun NoticeCard(text: String) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(text, modifier = Modifier.padding(16.dp), style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(text, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
