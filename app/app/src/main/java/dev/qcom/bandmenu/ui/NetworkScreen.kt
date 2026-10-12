@@ -297,7 +297,7 @@ fun NetworkScreen(
                                 val center = snap.takenAtElapsedMs
                                 val r = replay
                                 val points = if (sim == state.sim && replayRound != null && r != null)
-                                    remember(r, center) { r.thputBetween(center - 32_000, center + 32_000) }
+                                    remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else if (sim == state.sim) state.thput else emptyList()
                                 NetworkContent(snap, pageState, servingHidden, points)
                             }

@@ -22,13 +22,13 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** The window shown: [WINDOW_MS] centred on the cursor. */
-private const val WINDOW_MS = 60_000L
+private const val WINDOW_MS = 120_000L
 private const val GRID_MS = 10_000L
 /** Longer gaps than this between samples break the line. */
 private const val GAP_MS = 2_500L
 
 /**
- * Combined PHY downlink throughput (all LTE and NR carriers) over a minute.
+ * Combined PHY downlink throughput (all LTE and NR carriers) over two minutes.
  * The cursor stays in the middle at [centerMs], the sample shown; the window
  * moves under it. [maxMbps] sets the scale, five grid steps.
  */
@@ -41,8 +41,8 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, maxMbps: Int) {
         val line = signalLevelColor(2)   // the "fair" signal yellow
         val cursor = MiuixTheme.colorScheme.onBackground
         val labelStyle = MiuixTheme.textStyles.footnote2.copy(color = label)
-        val valueStyle = MiuixTheme.textStyles.footnote1.copy(color = Color.Black, fontWeight = FontWeight.Bold)
-        val boxColor = line
+        val valueStyle = MiuixTheme.textStyles.footnote2.copy(color = Color.Black, fontWeight = FontWeight.Bold)
+        val boxColor = Color.White
         val measurer = rememberTextMeasurer()
         Canvas(Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 12.dp, vertical = 10.dp)) {
             val w = size.width
@@ -92,10 +92,10 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, maxMbps: Int) {
 
             // Its combined throughput, top right.
             points.lastOrNull { it.t <= centerMs && centerMs - it.t <= GAP_MS }?.let { p ->
-                val v = if (p.mbps >= 100) "%.0f".format(p.mbps) else "%.1f".format(p.mbps)
+                val v = "%.1f Mbps".format(p.mbps)
                 val text = measurer.measure(v, valueStyle)
-                val padH = 6.dp.toPx()
-                val padV = 2.dp.toPx()
+                val padH = 4.dp.toPx()
+                val padV = 1.dp.toPx()
                 val bw = text.size.width + 2 * padH
                 val bh = text.size.height + 2 * padV
                 drawRoundRect(boxColor, topLeft = Offset(w - bw, 0f), size = Size(bw, bh), cornerRadius = CornerRadius(4.dp.toPx()))

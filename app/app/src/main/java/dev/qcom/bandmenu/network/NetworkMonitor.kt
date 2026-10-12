@@ -285,6 +285,6 @@ class NetworkMonitor(
     companion object {
         private const val TAG = "NetworkMonitor"
         private const val POLL_INTERVAL_MS = 1_000L
-        private const val THPUT_KEEP_MS = 90_000L
+        private const val THPUT_KEEP_MS = 150_000L
     }
 }
