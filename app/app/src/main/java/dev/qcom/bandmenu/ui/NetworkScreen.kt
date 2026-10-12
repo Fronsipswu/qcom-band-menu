@@ -83,6 +83,8 @@ import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ServiceMode
+import dev.qcom.bandmenu.network.TrafficTest
+import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -99,6 +101,8 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.More
+import top.yukonga.miuix.kmp.icon.extended.Pause
+import top.yukonga.miuix.kmp.icon.extended.Play
 import top.yukonga.miuix.kmp.icon.extended.Unlock
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -117,6 +121,7 @@ fun NetworkScreen(
     onRefresh: () -> Unit = {},
     backdrop: Backdrop? = null
 ) {
+    val context = LocalContext.current
     val state by monitor.state.collectAsState()
     val density = LocalDensity.current
     val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
@@ -124,6 +129,10 @@ fun NetworkScreen(
     val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top).asPaddingValues(density).calculateTopPadding()
     val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight
     val haptic = LocalHapticFeedback.current
+    val test = remember { TrafficTest.get(context) }
+    val testConfig by test.config.collectAsState()
+    val testRun by test.run.collectAsState()
+    var showTestSetup by remember { mutableStateOf(false) }
 
     LaunchedEffect(isActive) { monitor.setVisible(isActive) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -229,10 +238,30 @@ fun NetworkScreen(
                     effects = { blur(8f.dp.toPx()) },
                     onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                 )
-            ) { SmallTopAppBar(title = "Network", color = Color.Transparent) }
+            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), color = Color.Transparent) }
         } else {
-            SmallTopAppBar(title = "Network")
+            SmallTopAppBar(title = "Network", subtitle = testStatus(testRun))
         }
+        // Test script: play/pause at the top left.
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                if (testRun.running) test.stop() else if (!test.start()) showTestSetup = true
+            },
+            modifier = Modifier.align(Alignment.TopStart).padding(top = topBarInset + 8.dp, start = 8.dp)
+        ) {
+            Icon(
+                imageVector = if (testRun.running) MiuixIcons.Pause else MiuixIcons.Play,
+                contentDescription = if (testRun.running) "Stop test script" else "Start test script",
+                tint = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
+            )
+        }
+        TestScriptDialog(
+            show = showTestSetup,
+            config = testConfig,
+            onDismiss = { showTestSetup = false },
+            onSave = { test.save(it); showTestSetup = false }
+        )
         // Padlock (freeze), then the menu.
         Row(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = topBarInset + 8.dp, end = 8.dp),
@@ -255,7 +284,8 @@ fun NetworkScreen(
                     DropdownItem(
                         text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
                         onClick = { monitor.setDiagEnabled(!state.diagEnabled) }
-                    )
+                    ),
+                    DropdownItem(text = "Test script", onClick = { showTestSetup = true })
                 ))),
                 collapseOnSelection = true
             ) {
@@ -263,6 +293,18 @@ fun NetworkScreen(
             }
         }
     }
+}
+
+/** Top-bar subtitle while the test script runs (or after it failed to). */
+private fun testStatus(r: TrafficTest.Run): String = when {
+    r.running -> buildString {
+        append(if (r.upload) "Upload" else "Download")
+        append(" test | ").append(if (r.mbps >= 100) "%.0f".format(r.mbps) else "%.1f".format(r.mbps)).append(" Mbps")
+        r.remaining?.let { append(" | %d:%02d left".format(it / 60, it % 60)) }
+        r.error?.let { append(" | ").append(it) }
+    }
+    r.error != null -> "Test stopped: ${r.error}"
+    else -> ""
 }
 
 @Composable
