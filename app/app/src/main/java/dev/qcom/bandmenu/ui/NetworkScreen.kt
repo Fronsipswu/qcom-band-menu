@@ -500,7 +500,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                 ) {
                     Text(
                         snap.modeLabel,
-                        style = MiuixTheme.textStyles.title3,
+                        style = MiuixTheme.textStyles.title4,
                         fontWeight = FontWeight.Bold,
                         color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
                     )
@@ -543,7 +543,8 @@ private fun Chip(text: String, highlight: Boolean = false, compact: Boolean = fa
             .padding(horizontal = 10.dp, vertical = if (compact) 2.dp else 4.dp)
     ) {
         Text(
-            text, style = MiuixTheme.textStyles.footnote1,
+            // Compact (the RRC chips beside the mode pill): scaled with the pill.
+            text, style = if (compact) MiuixTheme.textStyles.footnote1.copy(fontSize = 12.sp) else MiuixTheme.textStyles.footnote1,
             color = if (highlight) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
         )
     }
@@ -627,7 +628,7 @@ private fun CarrierSection(group: CarrierGroup) {
     }
 }
 
-/** Cellular-Pro-style CA table: one column per carrier, one row per parameter. */
+/** CA table: one column per carrier, one row per parameter. */
 @Composable
 private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false) = BoxWithConstraints {
     // Up to four carriers (P, S1, S2, S3) each column is fixed at the width
@@ -687,8 +688,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
 /**
  * The NR table (DIAG only), one column per carrier:
  * identity (B825), signal (B97F RSRP/RSRQ; B8D8/B8DD SS-SINR from SSB and
- * CSI-SINR from TRS records), CSF (B8A7 CQI) and
- * PDSCH over the last round (B887). Rank is the mean of scheduled layers.
+ * CSI-SINR from TRS records) and PDSCH over the last round (B887). Rank is
+ * the mean of scheduled layers. Rx, CQI (B8A7) and BLER are still parsed
+ * but not shown.
  */
 @Composable
 private fun NrRows(
@@ -708,17 +710,15 @@ private fun NrRows(
     r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR) }
     r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR) }
     r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR) }
-    r("Rx") { t(it.nr?.rxAntennas?.toString()) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
-    r("CQI") { t(it.nr?.cqi?.toString()) }
     r("MCS") { t(it.nr?.mcs?.let { m -> Math.round(m).toString() }) }
     r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }
-    r("Mod") { t(it.nr?.modulation) }
-    r("BLER") { t(it.nr?.bler?.let { b -> String.format(Locale.US, "%.1f", b) }) }
+    // QAM order only ("256"); QPSK as is.
+    r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
     r("Thput") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
 }
 
-/** A value with a level-coloured bar behind it, like Cellular-Pro's cells. */
+/** A value with a level-coloured bar behind it. */
 @Composable
 private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE) {
     if (v == null) {
