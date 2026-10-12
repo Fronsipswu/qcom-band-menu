@@ -144,11 +144,6 @@ fun NetworkScreen(
     val testConfig by test.config.collectAsState()
     val testRun by test.run.collectAsState()
     var showTestSetup by remember { mutableStateOf(false) }
-    // The padlock also freezes the test script's status (speed, time left);
-    // the script itself and its play/pause button carry on.
-    var heldRun by remember { mutableStateOf<TrafficTest.Run?>(null) }
-    LaunchedEffect(state.frozen, testRun.running) { heldRun = if (state.frozen && testRun.running) testRun else null }
-    val shownRun = heldRun ?: testRun
 
     // Replay of the recorded rounds while frozen: the slider picks the sample
     // shown in place of the live reading; unfreezing drops it.
@@ -308,7 +303,7 @@ fun NetworkScreen(
         }
 
         // The test script's status line is blue while it runs.
-        val testColor = if (shownRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
+        val testColor = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
         if (backdrop != null) {
             Box(
                 modifier = Modifier.fillMaxWidth().drawPlainBackdrop(
@@ -317,9 +312,9 @@ fun NetworkScreen(
                     effects = { blur(8f.dp.toPx()) },
                     onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                 )
-            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(shownRun), subtitleColor = testColor, color = Color.Transparent) }
+            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor, color = Color.Transparent) }
         } else {
-            SmallTopAppBar(title = "Network", subtitle = testStatus(shownRun), subtitleColor = testColor)
+            SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor)
         }
         if (replayBar) {
             val r = replay!!
