@@ -93,7 +93,7 @@ object ReplayFormat {
 
 /**
  * Appends rounds to segment files in [dir], one per [SEGMENT_MS] of recording,
- * and keeps the newest [KEEP] (30-35 minutes). [clear] starts over (replay
+ * and keeps the newest [KEEP]: at most an hour (55-60 minutes). [clear] starts over (replay
  * switched on, or on again at the next app start) and deletes the files
  * (replay switched off). IO errors are swallowed: recording never fails a round.
  */
@@ -158,7 +158,7 @@ class ReplayRecorder(private val dir: File) {
 
     companion object {
         const val SEGMENT_MS = 5 * 60_000L
-        const val KEEP = 7
+        const val KEEP = 12
     }
 }
 

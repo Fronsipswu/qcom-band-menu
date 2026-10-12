@@ -44,17 +44,17 @@ class NetworkReplayTest {
     }
 
     @Test
-    fun keepsAtLeastThirtyMinutesAndSkipsATruncatedLine() {
+    fun keepsUpToAnHourAndSkipsATruncatedLine() {
         val dir = createTempDirectory("replay").toFile()
         try {
             val rec = ReplayRecorder(dir)
-            val total = 50 * 60
+            val total = 80 * 60
             for (s in 0..total) rec.append(s * 1000L, line(s * 1000L))
             val files = dir.listFiles()!!.size
-            assertTrue("files=$files", files in 7..7)
+            assertTrue("files=$files", files == ReplayRecorder.KEEP)
             val session = rec.open(1)
             val covered = (session.elapsedAt(session.size - 1) - session.elapsedAt(0)) / 1000
-            assertTrue("covered=${covered}s", covered >= 30 * 60)
+            assertTrue("covered=${covered}s", covered in 55 * 60..60 * 60)
             assertNotNull(session.round(session.size - 1))
             assertEquals(0, rec.open(2).size)
 

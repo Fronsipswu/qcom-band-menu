@@ -98,7 +98,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
@@ -219,7 +218,7 @@ fun NetworkScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(top = topBarHeight)
-                    .padding(bottom = navbarSpace + 16.dp + if (replayBar) 64.dp else 0.dp)
+                    .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
             ) {
                 TabRowWithContour(
                     tabs = simLabels,
@@ -266,6 +265,8 @@ fun NetworkScreen(
             }
         }
 
+        // The test script's status line is blue while it runs.
+        val testColor = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
         if (backdrop != null) {
             Box(
                 modifier = Modifier.fillMaxWidth().drawPlainBackdrop(
@@ -274,9 +275,9 @@ fun NetworkScreen(
                     effects = { blur(8f.dp.toPx()) },
                     onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                 )
-            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), color = Color.Transparent) }
+            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor, color = Color.Transparent) }
         } else {
-            SmallTopAppBar(title = "Network", subtitle = testStatus(testRun))
+            SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor)
         }
         if (replayBar) {
             val r = replay!!
@@ -289,7 +290,7 @@ fun NetworkScreen(
                     if (replayPlaying) replayPlaying = false
                     else { if (replayPos >= r.size - 1) replayPos = 0; replayPlaying = true }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = navbarSpace)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = navbarSpace + 12.dp)
             )
         }
         // Test script: play/pause at the top left.
@@ -349,22 +350,31 @@ fun NetworkScreen(
     }
 }
 
-/** Timeline for the frozen reading: play, slider, how far back. */
+/** Timeline for the frozen reading: play, slider (fine scrubbing), how far back. */
 @Composable
 private fun ReplayBar(
     size: Int, pos: Int, agoMs: Long, playing: Boolean,
     onPos: (Int) -> Unit, onPlay: () -> Unit, modifier: Modifier = Modifier
 ) {
-    Card(modifier = modifier.fillMaxWidth()) {
+    var speed by remember { mutableStateOf<Float?>(null) }
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+    speed?.let {
+        Text(
+            "Fine scrubbing " + when (it) { 0.5f -> "1/2"; 0.25f -> "1/4"; else -> "1/10" } + " speed",
+            style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
                 Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play,
                     contentDescription = if (playing) "Pause replay" else "Play replay",
                     tint = if (playing) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
             }
-            Slider(
-                value = pos.toFloat(), onValueChange = { onPos(it.toInt()) },
-                valueRange = 0f..(size - 1).toFloat(), modifier = Modifier.weight(1f)
+            ScrubSlider(
+                value = pos, max = size - 1, onValue = onPos, onSpeed = { speed = it },
+                modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(12.dp))
             val sec = (agoMs / 1000).toInt()
@@ -374,6 +384,7 @@ private fun ReplayBar(
                 modifier = Modifier.width(64.dp).padding(end = 8.dp), maxLines = 1
             )
         }
+    }
     }
 }
 
