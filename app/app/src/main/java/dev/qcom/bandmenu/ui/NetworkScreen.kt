@@ -420,8 +420,8 @@ private fun ReplayBar(
 private fun testStatus(r: TrafficTest.Run): String = when {
     r.running -> buildString {
         append(if (r.upload) "Upload" else "Download")
-        append(" test | ").append(if (r.mbps >= 100) "%.0f".format(r.mbps) else "%.1f".format(r.mbps)).append(" Mbps")
-        r.remaining?.let { append(" | %d:%02d left".format(it / 60, it % 60)) }
+        append(" | ").append(if (r.mbps >= 100) "%.0f".format(r.mbps) else "%.1f".format(r.mbps)).append(" Mbps")
+        r.remaining?.let { append(" | %d:%02d".format(it / 60, it % 60)) }
         r.error?.let { append(" | ").append(it) }
     }
     r.error != null -> "Test stopped: ${r.error}"
