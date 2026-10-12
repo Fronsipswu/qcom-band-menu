@@ -18,7 +18,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import dev.qcom.bandmenu.network.ThputPoint
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** The window shown: [WINDOW_MS] centred on the cursor. */
@@ -34,7 +33,6 @@ private const val GAP_MS = 2_500L
  */
 @Composable
 fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, maxMbps: Int) {
-    SmallTitle("Throughput", modifier = Modifier.padding(top = 2.dp))
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         val grid = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.12f)
         val label = MiuixTheme.colorScheme.onSurfaceVariantSummary
