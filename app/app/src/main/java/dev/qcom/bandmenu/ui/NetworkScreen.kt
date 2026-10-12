@@ -322,7 +322,12 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
     snap.carrierGroups.forEach { CarrierSection(it) }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     if (snap.antennas.isNotEmpty()) {
-        Expandable("Per antenna measurements") {
+        Expandable("Antenna measurements") {
+            // UE transmit power (TX_RX_INFO, only while in traffic), on top.
+            snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
+                SignalBar(Metric("TX PWR", MetricKind.TX_POWER, it.rat, it.txPower, "dBm"),
+                    Modifier.padding(vertical = 4.dp), labelWidth = 64.dp)
+            }
             // Headings only when LTE and NR chains are shown together (NSA).
             val showHeadings = snap.antennas.size > 1
             snap.antennas.forEach { AntennaRows(it, showHeadings) }

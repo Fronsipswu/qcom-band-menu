@@ -280,9 +280,7 @@ class SnapshotBuilder(
         val metrics = listOf(
             Metric("RSRP", MetricKind.RSRP, Rat.LTE, d?.rsrp ?: m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
             Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, d?.rsrq ?: m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
-            Metric("SINR", MetricKind.SINR, Rat.LTE, d?.sinr ?: s?.lteSnr, "dB"),
-            // UE transmit power (TX_RX_INFO, only while in traffic).
-            Metric("TX PWR", MetricKind.TX_POWER, Rat.LTE, txLte?.txPower, "dBm")
+            Metric("SINR", MetricKind.SINR, Rat.LTE, d?.sinr ?: s?.lteSnr, "dB")
         )
         if (fields.isEmpty() && metrics.all { it.value == null }) return null
         return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
@@ -355,8 +353,7 @@ class SnapshotBuilder(
         // (whole dBm / dB) is the validated source.
         val metrics = listOf(
             Metric("RSCP", MetricKind.RSCP, Rat.WCDMA, w?.rscp?.toDouble(), "dBm"),
-            Metric("Ec/Io", MetricKind.ECIO, Rat.WCDMA, w?.ecio?.toDouble(), "dB"),
-            Metric("TX PWR", MetricKind.TX_POWER, Rat.WCDMA, txWcdma?.txPower, "dBm")
+            Metric("Ec/Io", MetricKind.ECIO, Rat.WCDMA, w?.ecio?.toDouble(), "dB")
         )
         if (fields.isEmpty() && w == null) return null
         return CellCard("WCDMA serving cell", Rat.WCDMA, fields, metrics)
