@@ -82,7 +82,12 @@ import dev.qcom.bandmenu.network.Neighbor
 import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.Rat
+import dev.qcom.bandmenu.network.ReplaySession
 import dev.qcom.bandmenu.network.ServiceMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.mutableIntStateOf
 import dev.qcom.bandmenu.network.TrafficTest
 import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.basic.Card
@@ -93,6 +98,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
@@ -119,6 +125,10 @@ fun NetworkScreen(
     sim2Available: Boolean = true,
     /** Extra work on pull-to-refresh (MainActivity re-checks SIM 2's card status). */
     onRefresh: () -> Unit = {},
+    /** Menu: replay on or off. */
+    onReplayToggle: (Boolean) -> Unit = {},
+    /** Menu: DIAG on or off. */
+    onDiagToggle: (Boolean) -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -133,6 +143,30 @@ fun NetworkScreen(
     val testConfig by test.config.collectAsState()
     val testRun by test.run.collectAsState()
     var showTestSetup by remember { mutableStateOf(false) }
+
+    // Replay of the recorded rounds while frozen: the slider picks the sample
+    // shown in place of the live reading; unfreezing drops it.
+    var replay by remember { mutableStateOf<ReplaySession?>(null) }
+    var replayPos by remember { mutableIntStateOf(0) }
+    var replayPlaying by remember { mutableStateOf(false) }
+    LaunchedEffect(state.frozen, state.sim, state.replayEnabled) {
+        replayPlaying = false
+        if (!state.frozen || !state.replayEnabled) { replay = null; return@LaunchedEffect }
+        val sim = state.sim
+        val opened = withContext(Dispatchers.IO) { monitor.openReplay(sim) }
+        replay = opened
+        replayPos = ((opened?.size ?: 1) - 1).coerceAtLeast(0)
+    }
+    LaunchedEffect(replayPlaying) {
+        val r = replay ?: return@LaunchedEffect
+        while (replayPlaying && replayPos < r.size - 1) { delay(1000); replayPos++ }
+        replayPlaying = false
+    }
+    val replayBar = state.frozen && state.replayEnabled && (replay?.size ?: 0) >= 2
+    // At the newest sample the live (frozen) reading shows, so a pull-to-refresh still lands.
+    val replayRound = remember(replay, replayPos, replayBar) {
+        if (replayBar && replayPos < replay!!.size - 1) replay?.round(replayPos) else null
+    }
 
     LaunchedEffect(isActive) { monitor.setVisible(isActive) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -185,7 +219,7 @@ fun NetworkScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(top = topBarHeight)
-                    .padding(bottom = navbarSpace + 16.dp)
+                    .padding(bottom = navbarSpace + 16.dp + if (replayBar) 64.dp else 0.dp)
             ) {
                 TabRowWithContour(
                     tabs = simLabels,
@@ -208,7 +242,9 @@ fun NetworkScreen(
                     val sim = page + 1
                     // Only the selected SIM is polled; the other page shows
                     // that SIM's own last reading (or a spinner), never this one's.
-                    val pageState = if (sim == state.sim) state
+                    val pageState = if (sim == state.sim && replayRound != null)
+                            state.copy(snapshot = replayRound.snapshot(), operatorName = replayRound.operatorName, error = null)
+                        else if (sim == state.sim) state
                         else state.copy(sim = sim, snapshot = state.lastBySim[sim]?.snapshot,
                             operatorName = state.lastBySim[sim]?.operatorName, error = null)
                     Column(
@@ -241,6 +277,20 @@ fun NetworkScreen(
             ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), color = Color.Transparent) }
         } else {
             SmallTopAppBar(title = "Network", subtitle = testStatus(testRun))
+        }
+        if (replayBar) {
+            val r = replay!!
+            ReplayBar(
+                size = r.size, pos = replayPos, agoMs = r.elapsedAt(r.size - 1) - r.elapsedAt(replayPos.coerceIn(0, r.size - 1)),
+                playing = replayPlaying,
+                onPos = { replayPlaying = false; replayPos = it.coerceIn(0, r.size - 1) },
+                onPlay = {
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    if (replayPlaying) replayPlaying = false
+                    else { if (replayPos >= r.size - 1) replayPos = 0; replayPlaying = true }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = navbarSpace)
+            )
         }
         // Test script: play/pause at the top left.
         IconButton(
@@ -283,14 +333,46 @@ fun NetworkScreen(
                 entries = listOf(DropdownEntry(items = listOf(
                     DropdownItem(
                         text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
-                        onClick = { monitor.setDiagEnabled(!state.diagEnabled) }
+                        onClick = { onDiagToggle(!state.diagEnabled) }
                     ),
-                    DropdownItem(text = "Test script", onClick = { showTestSetup = true })
+                    DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
+                    DropdownItem(
+                        text = if (state.replayEnabled) "Disable replay" else "Enable replay",
+                        onClick = { onReplayToggle(!state.replayEnabled) }
+                    )
                 ))),
                 collapseOnSelection = true
             ) {
                 Icon(imageVector = MiuixIcons.More, contentDescription = "Menu", tint = MiuixTheme.colorScheme.onBackground)
             }
+        }
+    }
+}
+
+/** Timeline for the frozen reading: play, slider, how far back. */
+@Composable
+private fun ReplayBar(
+    size: Int, pos: Int, agoMs: Long, playing: Boolean,
+    onPos: (Int) -> Unit, onPlay: () -> Unit, modifier: Modifier = Modifier
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onPlay) {
+                Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play,
+                    contentDescription = if (playing) "Pause replay" else "Play replay",
+                    tint = if (playing) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
+            }
+            Slider(
+                value = pos.toFloat(), onValueChange = { onPos(it.toInt()) },
+                valueRange = 0f..(size - 1).toFloat(), modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(12.dp))
+            val sec = (agoMs / 1000).toInt()
+            Text(
+                if (pos >= size - 1) "Latest" else "%d:%02d ago".format(sec / 60, sec % 60),
+                style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.width(64.dp).padding(end = 8.dp), maxLines = 1
+            )
         }
     }
 }

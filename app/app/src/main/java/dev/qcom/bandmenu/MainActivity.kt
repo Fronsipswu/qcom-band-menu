@@ -7,6 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,7 +56,7 @@ class MainActivity : ComponentActivity() {
     // killing and relaunching it. Stopped in DaemonHolder.onCleared().
     private val daemonHolder by lazy {
         ViewModelProvider(this, viewModelFactory {
-            initializer { DaemonHolder(DaemonManager(applicationContext), DiagClient(applicationContext)) }
+            initializer { DaemonHolder(DaemonManager(applicationContext), DiagClient(applicationContext), java.io.File(cacheDir, "netreplay")) }
         })[DaemonHolder::class.java]
     }
     private val daemonManager get() = daemonHolder.daemonManager
@@ -127,6 +131,24 @@ class MainActivity : ComponentActivity() {
                         usageSettingHidden = hidden
                     }
                 }
+
+                // Replay (Network page menu): persisted; on, a foreground service
+                // keeps the poller recording with the app in the background.
+                LaunchedEffect(Unit) {
+                    BandPreferences.getReplayEnabled(bandDataStore).collectLatest { on ->
+                        daemonHolder.networkMonitor.setReplayEnabled(on)
+                        if (on) ReplayService.start(applicationContext) else ReplayService.stop(applicationContext)
+                    }
+                }
+                // DIAG (Network page menu): persisted. The menu toggles the
+                // monitor itself; this applies the saved setting at start.
+                LaunchedEffect(Unit) {
+                    BandPreferences.getDiagEnabled(bandDataStore).collectLatest { on ->
+                        val monitor = daemonHolder.networkMonitor
+                        if (monitor.state.value.diagEnabled != on) monitor.setDiagEnabled(on)
+                    }
+                }
+                val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getNrModeHidden(bandDataStore).collectLatest { hidden ->
@@ -351,6 +373,15 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     networkMonitor = daemonHolder.networkMonitor,
                     onNetworkRefresh = { recheckSim2() },
+                    onDiagToggle = { on ->
+                        daemonHolder.networkMonitor.setDiagEnabled(on)
+                        scope.launch { BandPreferences.setDiagEnabled(bandDataStore, on) }
+                    },
+                    onReplayToggle = { on ->
+                        if (on && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        scope.launch { BandPreferences.setReplayEnabled(bandDataStore, on) }
+                    },
                     onCellLockSimSwitch = simSwitch@{ slot ->
                         cellLockSelectedSim = slot
                         if (slot == 1 && modemState?.sim2Available == false) return@simSwitch
@@ -1043,5 +1074,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        // Closing the app ends the poller, so replay's background service too.
+        if (isFinishing) ReplayService.stop(applicationContext)
+        super.onDestroy()
     }
 }

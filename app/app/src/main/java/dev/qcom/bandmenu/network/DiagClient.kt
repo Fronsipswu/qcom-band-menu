@@ -135,6 +135,11 @@ class DiagClient(private val context: Context) {
     private var writer: BufferedWriter? = null
     private var reader: BufferedReader? = null
 
+    /** The helper reply [stats] last parsed, as recorded for the replay. */
+    @Volatile
+    var lastStatsJson: JSONObject? = null
+        private set
+
     /** One window of stats, starting the helper first if needed. Blocking. */
     @Synchronized
     fun stats(): DiagStats {
@@ -151,8 +156,9 @@ class DiagClient(private val context: Context) {
             AppLog.i(TAG, "helper v${resp.optString("version")} != v$EXPECTED_VERSION, restarting")
             stopHelper()
             ensureRunning()
-            return DiagStats.parse(request("""{"cmd":"stats"}"""))
+            return DiagStats.parse(request("""{"cmd":"stats"}""").also { lastStatsJson = it })
         }
+        lastStatsJson = resp
         return DiagStats.parse(resp)
     }
 

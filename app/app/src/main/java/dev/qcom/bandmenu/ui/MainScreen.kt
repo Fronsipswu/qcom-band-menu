@@ -55,6 +55,10 @@ fun MainScreen(
     networkMonitor: dev.qcom.bandmenu.network.NetworkMonitor,
     /** Network page pull-to-refresh (the page also takes a new reading itself). */
     onNetworkRefresh: () -> Unit = {},
+    /** Network page menu: replay on or off (persisted by the caller). */
+    onReplayToggle: (Boolean) -> Unit = {},
+    /** Network page menu: DIAG on or off (persisted by the caller). */
+    onDiagToggle: (Boolean) -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -180,6 +184,8 @@ fun MainScreen(
                             simLabels = simLabels,
                             sim2Available = modemState?.sim2Available != false,
                             onRefresh = onNetworkRefresh,
+                            onReplayToggle = onReplayToggle,
+                            onDiagToggle = onDiagToggle,
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(
