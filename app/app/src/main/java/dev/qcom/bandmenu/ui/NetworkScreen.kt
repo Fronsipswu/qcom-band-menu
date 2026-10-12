@@ -143,6 +143,11 @@ fun NetworkScreen(
     val testConfig by test.config.collectAsState()
     val testRun by test.run.collectAsState()
     var showTestSetup by remember { mutableStateOf(false) }
+    // The padlock also freezes the test script's status (speed, time left);
+    // the script itself and its play/pause button carry on.
+    var heldRun by remember { mutableStateOf<TrafficTest.Run?>(null) }
+    LaunchedEffect(state.frozen, testRun.running) { heldRun = if (state.frozen && testRun.running) testRun else null }
+    val shownRun = heldRun ?: testRun
 
     // Replay of the recorded rounds while frozen: the slider picks the sample
     // shown in place of the live reading; unfreezing drops it.
@@ -293,7 +298,7 @@ fun NetworkScreen(
         }
 
         // The test script's status line is blue while it runs.
-        val testColor = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
+        val testColor = if (shownRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
         if (backdrop != null) {
             Box(
                 modifier = Modifier.fillMaxWidth().drawPlainBackdrop(
@@ -302,14 +307,14 @@ fun NetworkScreen(
                     effects = { blur(8f.dp.toPx()) },
                     onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                 )
-            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor, color = Color.Transparent) }
+            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(shownRun), subtitleColor = testColor, color = Color.Transparent) }
         } else {
-            SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor)
+            SmallTopAppBar(title = "Network", subtitle = testStatus(shownRun), subtitleColor = testColor)
         }
         if (replayBar) {
             val r = replay!!
             ReplayBar(
-                size = r.size, pos = replayPos, agoMs = r.elapsedAt(r.size - 1) - r.elapsedAt(replayPos.coerceIn(0, r.size - 1)),
+                size = r.size, pos = replayPos, elapsedMs = r.elapsedAt(replayPos.coerceIn(0, r.size - 1)),
                 playing = replayPlaying,
                 onPos = { replayPlaying = false; replayPos = it.coerceIn(0, r.size - 1) },
                 onDragStart = { extendReplay() },
@@ -382,10 +387,10 @@ fun NetworkScreen(
     }
 }
 
-/** Timeline for the frozen reading: play, slider (fine scrubbing), how far back. */
+/** Timeline for the frozen reading: play, slider (fine scrubbing), the sample's time. */
 @Composable
 private fun ReplayBar(
-    size: Int, pos: Int, agoMs: Long, playing: Boolean,
+    size: Int, pos: Int, elapsedMs: Long, playing: Boolean,
     onPos: (Int) -> Unit, onPlay: () -> Unit, onDragStart: () -> Unit, modifier: Modifier = Modifier
 ) {
     var speed by remember { mutableStateOf<Float?>(null) }
@@ -408,12 +413,14 @@ private fun ReplayBar(
                 value = pos, max = size - 1, onValue = onPos, onSpeed = { speed = it }, onDragStart = onDragStart,
                 modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.width(12.dp))
-            val sec = (agoMs / 1000).toInt()
+            Spacer(Modifier.width(10.dp))
+            // The sample's clock time; tabular digits keep the slider's width steady.
+            val wall = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - elapsedMs)
             Text(
-                if (pos >= size - 1) "Latest" else "%d:%02d".format(sec / 60, sec % 60),
-                style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.width(64.dp).padding(end = 8.dp), maxLines = 1
+                java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
+                style = MiuixTheme.textStyles.footnote1.copy(fontFeatureSettings = "tnum"),
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(end = 10.dp), maxLines = 1
             )
         }
     }
