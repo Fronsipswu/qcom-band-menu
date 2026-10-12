@@ -59,6 +59,9 @@ fun MainScreen(
     onReplayToggle: (Boolean) -> Unit = {},
     /** Network page menu: DIAG on or off (persisted by the caller). */
     onDiagToggle: (Boolean) -> Unit = {},
+    /** Network page menu: serving-cell cards hidden (persisted by the caller). */
+    servingHidden: Boolean = false,
+    onServingHiddenToggle: (Boolean) -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -186,6 +189,8 @@ fun MainScreen(
                             onRefresh = onNetworkRefresh,
                             onReplayToggle = onReplayToggle,
                             onDiagToggle = onDiagToggle,
+                            servingHidden = servingHidden,
+                            onServingHiddenToggle = onServingHiddenToggle,
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(

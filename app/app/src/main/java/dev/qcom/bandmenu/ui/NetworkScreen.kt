@@ -9,7 +9,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalWindowInfo
 import kotlinx.coroutines.launch
-import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -112,8 +111,6 @@ import top.yukonga.miuix.kmp.icon.extended.Play
 import top.yukonga.miuix.kmp.icon.extended.Unlock
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.text.DateFormat
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -129,6 +126,9 @@ fun NetworkScreen(
     onReplayToggle: (Boolean) -> Unit = {},
     /** Menu: DIAG on or off. */
     onDiagToggle: (Boolean) -> Unit = {},
+    /** Serving-cell cards hidden (menu; persisted by the caller). */
+    servingHidden: Boolean = false,
+    onServingHiddenToggle: (Boolean) -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -285,7 +285,7 @@ fun NetworkScreen(
                             sim == 2 && !sim2Available -> Sim2UnavailableNote()
                             snap == null && pageState.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
                             snap == null -> NoticeCard(pageState.error!!)
-                            else -> NetworkContent(snap, pageState)
+                            else -> NetworkContent(snap, pageState, servingHidden)
                         }
                     }
                 }
@@ -366,6 +366,10 @@ fun NetworkScreen(
                     ),
                     DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
                     DropdownItem(
+                        text = if (servingHidden) "Show serving cell" else "Hide serving cell",
+                        onClick = { onServingHiddenToggle(!servingHidden) }
+                    ),
+                    DropdownItem(
                         text = if (state.replayEnabled) "Disable replay" else "Enable replay",
                         onClick = { onReplayToggle(!state.replayEnabled) }
                     )
@@ -407,7 +411,7 @@ private fun ReplayBar(
             Spacer(Modifier.width(12.dp))
             val sec = (agoMs / 1000).toInt()
             Text(
-                if (pos >= size - 1) "Latest" else "%d:%02d ago".format(sec / 60, sec % 60),
+                if (pos >= size - 1) "Latest" else "%d:%02d".format(sec / 60, sec % 60),
                 style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.width(64.dp).padding(end = 8.dp), maxLines = 1
             )
@@ -429,16 +433,21 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 }
 
 @Composable
-private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State) {
+private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean) {
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
-    // any further cell (the NR SCG in NSA) keeps its own card below.
-    SmallTitle("Serving cell", modifier = Modifier.padding(top = 6.dp))
-    SummaryCard(snap, state, snap.cells.firstOrNull())
+    // any further cell (the NR SCG in NSA) keeps its own card below. The menu
+    // can hide them all.
+    if (!servingHidden) {
+        SmallTitle("Serving cell", modifier = Modifier.padding(top = 6.dp))
+        SummaryCard(snap, state, snap.cells.firstOrNull())
+    }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
-    snap.cells.drop(1).forEach { CellSection(it) }
-    if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
-        NoticeCard("No serving-cell details were reported.")
+    if (!servingHidden) {
+        snap.cells.drop(1).forEach { CellSection(it) }
+        if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
+            NoticeCard("No serving-cell details were reported.")
+        }
     }
     snap.carrierGroups.forEach { CarrierSection(it) }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
@@ -521,15 +530,6 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.NR_SA) 2 else 1)
-            }
-            // Only a frozen reading is labelled; live needs no text.
-            if (state.frozen) {
-                val wall = System.currentTimeMillis() - (SystemClock.elapsedRealtime() - snap.takenAtElapsedMs)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Frozen: reading from ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(wall))}",
-                    style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
             }
         }
     }

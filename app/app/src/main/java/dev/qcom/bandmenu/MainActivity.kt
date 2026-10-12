@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                 var quickSelectHidden by remember { mutableStateOf(false) }
                 var usageSettingHidden by remember { mutableStateOf(false) }
                 var nrModeHidden by remember { mutableStateOf(false) }
+                var servingHidden by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -149,6 +150,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getServingHidden(bandDataStore).collectLatest { hidden ->
+                        servingHidden = hidden
+                    }
+                }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getNrModeHidden(bandDataStore).collectLatest { hidden ->
@@ -373,6 +380,11 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     networkMonitor = daemonHolder.networkMonitor,
                     onNetworkRefresh = { recheckSim2() },
+                    servingHidden = servingHidden,
+                    onServingHiddenToggle = { hidden ->
+                        servingHidden = hidden
+                        scope.launch { BandPreferences.setServingHidden(bandDataStore, hidden) }
+                    },
                     onDiagToggle = { on ->
                         daemonHolder.networkMonitor.setDiagEnabled(on)
                         scope.launch { BandPreferences.setDiagEnabled(bandDataStore, on) }
