@@ -85,6 +85,7 @@ import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ReplaySession
 import dev.qcom.bandmenu.network.ServiceMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableIntStateOf
@@ -157,14 +158,40 @@ fun NetworkScreen(
         replayPos = ((opened?.size ?: 1) - 1).coerceAtLeast(0)
     }
     LaunchedEffect(replayPlaying) {
-        val r = replay ?: return@LaunchedEffect
-        while (replayPlaying && replayPos < r.size - 1) { delay(1000); replayPos++ }
+        while (replayPlaying) {
+            val r = replay ?: break
+            if (replayPos >= r.size - 1) break
+            delay(1000)
+            replayPos = (replayPos + 1).coerceAtMost((replay?.size ?: 1) - 1)
+        }
         replayPlaying = false
     }
+    // Re-reads the recording (replay keeps recording while frozen), so the
+    // timeline grows to now; the selected sample stays selected, or with
+    // [toEnd] the newest is.
+    val replayScope = rememberCoroutineScope()
+    var replayLoad by remember { mutableStateOf<Job?>(null) }
+    fun extendReplay(toEnd: Boolean = false) {
+        if (replayLoad?.isActive == true) return
+        val sim = state.sim
+        replayLoad = replayScope.launch {
+            val fresh = withContext(Dispatchers.IO) { monitor.openReplay(sim) } ?: return@launch
+            if (fresh.size == 0 || !state.frozen || state.sim != sim) return@launch
+            val old = replay
+            replayPos = if (toEnd || old == null || old.size == 0) fresh.size - 1
+                else fresh.indexAt(old.elapsedAt(replayPos.coerceIn(0, old.size - 1)))
+            replay = fresh
+        }
+    }
+    // A pull-to-refresh while frozen is recorded too: jump to it.
+    LaunchedEffect(state.snapshot?.takenAtElapsedMs) {
+        val r = replay ?: return@LaunchedEffect
+        val t = state.snapshot?.takenAtElapsedMs ?: return@LaunchedEffect
+        if (state.frozen && r.size > 0 && t > r.elapsedAt(r.size - 1)) extendReplay(toEnd = true)
+    }
     val replayBar = state.frozen && state.replayEnabled && (replay?.size ?: 0) >= 2
-    // At the newest sample the live (frozen) reading shows, so a pull-to-refresh still lands.
     val replayRound = remember(replay, replayPos, replayBar) {
-        if (replayBar && replayPos < replay!!.size - 1) replay?.round(replayPos) else null
+        if (replayBar) replay?.round(replayPos) else null
     }
 
     LaunchedEffect(isActive) { monitor.setVisible(isActive) }
@@ -285,6 +312,7 @@ fun NetworkScreen(
                 size = r.size, pos = replayPos, agoMs = r.elapsedAt(r.size - 1) - r.elapsedAt(replayPos.coerceIn(0, r.size - 1)),
                 playing = replayPlaying,
                 onPos = { replayPlaying = false; replayPos = it.coerceIn(0, r.size - 1) },
+                onDragStart = { extendReplay() },
                 onPlay = {
                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                     if (replayPlaying) replayPlaying = false
@@ -354,13 +382,13 @@ fun NetworkScreen(
 @Composable
 private fun ReplayBar(
     size: Int, pos: Int, agoMs: Long, playing: Boolean,
-    onPos: (Int) -> Unit, onPlay: () -> Unit, modifier: Modifier = Modifier
+    onPos: (Int) -> Unit, onPlay: () -> Unit, onDragStart: () -> Unit, modifier: Modifier = Modifier
 ) {
     var speed by remember { mutableStateOf<Float?>(null) }
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
     speed?.let {
         Text(
-            "Fine scrubbing " + when (it) { 0.5f -> "1/2"; 0.25f -> "1/4"; else -> "1/10" } + " speed",
+            "×0.25",
             style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 6.dp)
         )
@@ -373,7 +401,7 @@ private fun ReplayBar(
                     tint = if (playing) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
             }
             ScrubSlider(
-                value = pos, max = size - 1, onValue = onPos, onSpeed = { speed = it },
+                value = pos, max = size - 1, onValue = onPos, onSpeed = { speed = it }, onDragStart = onDragStart,
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(12.dp))

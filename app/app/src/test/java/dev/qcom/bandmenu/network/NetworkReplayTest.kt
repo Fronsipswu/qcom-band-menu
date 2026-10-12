@@ -56,6 +56,10 @@ class NetworkReplayTest {
             val covered = (session.elapsedAt(session.size - 1) - session.elapsedAt(0)) / 1000
             assertTrue("covered=${covered}s", covered in 55 * 60..60 * 60)
             assertNotNull(session.round(session.size - 1))
+            // Extending the timeline keeps a sample by its time.
+            assertEquals(session.size - 1, session.indexAt(session.elapsedAt(session.size - 1)))
+            assertEquals(5, session.indexAt(session.elapsedAt(5) + 500))
+            assertEquals(0, session.indexAt(0))
             assertEquals(0, rec.open(2).size)
 
             File(dir, dir.list()!!.sorted().last()).appendText(line(total * 1000L + 1000).dropLast(9))

@@ -25,10 +25,12 @@ import kotlin.math.roundToInt
 
 /**
  * A slider over 0..[max] (miuix look) with fine scrubbing: while dragging,
- * moving the finger away from the bar vertically slows the thumb down
- * (1x, 1/2, 1/4, 1/10), so a long recording can still be stepped one sample
- * at a time. A tap jumps to the tapped spot. [onSpeed] reports the slowed
- * speed while it applies, null otherwise.
+ * moving the finger 80 dp or more away from the bar vertically slows the
+ * thumb to a quarter, so a long recording can still be stepped one sample
+ * at a time. Only a drag moves it (a touch without moving does nothing);
+ * [onDragStart] fires as one begins. [value] and [max] may change during a
+ * drag (the timeline was extended); the drag carries on from the new value.
+ * [onSpeed] reports the slowed speed while it applies, null otherwise.
  */
 @Composable
 fun ScrubSlider(
@@ -36,6 +38,7 @@ fun ScrubSlider(
     max: Int,
     onValue: (Int) -> Unit,
     onSpeed: (Float?) -> Unit,
+    onDragStart: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val fg = MiuixTheme.colorScheme.primary
@@ -43,6 +46,8 @@ fun ScrubSlider(
     val thumb = MiuixTheme.colorScheme.onPrimary
     val haptic = LocalHapticFeedback.current
     val current by rememberUpdatedState(value)
+    val top by rememberUpdatedState(max)
+    val dragStart by rememberUpdatedState(onDragStart)
     val setValue by rememberUpdatedState(onValue)
     val setSpeed by rememberUpdatedState(onSpeed)
 
@@ -51,43 +56,42 @@ fun ScrubSlider(
             .height(28.dp)
             .clip(RoundedCornerShape(50))
             .background(bg)
-            .pointerInput(max) {
+            .pointerInput(Unit) {
                 val inset = 14.dp.toPx()
-                val steps = listOf(40.dp.toPx() to 1f, 100.dp.toPx() to 0.5f, 160.dp.toPx() to 0.25f)
-                fun speedFor(dy: Float) = steps.firstOrNull { dy < it.first }?.second ?: 0.1f
-                fun valueAt(x: Float): Int {
-                    val usable = (size.width - 2 * inset).coerceAtLeast(1f)
-                    return (((x - inset) / usable) * max).roundToInt().coerceIn(0, max)
-                }
+                val fineAt = 80.dp.toPx()
+                fun speedFor(dy: Float) = if (dy < fineAt) 1f else 0.25f
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val usable = (size.width - 2 * inset).coerceAtLeast(1f)
                     var acc = current.toFloat()
+                    var lastSet = current
                     var lastX = down.position.x
                     var dragging = false
                     var speed = 1f
                     while (true) {
                         val event = awaitPointerEvent()
                         val c = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!c.pressed) {
-                            if (!dragging) setValue(valueAt(c.position.x))
-                            break
-                        }
+                        if (!c.pressed) break
                         val dx = c.position.x - lastX
                         lastX = c.position.x
                         val dy = abs(c.position.y - down.position.y)
                         if (!dragging && (abs(c.position.x - down.position.x) > viewConfiguration.touchSlop ||
-                                dy > viewConfiguration.touchSlop)) dragging = true
+                                dy > viewConfiguration.touchSlop)) {
+                            dragging = true
+                            dragStart()
+                        }
                         if (!dragging) continue
+                        // Moved from outside (the timeline was extended): carry on from there.
+                        if (current != lastSet) { acc = current.toFloat(); lastSet = current }
                         val s = speedFor(dy)
                         if (s != speed) {
                             speed = s
                             haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                             setSpeed(s.takeIf { it < 1f })
                         }
-                        acc = (acc + dx / usable * max * speed).coerceIn(0f, max.toFloat())
+                        acc = (acc + dx / usable * top * speed).coerceIn(0f, top.toFloat())
                         val v = acc.roundToInt()
-                        if (v != current) setValue(v)
+                        if (v != current) { setValue(v); lastSet = v }
                         c.consume()
                     }
                     setSpeed(null)

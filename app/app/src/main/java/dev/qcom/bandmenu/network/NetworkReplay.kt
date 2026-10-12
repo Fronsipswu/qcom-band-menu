@@ -169,6 +169,17 @@ class ReplaySession(private val entries: List<Entry>) {
     val size get() = entries.size
     fun elapsedAt(i: Int) = entries[i].elapsedMs
 
+    /** The newest sample taken at or before [elapsedMs] (0 if none). */
+    fun indexAt(elapsedMs: Long): Int {
+        var lo = 0
+        var hi = entries.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (entries[mid].elapsedMs <= elapsedMs) lo = mid else hi = mid - 1
+        }
+        return lo
+    }
+
     private var cached: Pair<Int, ReplayRound?>? = null
 
     /** The round at [i], or null when its line can't be read. */
