@@ -57,7 +57,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.20.0"
+#define HELPER_VERSION "1.20.1"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -331,6 +331,34 @@ static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t ea
     if (!seen || !prev->have_rsrp || (m.have_rsrp && m.rsrp >= prev->rsrp)) *prev = m;
 }
 
+/* The end of a field in bits; 0 for an absent field. */
+static int end_bit(struct pos f) { return f.bits ? f.off + f.bits : 0; }
+
+/* The last bit a B193 cell record must hold for this layout's fields. */
+static int b193_fields_end(const struct b193_layout *L) {
+    int end = 0;
+    struct pos single[] = { L->pci, L->slot, L->serving, L->valid_rx, L->rsrp, L->rsrq };
+    for (int i = 0; i < 6; i++)
+        if (end_bit(single[i]) > end) end = end_bit(single[i]);
+    for (int i = 0; i < 4; i++) {
+        if (end_bit(L->rsrp_ch[i]) > end) end = end_bit(L->rsrp_ch[i]);
+        if (end_bit(L->rsrq_ch[i]) > end) end = end_bit(L->rsrq_ch[i]);
+        if (end_bit(L->snr_ch[i]) > end) end = end_bit(L->snr_ch[i]);
+    }
+    return end;
+}
+
+/* The size of one cell record. A subpacket version can come in two record
+ * sizes with the same field positions (v59: 164 bytes on one SM8550
+ * firmware, 148 on another), so a cell list that splits evenly into
+ * `count` records gives the size; the table's size is the fallback. */
+static uint32_t b193_cell_bytes(const struct b193_layout *L, uint32_t list_bytes, uint32_t count) {
+    uint32_t table = L->cell_bits / 8;
+    if (count == 0 || list_bytes % count != 0) return table;
+    uint32_t measured = list_bytes / count;
+    return (int)(measured * 8) >= b193_fields_end(L) ? measured : table;
+}
+
 static void b193(const uint8_t *p, int n) {
     if (n < 4 || p[0] != 1) return;                     /* packet version 1 */
     int nsub = p[1], pos = 4;
@@ -356,7 +384,8 @@ static void b193(const uint8_t *p, int n) {
         if (!L || blen * 8 < L->cells_at || !fits(L->count, blen)) continue;
         /* Older versions have no cell list: the body is the one cell. */
         uint32_t count = L->count.bits ? at(body, L->count) : 1, earfcn = at(body, L->earfcn);
-        uint32_t first = L->cells_at / 8, cell = L->cell_bits / 8;
+        uint32_t first = L->cells_at / 8;
+        uint32_t cell = L->count.bits ? b193_cell_bytes(L, blen - first, count) : L->cell_bits / 8;
         for (uint32_t c = 0; c < count && first + (c + 1) * cell <= (uint32_t)blen; c++)
             b193_cell(L, body + first + c * cell, earfcn, pk);
     }
