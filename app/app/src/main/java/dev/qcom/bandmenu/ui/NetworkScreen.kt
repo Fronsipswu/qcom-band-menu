@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalWindowInfo
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
@@ -247,6 +249,13 @@ fun NetworkScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    // Double tap anywhere (but on a control) toggles the padlock.
+                    .pointerInput(Unit) {
+                        detectTapGestures(onDoubleTap = {
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                            monitor.setFrozen(!monitor.state.value.frozen)
+                        })
+                    }
                     .verticalScroll(rememberScrollState())
                     .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
