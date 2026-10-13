@@ -12,10 +12,14 @@
 void rrc_csi_b821(const uint8_t *payload, int length);
 
 /* CSI-RS ports configured for CSI acquisition on the cell with this PCI and
- * NR-ARFCN (SSB or point A frequency); 0 when unknown. The PCell's identity is
+ * SSB NR-ARFCN; 0 when unknown. The PCell's identity is
  * often not in any reconfiguration (it comes from system information), so for
  * the PCell (`pcell` set) the cell group's SpCell is used when nothing
  * matches. */
 int rrc_csi_ports(int pci, uint32_t arfcn, int pcell);
+
+/* The NR band the cell's common configuration names (frequencyBandList,
+ * first entry); 0 when the cell's configuration hasn't been seen. */
+int rrc_csi_band(int pci, uint32_t arfcn);
 
 #endif

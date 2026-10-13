@@ -41,6 +41,7 @@ struct cell {
     int present;
     int pci;                   /* +1, 0 = not signalled */
     uint32_t ssb_arfcn;        /* +1, 0 = not signalled */
+    int band;                  /* 0 = not signalled */
     struct resource resource[RESOURCES];
     struct resource_set set[SETS];
     struct resource_config config[RESOURCE_CONFIGS];
@@ -232,17 +233,23 @@ static void apply_dedicated(struct group *group, int index, const ServingCellCon
     }
 }
 
-/* A cell's common configuration names it (PCI, SSB frequency). Another cell
- * at the same index replaces the old one's state. */
+/* A cell's common configuration names it (PCI, SSB frequency) and its band.
+ * Another cell at the same index replaces the old one's state. */
 static void apply_common(struct group *group, int index, const ServingCellConfigCommon_t *common) {
     if (index < 0 || index >= CELLS || !common)
         return;
     struct cell *cell = &group->cell[index];
     int pci = common->physCellId ? (int)*common->physCellId + 1 : 0;
     uint32_t ssb = 0;
-    if (common->downlinkConfigCommon && common->downlinkConfigCommon->frequencyInfoDL
-        && common->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB)
-        ssb = (uint32_t)*common->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB + 1;
+    int band = 0;
+    const FrequencyInfoDL_t *frequency =
+        common->downlinkConfigCommon ? common->downlinkConfigCommon->frequencyInfoDL : NULL;
+    if (frequency && frequency->absoluteFrequencySSB)
+        ssb = (uint32_t)*frequency->absoluteFrequencySSB + 1;
+    /* The band explicitly, which an NR-ARFCN alone doesn't always give
+     * (n77/n78, n38/n41 overlap). */
+    if (frequency && frequency->frequencyBandList && frequency->frequencyBandList->list.count > 0)
+        band = (int)*frequency->frequencyBandList->list.array[0];
     int other_cell = (pci && cell->pci && pci != cell->pci) || (ssb && cell->ssb_arfcn && ssb != cell->ssb_arfcn);
     if (other_cell)
         memset(cell, 0, sizeof *cell);
@@ -250,6 +257,8 @@ static void apply_common(struct group *group, int index, const ServingCellConfig
         cell->pci = pci;
     if (ssb)
         cell->ssb_arfcn = ssb;
+    if (band)
+        cell->band = band;
     cell->present = 1;
 }
 
@@ -426,8 +435,8 @@ static int cell_ports(const struct group *group, int index) {
     return ports ? ports : codebook;
 }
 
-int rrc_csi_ports(int pci, uint32_t arfcn, int pcell) {
-    init_once();
+/* The stored cell with this PCI and SSB NR-ARFCN; its group in *group. */
+static const struct cell *find_cell(int pci, uint32_t arfcn, int *group, int *index) {
     for (int g = 0; g < GROUPS; g++) {
         for (int c = 0; c < CELLS; c++) {
             const struct cell *cell = &groups[g].cell[c];
@@ -435,9 +444,28 @@ int rrc_csi_ports(int pci, uint32_t arfcn, int pcell) {
                 continue;
             if (cell->ssb_arfcn && cell->ssb_arfcn != arfcn + 1)
                 continue;
-            return cell_ports(&groups[g], c);
+            *group = g;
+            *index = c;
+            return cell;
         }
     }
+    return NULL;
+}
+
+int rrc_csi_band(int pci, uint32_t arfcn) {
+    int group;
+    int index;
+    init_once();
+    const struct cell *cell = find_cell(pci, arfcn, &group, &index);
+    return cell ? cell->band : 0;
+}
+
+int rrc_csi_ports(int pci, uint32_t arfcn, int pcell) {
+    int group;
+    int index;
+    init_once();
+    if (find_cell(pci, arfcn, &group, &index))
+        return cell_ports(&groups[group], index);
     if (!pcell)
         return 0;
     /* An SpCell whose identity was never signalled: master group first. */

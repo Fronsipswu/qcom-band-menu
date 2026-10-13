@@ -875,8 +875,12 @@ static int write_stats(char *out, size_t cap) {
         /* RRC names cells by PCI and SSB frequency, not by carrier slot. */
         int csi_ports = rrc_csi_ports(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn, pcell == i);
         if (csi_ports) PUT(",\"csi_ports\":%d", csi_ports);
+        /* Band: B825's, else what the RRC configuration names (B825 only
+         * comes with a reconfiguration, so a helper started mid-session can
+         * have the RRC one and not B825's). */
+        int rrc_band = rrc_csi_band(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn);
         if (cfg) {
-            PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, c->band);
+            PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, c->band ? c->band : rrc_band);
             if (c->bw_mhz) PUT(",\"bw\":%d", c->bw_mhz);
             /* B825 0.x has no SCS: this carrier's TBs give it (same cell). */
             const struct nr_tb_info *t = &nrtb[i];
@@ -885,6 +889,7 @@ static int write_stats(char *out, size_t cap) {
             else if (tb_cell && t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
             if (c->max_layers) PUT(",\"max_layers\":%d", c->max_layers);
         } else {
+            if (rrc_band) PUT(",\"band\":%d", rrc_band);
             /* No B825: bandwidth and SCS from this carrier's TBs (same cell). */
             struct nr_tb_info *t = &nrtb[i];
             if (t->pci == nrlive[i].pci && t->arfcn == nrlive[i].earfcn) {
