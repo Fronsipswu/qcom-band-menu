@@ -1,8 +1,9 @@
 /*
  * qbm-diagd: QBM's DIAG helper (root, dynamic, separate from the static QMI
- * daemon). Subscribes to LTE PDSCH logs through diag-router's Diag Consumer
- * Interface (vendor libdiag), decodes them on the phone and serves a compact
- * per-carrier summary over an abstract socket.
+ * daemon). Subscribes to LTE/NR logs through the Diag Consumer Interface,
+ * decodes them on the phone and serves a compact per-carrier summary over an
+ * abstract socket. DCI comes from the kernel DIAG driver where /dev/diag
+ * exists (devdiag.c), else from diag-router through vendor libdiag.
  *
  * DCI only: never takes the on-device (MD) logging session, never touches
  * the main log masks and never switches logging modes, so other DIAG tools
@@ -54,10 +55,11 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "devdiag.h"       /* DCI on the kernel DIAG driver */
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.20.1"
+#define HELPER_VERSION "1.21.0"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -100,7 +102,7 @@ static struct slot win[SLOTS];
 static struct ca_cell ca[SLOTS];       /* [0] = PCell, [n] = SCell n */
 static int ca_seen = 0;
 static long n_logs = 0;
-static const char *lib_route = "default";   /* how libdiag was opened: "default" or "sphal" */
+static const char *lib_route = "default";   /* the DCI source: "devdiag", or how libdiag was opened: "default" or "sphal" */
 static volatile int stopping = 0;
 static volatile sig_atomic_t stop_flag = 0;
 
@@ -1021,7 +1023,75 @@ static void *open_libdiag(void) {
     return h;
 }
 
-#define SYM(T, name) T name = (T)dlsym(h, #name); if (!name) { fprintf(stderr, "libdiag: missing %s\n", #name); return 1; }
+#define SYM(T, name) T name = (T)dlsym(h, #name); if (!name) { fprintf(stderr, "libdiag: missing %s\n", #name); return -1; }
+
+/* The libdiag DCI client, kept for the unsubscribe at exit. */
+static int libdiag_client;
+static rel_client_t libdiag_release;
+static lsm_deinit_t libdiag_deinit;
+static log_cfg_t libdiag_log_config;
+
+static int start_libdiag(void) {
+    void *h = open_libdiag();
+    if (!h) return -1;
+    SYM(lsm_init_t, Diag_LSM_Init);
+    SYM(lsm_deinit_t, Diag_LSM_DeInit);
+    SYM(reg_client_t, diag_register_dci_client);
+    SYM(rel_client_t, diag_release_dci_client);
+    SYM(reg_stream_t, diag_register_dci_stream_proc);
+    SYM(log_cfg_t, diag_log_stream_config);
+
+    if (!Diag_LSM_Init(NULL)) { fprintf(stderr, "Diag_LSM_Init failed\n"); return -1; }
+    int sig = SIGCONT;
+    uint16_t periph = DIAG_CON_MPSS;
+    int r = diag_register_dci_client(&libdiag_client, &periph, DIAG_PROC_MSM, &sig);
+    if (r != DCI_NO_ERROR) { fprintf(stderr, "DCI register failed: %d\n", r); Diag_LSM_DeInit(); return -1; }
+    diag_register_dci_stream_proc(libdiag_client, on_log, on_event);
+    r = diag_log_stream_config(libdiag_client, 1, CODES, NCODES);
+    if (r != DCI_NO_ERROR) {
+        fprintf(stderr, "DCI subscribe failed: %d\n", r);
+        diag_release_dci_client(&libdiag_client);
+        Diag_LSM_DeInit();
+        return -1;
+    }
+    libdiag_release = diag_release_dci_client;
+    libdiag_deinit = Diag_LSM_DeInit;
+    libdiag_log_config = diag_log_stream_config;
+    return 0;
+}
+
+/* Unsubscribe, let in-flight callbacks drain, then release (releasing under
+ * load without the drain segfaulted in Diag_LSM_DeInit). */
+static void stop_libdiag(void) {
+    libdiag_log_config(libdiag_client, 0, CODES, NCODES);
+    usleep(500 * 1000);
+    stopping = 1;
+    usleep(200 * 1000);
+    libdiag_release(&libdiag_client);
+    libdiag_deinit();
+}
+
+/* Where the logs come from. The kernel driver is tried first where it
+ * exists; if it delivers nothing for KERNEL_GRACE_MS (B193 alone comes
+ * several times a second), the helper switches to libdiag. */
+enum source { SOURCE_NONE, SOURCE_KERNEL, SOURCE_LIBDIAG };
+#define KERNEL_GRACE_MS 8000
+
+static enum source start_source(void) {
+    if (devdiag_available()) {
+        if (devdiag_start(CODES, NCODES, on_log) == 0) {
+            lib_route = "devdiag";
+            return SOURCE_KERNEL;
+        }
+        fprintf(stderr, "devdiag failed, trying libdiag\n");
+    }
+    return start_libdiag() == 0 ? SOURCE_LIBDIAG : SOURCE_NONE;
+}
+
+static void stop_source(enum source source) {
+    if (source == SOURCE_KERNEL) devdiag_stop(CODES, NCODES);
+    else if (source == SOURCE_LIBDIAG) stop_libdiag();
+}
 
 int main(int argc, char **argv) {
     long app_uid = -1;
@@ -1035,29 +1105,10 @@ int main(int argc, char **argv) {
     int lfd = listen_socket();
     if (lfd < 0) { fprintf(stderr, "socket %s: %s\n", SOCKET_NAME, strerror(errno)); return 1; }
 
-    void *h = open_libdiag();
-    if (!h) return 1;
-    SYM(lsm_init_t, Diag_LSM_Init);
-    SYM(lsm_deinit_t, Diag_LSM_DeInit);
-    SYM(reg_client_t, diag_register_dci_client);
-    SYM(rel_client_t, diag_release_dci_client);
-    SYM(reg_stream_t, diag_register_dci_stream_proc);
-    SYM(log_cfg_t, diag_log_stream_config);
-
-    if (!Diag_LSM_Init(NULL)) { fprintf(stderr, "Diag_LSM_Init failed\n"); return 1; }
-    int client = 0, sig = SIGCONT;
-    uint16_t periph = DIAG_CON_MPSS;
-    int r = diag_register_dci_client(&client, &periph, DIAG_PROC_MSM, &sig);
-    if (r != DCI_NO_ERROR) { fprintf(stderr, "DCI register failed: %d\n", r); Diag_LSM_DeInit(); return 1; }
-    diag_register_dci_stream_proc(client, on_log, on_event);
-    r = diag_log_stream_config(client, 1, CODES, NCODES);
-    if (r != DCI_NO_ERROR) {
-        fprintf(stderr, "DCI subscribe failed: %d\n", r);
-        diag_release_dci_client(&client);
-        Diag_LSM_DeInit();
-        return 1;
-    }
+    enum source source = start_source();
+    if (source == SOURCE_NONE) return 1;
     window_start = now_ms();
+    long source_started = now_ms();
 
     long last_request = now_ms();
     int cfd = -1;
@@ -1067,6 +1118,12 @@ int main(int argc, char **argv) {
     while (!stop_flag && now_ms() - last_request < WATCHDOG_MS) {
         struct pollfd pf[2] = { { lfd, POLLIN, 0 }, { cfd, POLLIN, 0 } };
         if (poll(pf, cfd >= 0 ? 2 : 1, 500) < 0 && errno != EINTR) break;
+        if (source == SOURCE_KERNEL && devdiag_records() == 0 && now_ms() - source_started > KERNEL_GRACE_MS) {
+            fprintf(stderr, "devdiag: no logs in %d s, trying libdiag\n", KERNEL_GRACE_MS / 1000);
+            devdiag_stop(CODES, NCODES);
+            lib_route = "default";
+            source = start_libdiag() == 0 ? SOURCE_LIBDIAG : SOURCE_NONE;
+        }
         if (pf[0].revents & POLLIN) {
             int nfd = accept4(lfd, NULL, NULL, SOCK_CLOEXEC);
             if (nfd >= 0) {
@@ -1109,14 +1166,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* Unsubscribe, let in-flight callbacks drain, then release (releasing
-     * under load without the drain segfaulted in Diag_LSM_DeInit). */
-    diag_log_stream_config(client, 0, CODES, NCODES);
-    usleep(500 * 1000);
-    stopping = 1;
-    usleep(200 * 1000);
-    diag_release_dci_client(&client);
-    Diag_LSM_DeInit();
+    stop_source(source);
     if (cfd >= 0) close(cfd);
     close(lfd);
     return 0;
