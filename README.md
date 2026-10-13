@@ -305,3 +305,5 @@ Return updated values to the CLI or Android app
 Special thanks to [h3nnes](https://github.com/h3nnes) for developing the app version and for discovering the separate NR-SA and NR-NSA band-locking commands.
 
 This project also benefited greatly from the documentation, source code, and QMI protocol definitions provided by the [libqmi project](https://github.com/linux-mobile-broadband/libqmi).
+
+The DIAG helper's NR RRC decoder (`app/binary/rrc_nr_gen.c`) is generated with [asn1c](https://github.com/mouse07410/asn1c), the ASN.1 compiler by Lev Walkin ([original project](https://github.com/vlm/asn1c)) as maintained by mouse07410 and contributors, from the 3GPP TS 38.331 ASN.1 definitions. asn1c and its runtime are under the BSD 2-Clause license; see [app/binary/ASN1C-LICENSE](app/binary/ASN1C-LICENSE).
