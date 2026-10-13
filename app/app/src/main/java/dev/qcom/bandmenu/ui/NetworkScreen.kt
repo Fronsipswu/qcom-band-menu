@@ -706,7 +706,8 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax) }
     row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax) }
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
-    // with no grants this round has "–" for the per-grant values and 0.0 Mbps.
+    // with no grants this round has "–" for the per-grant values and 0.0 Mbps
+    // PHY DL; PHY UL is "–" when the carrier sent nothing.
     if (diag) {
         row("Tx/Rx") { text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }) }
         row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
@@ -714,7 +715,8 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
         row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
         row("RBs") { text(it.diag?.rbs?.let { r -> Math.round(r).toString() }) }
         row("Mod") { text(it.diag?.modulation?.removeSuffix("QAM")) }
-        row("Thput") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+        row("PHY DL") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+        row("PHY UL") { text(it.diag?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true) }
     }
 } }
 
@@ -750,7 +752,8 @@ private fun NrRows(
     r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
-    r("Thput") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+    r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+    r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true) }
 }
 
 /** A value with a level-coloured bar behind it. */

@@ -21,11 +21,13 @@
  *   LTE 0xB173 PDSCH Stat Indication: per TB MCS, modulation, RBs, layers,
  *          CRC, TB size, carrier slot
  *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
+ *       0xB139 PUSCH Tx Report: UL TB size and carrier slot
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
- *   NR  0xB887 PDSCH status, 0xB97F measurements, 0xB8D8 SNR, 0xB8A7 CSF,
- *       0xB825 RRC configuration, 0xB823 serving cell (see below)
+ *   NR  0xB883 UL physical channel schedule, 0xB887 PDSCH status, 0xB97F
+ *       measurements, 0xB8D8 SNR, 0xB8A7 CSF, 0xB825 RRC configuration,
+ *       0xB823 serving cell (see below)
  *   NR on X65 (no B8D8): 0xB8DD serving SNR (B8D8's successor), 0xB96A
  *       per-beam measurements (strongest beam's SNR)
  *   NR  0xB821 RRC OTA: reconfigurations, decoded (rrc_csi.c) for each
@@ -57,7 +59,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.20.1"
+#define HELPER_VERSION "1.21.0"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -72,11 +74,11 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
-static uint16_t CODES[] = { 0xB173, 0xB126, 0xB184, 0xB193,             /* LTE */
-                            0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, /* NR */
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193,     /* LTE */
+                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
                             0xB821 };                                   /* NR RRC */
-#define NCODES 13
+#define NCODES 15
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -84,6 +86,8 @@ struct slot {
     /* B173, C/SPS-C RNTI TBs only */
     long tb, fail, bytes_pass, bytes_all, mcs_sum, rb_sum, mod[5];
     long recs, layers_sum;
+    /* B139 PUSCH TBs, including retransmissions */
+    long ul_tb, ul_bytes;
     /* B126 */
     long n126, rank[4], scheme[16];
     int tx, rx;
@@ -207,6 +211,33 @@ static void b173(const uint8_t *p, int n) {
             counted = 1;
         }
         if (counted) { s->recs++; s->layers_sum += layers; }
+    }
+}
+
+/* LTE PUSCH scheduling records. PHY throughput counts every non-dropped TB;
+ * retransmissions are traffic over the air and are deliberately included. */
+static void b139(const uint8_t *p, int n) {
+    if (n < 1) return;
+    const struct b139_layout *L;
+    FIND_LAYOUT(B139_LAYOUTS, p[0], L);
+    if (!L || !fits(L->rec_count, n)) return;
+    int count = at(p, L->rec_count);
+    int start = L->rec_start / 8;
+    int size = L->rec_bits / 8;
+    if (!size || start > n || count > (n - start) / size) return;
+    if (start + count * size != n) return;
+    long add_tb[SLOTS] = { 0 };
+    long add_bytes[SLOTS] = { 0 };
+    for (int i = 0; i < count; i++) {
+        const uint8_t *record = p + start + i * size;
+        int carrier = L->carrier.bits ? at(record, L->carrier) : 0;
+        if (carrier >= SLOTS || (L->drop.bits && at(record, L->drop))) continue;
+        add_tb[carrier]++;
+        add_bytes[carrier] += at(record, L->tb_size);
+    }
+    for (int i = 0; i < SLOTS; i++) {
+        win[i].ul_tb += add_tb[i];
+        win[i].ul_bytes += add_bytes[i];
     }
 }
 
@@ -409,6 +440,8 @@ static void b193(const uint8_t *p, int n) {
 struct nr_slot {
     /* B887, C-RNTI and CS-RNTI TBs only */
     long tb, fail, bytes_pass, bytes_all, mcs_sum, rb_sum, layers_sum, mod[5], rx[4];
+    /* B883 PUSCH TBs, including retransmissions */
+    long ul_tb, ul_bytes;
     /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
      * of TRS records (CSI-SINR); B96A strongest beam's SNR: means over the
      * window */
@@ -418,6 +451,80 @@ struct nr_slot {
     int cqi, ri, have_csf;
 };
 static struct nr_slot nrwin[SLOTS];
+
+/* Length of a count-prefixed channel block. */
+static int b883_counted_bytes(const uint8_t *p, int n, int base_bits,
+                              int item_bits) {
+    int base = base_bits / 8;
+    if (base > n) return -1;
+    int item = item_bits / 8;
+    if (!item || !n) return -1;
+    int count = p[0];
+    if (count > (n - base) / item) return -1;
+    return base + count * item;
+}
+
+/* NR UL scheduling records contain a variable sequence of channel blocks.
+ * Walk the complete packet first and publish byte totals only when its final
+ * boundary is exact, so a malformed record cannot partly update a window. */
+static void b883(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b883_layout *L;
+    FIND_LAYOUT(B883_LAYOUTS, nr_ver(p), L);
+    if (!L || !fits(L->rec_count, n)) return;
+    int records = at(p, L->rec_count);
+    int pos = L->rec_start / 8;
+    long add_tb[SLOTS] = { 0 };
+    long add_bytes[SLOTS] = { 0 };
+    for (int r = 0; r < records; r++) {
+        int record = pos;
+        if (record > n || !fits(L->carrier_count, n - record)) return;
+        int carriers = at(p + record, L->carrier_count);
+        pos = record + L->carriers_at / 8;
+        for (int c = 0; c < carriers; c++) {
+            int header = L->header_bits / 8;
+            if (header > n - pos) return;
+            const uint8_t *carrier_header = p + pos;
+            int carrier = at(carrier_header, L->carrier);
+            int mask = at(carrier_header, L->mask);
+            pos += header;
+            if (mask & 16) return;
+            if (mask & 1) {
+                int size = L->pusch_bits / 8;
+                if (size > n - pos || !fits(L->tb_size, size)) return;
+                if (carrier < SLOTS) {
+                    add_tb[carrier]++;
+                    add_bytes[carrier] += at(p + pos, L->tb_size);
+                }
+                pos += size;
+            }
+            if (mask & 2) {
+                int size = b883_counted_bytes(p + pos, n - pos,
+                                              L->pucch_base_bits,
+                                              L->pucch_item_bits);
+                if (size < 0) return;
+                pos += size;
+            }
+            if (mask & 4) {
+                int size = b883_counted_bytes(p + pos, n - pos,
+                                              L->srs_base_bits,
+                                              L->srs_item_bits);
+                if (size < 0) return;
+                pos += size;
+            }
+            if (mask & 8) {
+                int size = L->prach_bits / 8;
+                if (size > n - pos) return;
+                pos += size;
+            }
+        }
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        nrwin[i].ul_tb += add_tb[i];
+        nrwin[i].ul_bytes += add_bytes[i];
+    }
+}
 
 /* B825 serving-cell list (replaced by every B825; empty = idle or no NR). */
 struct nr_cell {
@@ -751,8 +858,10 @@ static void on_log(unsigned char *ptr, int len) {
     n_logs++;
     if (code == 0xB173) b173(pl, pn);
     else if (code == 0xB126) b126(pl, pn);
+    else if (code == 0xB139) b139(pl, pn);
     else if (code == 0xB184) b184(pl, pn);
     else if (code == 0xB193) b193(pl, pn);
+    else if (code == 0xB883) b883(pl, pn);
     else if (code == 0xB887) b887(pl, pn);
     else if (code == 0xB97F) b97f(pl, pn);
     else if (code == 0xB8D8) b8d8(pl, pn);
@@ -821,7 +930,7 @@ static int write_stats(char *out, size_t cap) {
         int is_live = live[i].at_ms && now - live[i].at_ms < LIVE_MS;
         int b184_ok = ca[i].known && b184_current && (!is_live || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
         int configured = is_live || (b184_ok && (i == 0 || ca[i].state > 0));
-        if (!configured && s->tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
+        if (!configured && s->tb == 0 && s->ul_tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
         PUT("%s{\"slot\":%d", first ? "" : ",", i);
         first = 0;
         if (is_live || b184_ok) {
@@ -841,6 +950,7 @@ static int write_stats(char *out, size_t cap) {
         if (s->n_sinr) PUT(",\"sinr\":%.2f", s->sinr_sum / s->n_sinr);
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
+        if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
             PUT(",\"bler\":%.2f,\"mcs\":%.2f,\"rbs\":%.2f", 100.0 * s->fail / s->tb,
@@ -935,6 +1045,7 @@ static int write_stats(char *out, size_t cap) {
         if (s->have_csf) PUT(",\"cqi\":%d,\"ri\":%d", s->cqi, s->ri);
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
+        if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
         if (s->tb > 0) {
             int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
             PUT(",\"bler\":%.2f,\"mcs\":%.2f,\"rbs\":%.2f,\"layers\":%.2f", 100.0 * s->fail / s->tb,
