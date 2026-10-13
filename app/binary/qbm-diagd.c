@@ -59,7 +59,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.1"
+#define HELPER_VERSION "1.22.2"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -438,8 +438,10 @@ static void b193(const uint8_t *p, int n) {
 /* Per NR carrier (cc_id 0-7, the modem's numbering shared by B825, B97F,
  * B8D8 and B8A7), reset on every "stats". */
 struct nr_slot {
-    /* B887, C-RNTI and CS-RNTI TBs only */
-    long tb, fail, bytes_pass, bytes_all, mcs_sum, rb_sum, layers_sum, mod[5], rx[4];
+    /* B887, C-RNTI and CS-RNTI TBs only. mcs_sum/mcs_tb leave out
+     * retransmissions signalled with a reserved MCS index (see b887());
+     * mcs_all_sum is over every TB, as before 1.22.2, kept for comparison. */
+    long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, layers_sum, mod[5], rx[4];
     /* B883 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
     /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
@@ -662,7 +664,23 @@ static void b887(const uint8_t *p, int n) {
             if (!crc) s->fail++;
             s->bytes_all += size;
             if (crc) s->bytes_pass += size;
-            s->mcs_sum += at(it, L->mcs);
+            /* MCS mean: a retransmission may be signalled with a reserved
+             * index (28-31 on the 256QAM table, 29-31 on 64QAM) that only
+             * gives the modulation; the TB size is the first transmission's.
+             * Such TBs still count for throughput, BLER, RBs and layers, but
+             * not for the MCS mean. In the test logs (X55 to X85) no new
+             * transmission used 28-31 on the 256QAM table, while nearly every
+             * retransmission did, raising the old all-TB mean by about 1-2 at
+             * 10% BLER. Up to 1.22.1 the mean included them ("mcs_all" keeps
+             * that figure for comparison). Versions without a new-transmission
+             * field leave out 29-31, reserved on every table. */
+            int mcs = at(it, L->mcs);
+            int reserved = L->new_tx.bits ? (!at(it, L->new_tx) && mcs >= 28) : mcs >= 29;
+            s->mcs_all_sum += mcs;
+            if (!reserved) {
+                s->mcs_sum += mcs;
+                s->mcs_tb++;
+            }
             s->rb_sum += at(it, L->rbs);
             s->layers_sum += at(it, L->layers) + 1;      /* raw field: layers - 1 */
             if (L->mod.bits) {
@@ -1156,8 +1174,10 @@ static int write_stats(char *out, size_t cap) {
         if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
         if (s->tb > 0) {
             int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
-            PUT(",\"bler\":%.2f,\"mcs\":%.2f,\"rbs\":%.2f,\"layers\":%.2f", 100.0 * s->fail / s->tb,
-                (double)s->mcs_sum / s->tb, (double)s->rb_sum / s->tb, (double)s->layers_sum / s->tb);
+            PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
+            if (s->mcs_tb > 0) PUT(",\"mcs\":%.2f", (double)s->mcs_sum / s->mcs_tb);
+            PUT(",\"mcs_all\":%.2f,\"rbs\":%.2f,\"layers\":%.2f", (double)s->mcs_all_sum / s->tb,
+                (double)s->rb_sum / s->tb, (double)s->layers_sum / s->tb);
             if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
             if (rx >= 0) PUT(",\"rx\":%d", rx + 1);
         }
