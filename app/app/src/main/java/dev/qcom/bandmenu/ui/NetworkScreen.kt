@@ -410,21 +410,13 @@ fun NetworkScreen(
     }
 }
 
-/** Timeline for the frozen reading: play, slider (fine scrubbing), the sample's time. */
+/** Timeline for the frozen reading: play and the slider (fine scrubbing; the sample's time while held). */
 @Composable
 private fun ReplayBar(
     size: Int, pos: Int, elapsedMs: Long, playing: Boolean,
     onPos: (Int) -> Unit, onPlay: () -> Unit, onDragStart: () -> Unit, modifier: Modifier = Modifier
 ) {
-    var speed by remember { mutableStateOf<Float?>(null) }
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    speed?.let {
-        Text(
-            "×0.25",
-            style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
-    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
@@ -432,18 +424,13 @@ private fun ReplayBar(
                     contentDescription = if (playing) "Pause replay" else "Play replay",
                     tint = if (playing) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
             }
-            ScrubSlider(
-                value = pos, max = size - 1, onValue = onPos, onSpeed = { speed = it }, onDragStart = onDragStart,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(10.dp))
-            // The sample's clock time; tabular digits keep the slider's width steady.
+            // The sample's clock time, shown above the thumb while it's held.
             val wall = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - elapsedMs)
-            Text(
-                java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
-                style = MiuixTheme.textStyles.footnote1.copy(fontFeatureSettings = "tnum"),
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(end = 10.dp), maxLines = 1
+            ScrubSlider(
+                value = pos, max = size - 1, onValue = onPos,
+                bubble = java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
+                onDragStart = onDragStart,
+                modifier = Modifier.weight(1f).padding(end = 10.dp)
             )
         }
     }
@@ -484,7 +471,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
     if (state.diagEnabled && thput.isNotEmpty()) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
-        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) 2000 else 500)
+        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
     }
     if (snap.antennas.isNotEmpty()) {
         Expandable("Antenna measurements") {
@@ -720,8 +707,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
         row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
         row("RBs") { text(it.diag?.rbs?.let { r -> Math.round(r).toString() }) }
         row("Mod") { text(it.diag?.modulation?.removeSuffix("QAM")) }
-        row("PHY DL") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
-        row("PHY UL") { text(it.diag?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true) }
+        // Values coloured as the chart's lines.
+        row("PHY DL") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
+        row("PHY UL") { text(it.diag?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
     }
 } }
 
@@ -741,7 +729,7 @@ private fun NrRows(
 ) {
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
-    @Composable fun t(v: String?, bold: Boolean = false) = text(v, bold, fg)
+    @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
     r("Band") { t(it.band, bold = true) }
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("NARFCN") { t(it.channel) }
@@ -758,8 +746,9 @@ private fun NrRows(
     r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
-    r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
-    r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true) }
+    // Values coloured as the chart's lines.
+    r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
+    r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
 }
 
 /**

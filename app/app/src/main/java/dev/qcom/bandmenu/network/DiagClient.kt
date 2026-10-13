@@ -73,6 +73,9 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
     /** Combined PHY downlink throughput: every LTE and NR carrier. */
     val totalMbps: Double get() = carriers.sumOf { it.mbps } + nr.sumOf { it.mbps }
 
+    /** Combined PHY uplink throughput: every LTE and NR carrier. */
+    val totalUlMbps: Double get() = carriers.sumOf { it.ulMbps ?: 0.0 } + nr.sumOf { it.ulMbps ?: 0.0 }
+
     /** The carriers as B184 lists them: the PCell, then configured SCells by
      *  slot. Empty until the helper has seen a B184. */
     val caCarriers: List<DiagCarrier>
