@@ -306,4 +306,4 @@ Special thanks to [h3nnes](https://github.com/h3nnes) for developing the app ver
 
 This project also benefited greatly from the documentation, source code, and QMI protocol definitions provided by the [libqmi project](https://github.com/linux-mobile-broadband/libqmi).
 
-The DIAG helper's NR RRC decoder (`app/binary/rrc_nr_gen.c`) is generated with [asn1c](https://github.com/mouse07410/asn1c), the ASN.1 compiler by Lev Walkin ([original project](https://github.com/vlm/asn1c)) as maintained by mouse07410 and contributors, from the 3GPP TS 38.331 ASN.1 definitions. asn1c and its runtime are under the BSD 2-Clause license; see [app/binary/ASN1C-LICENSE](app/binary/ASN1C-LICENSE).
+Thanks also to the [asn1c](https://github.com/mouse07410/asn1c) project, created by Lev Walkin ([original repository](https://github.com/vlm/asn1c)) and maintained by mouse07410 and other contributors. The DIAG helper's NR RRC decoder is generated with it from the 3GPP TS 38.331 ASN.1 definitions ([LICENSE](app/binary/ASN1C-LICENSE)).

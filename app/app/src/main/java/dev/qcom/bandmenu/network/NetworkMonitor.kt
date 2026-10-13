@@ -53,9 +53,10 @@ class NetworkMonitor(
         val diagError: String? = null,
         /** Replay on: polls and records every round, also in the background. */
         val replayEnabled: Boolean = false,
-        /** Combined DL throughput of [sim]'s recent DIAG rounds, oldest first
-         *  (the throughput chart's live data). */
-        val thput: List<ThputPoint> = emptyList()
+        /** Combined DL throughput of each SIM's recent DIAG rounds, oldest
+         *  first (the throughput chart's live data). Kept per SIM so a page
+         *  keeps its chart while the pager swipes to the other SIM. */
+        val thputBySim: Map<Int, List<ThputPoint>> = emptyMap()
     )
 
     data class Reading(val snapshot: NetworkSnapshot, val operatorName: String?)
@@ -113,7 +114,7 @@ class NetworkMonitor(
         if (sim == _state.value.sim) return
         // Drop the other SIM's data at once; never show SIM 1 under SIM 2. The
         // new SIM's own last reading (if any) shows until its round lands.
-        _state.update { val last = it.lastBySim[sim]; it.copy(sim = sim, snapshot = last?.snapshot, operatorName = last?.operatorName, error = null, thput = emptyList()) }
+        _state.update { val last = it.lastBySim[sim]; it.copy(sim = sim, snapshot = last?.snapshot, operatorName = last?.operatorName, error = null) }
         if (visible && resumed) scope.launch { round(fresh = true) }
         reschedule()
     }
@@ -152,7 +153,10 @@ class NetworkMonitor(
         // The chart's history follows the rounds, frozen or not.
         result.getOrNull()?.mbps?.let { m ->
             val t = result.getOrNull()!!.snapshot.takenAtElapsedMs
-            _state.update { s -> s.copy(thput = (s.thput + ThputPoint(t, m)).dropWhile { t - it.t > THPUT_KEEP_MS }) }
+            _state.update { s ->
+                val history = (s.thputBySim[sim].orEmpty() + ThputPoint(t, m)).dropWhile { t - it.t > THPUT_KEEP_MS }
+                s.copy(thputBySim = s.thputBySim + (sim to history))
+            }
         }
         if (_state.value.frozen && !fresh) return@withLock
         result.fold(

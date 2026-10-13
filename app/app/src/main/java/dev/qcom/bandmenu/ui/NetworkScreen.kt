@@ -296,7 +296,7 @@ fun NetworkScreen(
                                 val r = replay
                                 val points = if (sim == state.sim && replayRound != null && r != null)
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
-                                else if (sim == state.sim) state.thput else emptyList()
+                                else state.thputBySim[sim].orEmpty()
                                 NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points)
                             }
                         }
