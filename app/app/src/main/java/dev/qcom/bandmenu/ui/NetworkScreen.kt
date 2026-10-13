@@ -61,7 +61,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -671,6 +673,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     val colWidth = (maxWidth - 64.dp) / 4
     val fixedCols = carriers.size <= 4
     val barMax = colWidth - 6.dp
+    // Cell text shrinks when the columns get too narrow for the widest value
+    // at the normal size (many carriers), instead of wrapping onto two lines.
+    val cellStyle = fittedCellStyle(carriers, if (fixedCols) colWidth else (maxWidth - 64.dp) / carriers.size)
     Column {
     val line = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     @Composable
@@ -690,21 +695,21 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     }
     @Composable
     fun text(v: String?, bold: Boolean = false, color: Color = MiuixTheme.colorScheme.onBackground) =
-        Text(v ?: "–", style = MiuixTheme.textStyles.body2, fontWeight = if (bold) FontWeight.SemiBold else null,
-            color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1)
+        Text(v ?: "–", style = cellStyle, fontWeight = if (bold) FontWeight.SemiBold else null,
+            color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1, softWrap = false)
 
     // The primary cell's role is blue; the secondaries stay grey.
     row("", header = true) {
         text(it.role, color = if (it.role == "P") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
-    if (nr) { NrRows(::row, ::text, barMax); return@Column }
+    if (nr) { NrRows(::row, ::text, barMax, cellStyle); return@Column }
     row("Band") { text(it.band, bold = true) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     row("EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax) }
-    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax) }
-    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax) }
+    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle) }
+    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle) }
+    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, style = cellStyle) }
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
     // with no grants this round has "–" for the per-grant values and 0.0 Mbps
     // PHY DL; PHY UL is "–" when the carrier sent nothing.
@@ -731,7 +736,8 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
 private fun NrRows(
     row: @Composable (String, Boolean, @Composable (Carrier) -> Unit) -> Unit,
     text: @Composable (String?, Boolean, Color) -> Unit,
-    barMax: Dp
+    barMax: Dp,
+    cellStyle: TextStyle
 ) {
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
@@ -741,10 +747,10 @@ private fun NrRows(
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
     r("SCS") { t(it.nr?.scsKhz?.toString()) }
-    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR) }
-    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR) }
-    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR) }
-    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR) }
+    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle) }
+    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle) }
+    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
+    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
@@ -756,11 +762,32 @@ private fun NrRows(
     r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true) }
 }
 
+/**
+ * The CA table's cell text style: body2, scaled down when a column (minus its
+ * padding) is narrower than the widest value would be at body2. The widest
+ * candidates are a signal value, a rate and each carrier's channel, bold.
+ */
+@Composable
+private fun fittedCellStyle(carriers: List<Carrier>, columnWidth: Dp): TextStyle {
+    val base = MiuixTheme.textStyles.body2
+    val measurer = rememberTextMeasurer()
+    val available = with(LocalDensity.current) { (columnWidth - 8.dp).toPx() }
+    val widest = remember(carriers.map { it.channel }, base) {
+        val bold = base.copy(fontWeight = FontWeight.SemiBold)
+        (listOf("-140.0", "1000.0") + carriers.map { it.channel }).maxOf { measurer.measure(it, bold).size.width }
+    }
+    val fit = if (widest > 0) available / widest else 1f
+    return if (fit >= 1f) base else base.copy(fontSize = base.fontSize * fit)
+}
+
 /** A value with a level-coloured bar behind it. */
 @Composable
-private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE) {
+private fun CellValueBar(
+    v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
+    style: TextStyle = MiuixTheme.textStyles.body2
+) {
     if (v == null) {
-        Text("–", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text("–", style = style, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         return
     }
     val scale = signalScale(kind, rat)
@@ -773,7 +800,8 @@ private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspeci
             .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(formatMetric(v), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground)
+        Text(formatMetric(v), style = style, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+            maxLines = 1, softWrap = false)
     }
 }
 
