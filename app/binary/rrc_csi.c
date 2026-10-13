@@ -458,7 +458,8 @@ void rrc_csi_b821(const uint8_t *payload, int length) {
         decode_dl_dcch(&record, record.message, message_length);
     else if (record.pdu == 3 && record.version != 9)   /* DL-CCCH (v9's numbering is unknown) */
         decode_dl_ccch(&record, record.message, message_length);
-    else if ((record.version == 9 || record.version == 17 || record.version == 19) && record.pdu == 9)
+    else if ((record.version == 9 || record.version == 12 || record.version == 17
+              || record.version == 19) && record.pdu == 9)
         decode_bare_reconfiguration(record.message, message_length);
 }
 

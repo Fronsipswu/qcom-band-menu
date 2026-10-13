@@ -23,7 +23,8 @@ data class DiagCarrier(
     /** B193 serving-cell measurements, averaged over the window. */
     val rsrp: Double?, val rsrq: Double?, val sinr: Double?,
     val transportBlocks: Int,
-    /** PHY rate from CRC-passed transport blocks, Mbps. */
+    /** PHY downlink rate from every scheduled transport block (CRC failures and
+     *  retransmissions included, as for uplink), Mbps. */
     val mbps: Double,
     /** PHY uplink rate from every PUSCH transport block (B139, retransmissions
      *  included), Mbps; null when the carrier sent none this window. */
@@ -50,7 +51,8 @@ data class DiagNrCarrier(
     /** B8A7 wideband CQI and rank indicator (as a rank). */
     val cqi: Int?, val ri: Int?,
     val transportBlocks: Int,
-    /** PHY rate from CRC-passed transport blocks, Mbps. */
+    /** PHY downlink rate from every scheduled transport block (CRC failures and
+     *  retransmissions included, as for uplink), Mbps. */
     val mbps: Double,
     /** PHY uplink rate from every PUSCH transport block (B883, retransmissions
      *  included), Mbps; null when the carrier sent none this window. */
@@ -97,6 +99,8 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
             val arr = o.getJSONArray("carriers")
             fun JSONObject.d(k: String) = if (has(k)) getDouble(k) else null
             fun JSONObject.i(k: String) = if (has(k)) getInt(k) else null
+            // Scheduled TBs ("mbps" counts CRC-passed ones only).
+            fun JSONObject.scheduledMbps() = optDouble("mbps_sched", optDouble("mbps", 0.0))
             val nrArr = o.optJSONArray("nr")
             val nr = if (nrArr == null) emptyList() else (0 until nrArr.length()).map { n ->
                 val c = nrArr.getJSONObject(n)
@@ -105,7 +109,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     dlArfcn = if (c.has("dl_arfcn")) c.getLong("dl_arfcn") else null, band = c.i("band"),
                     bandwidthMhz = c.i("bw"), scsKhz = c.i("scs"), maxLayers = c.i("max_layers"),
                     rsrp = c.d("rsrp"), rsrq = c.d("rsrq"), sinr = c.d("sinr"), cqi = c.i("cqi"), ri = c.i("ri"),
-                    transportBlocks = c.optInt("tb"), mbps = c.optDouble("mbps", 0.0), ulMbps = c.d("ul_mbps"),
+                    transportBlocks = c.optInt("tb"), mbps = c.scheduledMbps(), ulMbps = c.d("ul_mbps"),
                     bler = c.d("bler"), mcs = c.d("mcs"), rbs = c.d("rbs"), layers = c.d("layers"),
                     modulation = c.optString("mod").ifEmpty { null }, rxAntennas = c.i("rx"),
                     beamSinr = c.d("bsinr"), csiSinr = c.d("csinr"), csiPorts = c.i("csi_ports")
@@ -119,7 +123,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     pci = c.i("pci"), band = c.i("band"), bandwidthMhz = c.d("bw"), state = c.i("state"),
                     rsrp = c.d("rsrp"), rsrq = c.d("rsrq"), sinr = c.d("sinr"),
                     transportBlocks = c.optInt("tb"),
-                    mbps = c.optDouble("mbps", 0.0), ulMbps = c.d("ul_mbps"),
+                    mbps = c.scheduledMbps(), ulMbps = c.d("ul_mbps"),
                     bler = c.d("bler"), mcs = c.d("mcs"), rbs = c.d("rbs"),
                     modulation = c.optString("mod").ifEmpty { null },
                     rank = c.i("rank"), transmissionMode = c.i("tm"),
@@ -143,7 +147,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.21.0"
+        private const val EXPECTED_VERSION = "1.22.0"
     }
 
     private var socket: LocalSocket? = null

@@ -85,13 +85,21 @@ struct b825_layout {
 
 struct b823_layout { uint32_t ver; struct pos pci, dl_arfcn; };   /* payload bits */
 
-struct b8d8_layout { uint32_t ver; struct pos carrier, rs, snr[4]; };   /* payload bits; rs 0 = SSB, 1 = TRS; SNR linear, x/1024 */
+struct b8d8_layout {
+    uint32_t ver;
+    struct pos carrier, rs, snr[4];              /* rs: 0 SSB, 1 TRS; linear SNR, x/1024 */
+    struct pos pci, arfcn;                      /* optional identity instead of carrier slot */
+    uint16_t payload_bytes;                     /* 0: no fixed-length guard */
+};
 
 struct b96a_layout {
     uint32_t ver;
     struct pos pci; uint16_t groups_at, group_bits, beam_bits;   /* payload bits */
     struct pos g_arfcn, g_count;                 /* in a group header */
     struct pos rsrp[2], snr[2];                  /* in a beam: signed Q7 dB per RX */
+    struct pos parent_count;                    /* absent: groups extend to payload end */
+    uint16_t parents_at, parent_bits;
+    struct pos group_count, beam_pci;            /* in a parent and beam, respectively */
 };
 
 struct b8a7_layout {
@@ -470,13 +478,20 @@ static const struct b8a7_layout B8A7_LAYOUTS[] = {
 
 /* B8DD NR5G LL1 serving SNR (B8D8's successor on X65): same fields as B8D8. */
 static const struct b8d8_layout B8DD_LAYOUTS[] = {
-    { 0x3000b, { 64, 3 }, { 32, 1 }, { { 640, 32 }, { 736, 32 }, { 832, 32 }, { 928, 32 } } },  /* 3.11 */
+    { 0x00007, { 0, 0 }, { 0, 0 }, { { 608, 32 }, { 640, 32 }, { 672, 32 }, { 704, 32 } }, { 46, 10 }, { 736, 32 }, 544 },  /* 0.7 */
+    { 0x3000b, { 64, 3 }, { 32, 1 }, { { 640, 32 }, { 736, 32 }, { 832, 32 }, { 928, 32 } }, { 0, 0 }, { 0, 0 }, 644 },  /* 3.11 */
 };
 
 /* B96A NR5G ML1 beam measurements: groups (SSB NR-ARFCN, beam count) of beams; Q7 pairs per RX. */
 static const struct b96a_layout B96A_LAYOUTS[] = {
-    { 0x2000e, { 141, 10 }, 384, 64, 288, { 0, 32 }, { 36, 4 }, { { 64, 16 }, { 80, 16 } }, { { 96, 16 }, { 112, 16 } } },  /* 2.14 */
-    { 0x2000f, { 141, 10 }, 384, 64, 288, { 0, 32 }, { 36, 4 }, { { 64, 16 }, { 80, 16 } }, { { 96, 16 }, { 112, 16 } } },  /* 2.15 */
+    { 0x20006, { 0, 0 }, 384, 64, 256, { 0, 32 }, { 36, 6 }, { { 64, 16 }, { 80, 16 } }, { { 96, 16 }, { 112, 16 } },
+      { 128, 3 }, 192, 192, { 182, 3 }, { 16, 10 } },  /* 2.6 */
+    { 0x20008, { 0, 0 }, 384, 64, 256, { 0, 32 }, { 36, 6 }, { { 64, 16 }, { 80, 16 } }, { { 96, 16 }, { 112, 16 } },
+      { 128, 3 }, 192, 192, { 182, 3 }, { 16, 10 } },  /* 2.8 */
+    { 0x2000e, { 141, 10 }, 384, 64, 288, { 0, 32 }, { 36, 4 }, { { 64, 16 }, { 80, 16 } }, { { 96, 16 }, { 112, 16 } },
+      { 0, 0 }, 0, 0, { 0, 0 }, { 0, 0 } },  /* 2.14 */
+    { 0x2000f, { 141, 10 }, 384, 64, 288, { 0, 32 }, { 36, 4 }, { { 64, 16 }, { 80, 16 } }, { { 96, 16 }, { 112, 16 } },
+      { 0, 0 }, 0, 0, { 0, 0 }, { 0, 0 } },  /* 2.15 */
 };
 
 

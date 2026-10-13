@@ -59,7 +59,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.21.0"
+#define HELPER_VERSION "1.22.0"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -757,23 +757,43 @@ static void b97f(const uint8_t *p, int n) {
  * on SSB give SS-SINR, on TRS (a CSI-RS for tracking) CSI-SINR: two
  * different measurements (4-9 dB apart on SM8550). Versions without the
  * reference-signal field count as SS-SINR. */
-static void serving_snr(const struct b8d8_layout *L, const uint8_t *p, int n) {
-    if (!L || !fits(L->carrier, n)) return;
-    if (L->rs.bits && !fits(L->rs, n)) return;
-    int trs = L->rs.bits && at(p, L->rs);           /* 1 = TRS */
-    int cc = at(p, L->carrier);
-    if (cc >= SLOTS) return;
+static void serving_snr(const struct b8d8_layout *layout, const uint8_t *payload, int size) {
+    if (!layout || !fits(layout->carrier, size) || !fits(layout->rs, size))
+        return;
+    if (layout->payload_bytes && size != layout->payload_bytes)
+        return;
+    int carrier = at(payload, layout->carrier);
+    if (layout->pci.bits) {
+        if (!fits(layout->pci, size) || !fits(layout->arfcn, size))
+            return;
+        /* Older records rotate between frequencies without a usable slot. */
+        carrier = nr_cc_for(at(payload, layout->pci), at(payload, layout->arfcn));
+    }
+    if (carrier < 0 || carrier >= SLOTS)
+        return;
     int have = 0;
     double best_db = 0;
-    for (int i = 0; i < 4 && fits(L->snr[i], n); i++) {
-        uint32_t raw = at(p, L->snr[i]);
-        if (!raw) continue;
+    for (int i = 0; i < 4; i++) {
+        if (!fits(layout->snr[i], size))
+            return;
+        uint32_t raw = at(payload, layout->snr[i]);
+        if (!raw)
+            continue;
         double db = 10.0 * log10(raw / 1024.0);
-        if (!have || db > best_db) { best_db = db; have = 1; }
+        if (!have || db > best_db) {
+            best_db = db;
+            have = 1;
+        }
     }
-    if (!have || best_db <= -30 || best_db >= 60) return;
-    if (trs) { nrwin[cc].csinr_sum += best_db; nrwin[cc].n_csinr++; }
-    else { nrwin[cc].sinr_sum += best_db; nrwin[cc].n_sinr++; }
+    if (!have || best_db <= -30 || best_db >= 60)
+        return;
+    if (layout->rs.bits && at(payload, layout->rs)) {
+        nrwin[carrier].csinr_sum += best_db;
+        nrwin[carrier].n_csinr++;
+    } else {
+        nrwin[carrier].sinr_sum += best_db;
+        nrwin[carrier].n_sinr++;
+    }
 }
 
 static void b8d8(const uint8_t *p, int n) {
@@ -790,61 +810,149 @@ static void b8dd(const uint8_t *p, int n) {
     serving_snr(L, p, n);
 }
 
-/* NR5G ML1 beam measurements (B96A, X65): for each carrier (PCI, SSB
- * NR-ARFCN) the SNR of its strongest beam, each beam's better RX. A per-beam
- * searcher measurement, not the serving SS-SINR. */
-static void b96a(const uint8_t *p, int n) {
-    if (n < 4) return;
-    const struct b96a_layout *L;
-    FIND_LAYOUT(B96A_LAYOUTS, nr_ver(p), L);
-    if (!L || !fits(L->pci, n)) return;
-    int pci = at(p, L->pci), pos = L->groups_at;
-    while (pos + L->group_bits <= n * 8) {
-        const uint8_t *g = p + pos / 8;
-        uint32_t arfcn = at(g, L->g_arfcn);
-        int beams = at(g, L->g_count);
-        pos += L->group_bits;
-        if (!beams) return;
-        int have = 0;
-        double best_rsrp = 0, best_snr = 0;
-        for (int k = 0; k < beams; k++, pos += L->beam_bits) {
-            if (pos + L->beam_bits > n * 8) return;
-            const uint8_t *bm = p + pos / 8;
-            double rsrp = -1e9, snr = -1e9;
-            for (int r = 0; r < 2; r++) {
-                double a = (int16_t)at(bm, L->rsrp[r]) / 128.0, s2 = (int16_t)at(bm, L->snr[r]) / 128.0;
-                if (a > rsrp) rsrp = a;
-                if (s2 > snr) snr = s2;
-            }
-            if (rsrp > -160 && rsrp < -20 && (!have || rsrp > best_rsrp)) { best_rsrp = rsrp; best_snr = snr; have = 1; }
+/* Keep the strongest beam separately for each configured cell. Older groups
+ * contain beams of different PCIs, so their first beam cannot name the group. */
+static void b96a_beams(const struct b96a_layout *layout, const uint8_t *beams,
+                      int count, uint32_t arfcn, int packet_pci) {
+    struct meas best_beam[SLOTS] = {{0}};
+    for (int i = 0; i < count; i++) {
+        const uint8_t *beam = beams + i * (layout->beam_bits / 8);
+        int pci = layout->beam_pci.bits ? (int)at(beam, layout->beam_pci) : packet_pci;
+        int carrier = nr_cc_for(pci, arfcn);
+        if (carrier < 0 || carrier >= SLOTS)
+            continue;
+        double rsrp = -1e9;
+        double snr = -1e9;
+        for (int chain = 0; chain < 2; chain++) {
+            double power = (int16_t)at(beam, layout->rsrp[chain]) / 128.0;
+            double ratio = (int16_t)at(beam, layout->snr[chain]) / 128.0;
+            if (power > rsrp)
+                rsrp = power;
+            if (ratio > snr)
+                snr = ratio;
         }
-        int cc = nr_cc_for(pci, arfcn);
-        if (have && cc >= 0 && cc < SLOTS && best_snr > -30 && best_snr < 60) { nrwin[cc].bsinr_sum += best_snr; nrwin[cc].n_bsinr++; }
+        struct meas *best = &best_beam[carrier];
+        if (rsrp > -160 && rsrp < -20 && (!best->have_rsrp || rsrp > best->rsrp)) {
+            best->have_rsrp = 1;
+            best->rsrp = rsrp;
+            best->sinr = snr;
+        }
+    }
+    for (int carrier = 0; carrier < SLOTS; carrier++) {
+        const struct meas *best = &best_beam[carrier];
+        if (best->have_rsrp && best->sinr > -30 && best->sinr < 60) {
+            nrwin[carrier].bsinr_sum += best->sinr;
+            nrwin[carrier].n_bsinr++;
+        }
     }
 }
 
-/* NR5G MAC CSF Report: each report in the first record gives the RI and
- * wideband CQI of the carrier it describes (its resource carrier; they're all
- * sent on carrier 0). L1-RSRP reports have no CSI metrics and are skipped.
- * Where reports vary in size (3.1-3.3) only the first is read. */
-static void b8a7(const uint8_t *p, int n) {
-    if (n < 4) return;
-    const struct b8a7_layout *L;
-    FIND_LAYOUT(B8A7_LAYOUTS, nr_ver(p), L);
-    if (!L) return;
-    int rec = L->rec_start / 8, rep = rec + L->reps_at / 8;
-    if (rep > n || !at(p, L->rec_count)) return;
-    int reports = at(p + rec, L->rep_count), size = L->rep_bits / 8;
-    if (!size && reports > 1) reports = 1;
-    for (int k = 0; k < reports && k < 16; k++, rep += size) {
-        if (!fits(L->cqi, n - rep) || !fits(L->ri, n - rep)) return;
-        const uint8_t *r = p + rep;
-        if (at(r, L->quantity) & 32) continue;          /* RSRP report */
-        int cc = at(r, L->carrier);
-        if (cc >= SLOTS) continue;
-        nrwin[cc].ri = at(r, L->ri) + 1;
-        nrwin[cc].cqi = at(r, L->cqi);
-        nrwin[cc].have_csf = 1;
+/* Validate the whole parent/group/beam hierarchy before applying any values.
+ * Newer layouts omit parent counts and carry groups through the payload end. */
+static int b96a_walk(const struct b96a_layout *layout, const uint8_t *payload, int size, int apply) {
+    int legacy = layout->parent_count.bits != 0;
+    int parents = legacy ? (int)at(payload, layout->parent_count) : 1;
+    int position = (legacy ? layout->parents_at : layout->groups_at) / 8;
+    int header_bytes = layout->group_bits / 8;
+    int beam_bytes = layout->beam_bits / 8;
+    int pci = at(payload, layout->pci);
+    for (int parent = 0; parent < parents; parent++) {
+        int groups = -1;
+        if (legacy) {
+            int parent_bytes = layout->parent_bits / 8;
+            if (position > size || parent_bytes > size - position)
+                return 0;
+            groups = at(payload + position, layout->group_count);
+            position += parent_bytes;
+        }
+        for (int group = 0; legacy ? group < groups : position < size; group++) {
+            if (position > size || header_bytes > size - position)
+                return 0;
+            const uint8_t *header = payload + position;
+            int beams = at(header, layout->g_count);
+            uint32_t arfcn = at(header, layout->g_arfcn);
+            position += header_bytes;
+            if (beams > (size - position) / beam_bytes)
+                return 0;
+            if (apply)
+                b96a_beams(layout, payload + position, beams, arfcn, pci);
+            position += beams * beam_bytes;
+        }
+    }
+    return position == size;
+}
+
+/* Per-beam SNR is separate from the serving reference-signal SINR. */
+static void b96a(const uint8_t *payload, int size) {
+    if (size < 4)
+        return;
+    const struct b96a_layout *layout;
+    FIND_LAYOUT(B96A_LAYOUTS, nr_ver(payload), layout);
+    if (!layout || !fits(layout->pci, size) || !fits(layout->parent_count, size))
+        return;
+    if (b96a_walk(layout, payload, size, 0))
+        b96a_walk(layout, payload, size, 1);
+}
+
+/* Bound all fixed-size reports before updating state: a truncated later
+ * record must not leave a partially applied packet. */
+static int b8a7_complete(const struct b8a7_layout *layout, const uint8_t *payload, int size) {
+    int position = layout->rec_start / 8;
+    int records = at(payload, layout->rec_count);
+    int header_bytes = layout->reps_at / 8;
+    int report_bytes = layout->rep_bits / 8;
+    for (int i = 0; i < records; i++) {
+        if (position > size || header_bytes > size - position
+            || !fits(layout->rep_count, size - position))
+            return 0;
+        int reports = at(payload + position, layout->rep_count);
+        position += header_bytes;
+        if (reports > (size - position) / report_bytes)
+            return 0;
+        position += reports * report_bytes;
+    }
+    return position == size;
+}
+
+/* Every record can update the resource carrier's RI/CQI. L1-RSRP reports
+ * have no CSI metrics. Variable-size layouts retain the first-report-only
+ * fallback until their intervening blocks can be traversed safely. */
+static void b8a7(const uint8_t *payload, int size) {
+    if (size < 4)
+        return;
+    const struct b8a7_layout *layout;
+    FIND_LAYOUT(B8A7_LAYOUTS, nr_ver(payload), layout);
+    if (!layout || !fits(layout->rec_count, size))
+        return;
+    int report_bytes = layout->rep_bits / 8;
+    int records = at(payload, layout->rec_count);
+    if (report_bytes && !b8a7_complete(layout, payload, size))
+        return;
+    if (!report_bytes && records > 1)
+        records = 1;
+    int position = layout->rec_start / 8;
+    for (int i = 0; i < records; i++) {
+        if (position > size || !fits(layout->rep_count, size - position))
+            return;
+        int reports = at(payload + position, layout->rep_count);
+        position += layout->reps_at / 8;
+        if (!report_bytes && reports > 1)
+            reports = 1;
+        for (int j = 0; j < reports; j++, position += report_bytes) {
+            if (position > size || !fits(layout->cqi, size - position)
+                || !fits(layout->ri, size - position) || !fits(layout->carrier, size - position)
+                || !fits(layout->quantity, size - position))
+                return;
+            const uint8_t *report = payload + position;
+            if (at(report, layout->quantity) & 32)
+                continue;
+            int carrier = at(report, layout->carrier);
+            if (carrier >= SLOTS)
+                continue;
+            nrwin[carrier].ri = at(report, layout->ri) + 1;
+            nrwin[carrier].cqi = at(report, layout->cqi);
+            nrwin[carrier].have_csf = 1;
+        }
     }
 }
 
