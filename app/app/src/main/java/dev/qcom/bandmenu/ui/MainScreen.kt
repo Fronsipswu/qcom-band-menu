@@ -62,6 +62,9 @@ fun MainScreen(
     /** Network page menu: serving-cell cards hidden (persisted by the caller). */
     servingHidden: Boolean = false,
     onServingHiddenToggle: (Boolean) -> Unit = {},
+    /** Network page menu: throughput chart hidden (persisted by the caller). */
+    thputHidden: Boolean = false,
+    onThputHiddenToggle: (Boolean) -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -191,6 +194,8 @@ fun MainScreen(
                             onDiagToggle = onDiagToggle,
                             servingHidden = servingHidden,
                             onServingHiddenToggle = onServingHiddenToggle,
+                            thputHidden = thputHidden,
+                            onThputHiddenToggle = onThputHiddenToggle,
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(

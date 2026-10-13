@@ -57,7 +57,10 @@ data class DiagNrCarrier(
      *  searcher measurement, not the serving SS-SINR. Not shown. */
     val beamSinr: Double? = null,
     /** CSI-SINR: B8D8/B8DD TRS records (a CSI-RS for tracking), best RX chain. */
-    val csiSinr: Double? = null
+    val csiSinr: Double? = null,
+    /** CSI-RS ports the network configured for CSI acquisition (NZP CSI-RS,
+     *  from the RRC reconfiguration); null until the helper reports it. */
+    val csiPorts: Int? = null
 )
 
 data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr: List<DiagNrCarrier> = emptyList()) {
@@ -96,7 +99,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     transportBlocks = c.optInt("tb"), mbps = c.optDouble("mbps", 0.0),
                     bler = c.d("bler"), mcs = c.d("mcs"), rbs = c.d("rbs"), layers = c.d("layers"),
                     modulation = c.optString("mod").ifEmpty { null }, rxAntennas = c.i("rx"),
-                    beamSinr = c.d("bsinr"), csiSinr = c.d("csinr")
+                    beamSinr = c.d("bsinr"), csiSinr = c.d("csinr"), csiPorts = c.i("csi_ports")
                 )
             }
             return DiagStats(o.optLong("ms"), (0 until arr.length()).map { n ->
@@ -131,7 +134,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.19.0"
+        private const val EXPECTED_VERSION = "1.20.0"
     }
 
     private var socket: LocalSocket? = null

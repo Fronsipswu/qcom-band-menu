@@ -130,6 +130,9 @@ fun NetworkScreen(
     /** Serving-cell cards hidden (menu; persisted by the caller). */
     servingHidden: Boolean = false,
     onServingHiddenToggle: (Boolean) -> Unit = {},
+    /** Throughput chart hidden (menu; persisted by the caller). */
+    thputHidden: Boolean = false,
+    onThputHiddenToggle: (Boolean) -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -294,7 +297,7 @@ fun NetworkScreen(
                                 val points = if (sim == state.sim && replayRound != null && r != null)
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else if (sim == state.sim) state.thput else emptyList()
-                                NetworkContent(snap, pageState, servingHidden, points)
+                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points)
                             }
                         }
                     }
@@ -378,6 +381,10 @@ fun NetworkScreen(
                     DropdownItem(
                         text = if (servingHidden) "Show serving cell" else "Hide serving cell",
                         onClick = { onServingHiddenToggle(!servingHidden) }
+                    ),
+                    DropdownItem(
+                        text = if (thputHidden) "Show throughput" else "Hide throughput",
+                        onClick = { onThputHiddenToggle(!thputHidden) }
                     ),
                     DropdownItem(
                         text = if (state.replayEnabled) "Disable replay" else "Enable replay",
@@ -692,7 +699,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
     // with no grants this round has "–" for the per-grant values and 0.0 Mbps.
     if (diag) {
-        row("Tx/Rx") { text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas} × ${d.rxAntennas}" else null }) }
+        row("Tx/Rx") { text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }) }
         row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
         row("Rank") { text(it.diag?.rank?.toString()) }
         row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
@@ -727,6 +734,8 @@ private fun NrRows(
     r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR) }
     r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR) }
     r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR) }
+    // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
+    r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
     r("MCS") { t(it.nr?.mcs?.let { m -> Math.round(m).toString() }) }
     r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }

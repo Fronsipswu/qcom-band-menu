@@ -28,6 +28,8 @@
  *       0xB825 RRC configuration, 0xB823 serving cell (see below)
  *   NR on X65 (no B8D8): 0xB8DD serving SNR (B8D8's successor), 0xB96A
  *       per-beam measurements (strongest beam's SNR)
+ *   NR  0xB821 RRC OTA: reconfigurations, decoded (rrc_csi.c) for each
+ *       cell's configured CSI-RS ports ("csi_ports")
  * NR SINR, per carrier: "sinr" is SS-SINR (B8D8/B8DD SSB records, best RX
  * chain; matches the UE's own MeasurementReports), "csinr" is CSI-SINR
  * (TRS records, best RX chain), "bsinr" the strongest SSB beam's SNR (B96A,
@@ -53,8 +55,9 @@
 #include <unistd.h>
 
 #include "qbm_layouts.h"   /* generated per-version layouts */
+#include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.19.0"
+#define HELPER_VERSION "1.20.0"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -71,8 +74,9 @@ typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
 static uint16_t CODES[] = { 0xB173, 0xB126, 0xB184, 0xB193,             /* LTE */
                             0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, /* NR */
-                            0xB8DD, 0xB96A };                           /* NR, X65 */
-#define NCODES 12
+                            0xB8DD, 0xB96A,                             /* NR, X65 */
+                            0xB821 };                                   /* NR RRC */
+#define NCODES 13
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -728,6 +732,7 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB8A7) b8a7(pl, pn);
     else if (code == 0xB825) b825(pl, pn);
     else if (code == 0xB823) b823(pl, pn);
+    else if (code == 0xB821) rrc_csi_b821(pl, pn);
     pthread_mutex_unlock(&lock);
 }
 static void on_event(unsigned char *p, int len) { (void)p; (void)len; }
@@ -867,6 +872,9 @@ static int write_stats(char *out, size_t cap) {
         first = 0;
         PUT(",\"pci\":%d,\"arfcn\":%u", lv ? nrlive[i].pci : c->pci,
             lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn));
+        /* RRC names cells by PCI and SSB frequency, not by carrier slot. */
+        int csi_ports = rrc_csi_ports(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn, pcell == i);
+        if (csi_ports) PUT(",\"csi_ports\":%d", csi_ports);
         if (cfg) {
             PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, c->band);
             if (c->bw_mhz) PUT(",\"bw\":%d", c->bw_mhz);

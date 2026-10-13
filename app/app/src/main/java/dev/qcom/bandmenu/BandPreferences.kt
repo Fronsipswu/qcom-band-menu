@@ -33,6 +33,7 @@ object BandPreferences {
     private val REPLAY_ENABLED = booleanPreferencesKey("replay_enabled")
     private val DIAG_ENABLED = booleanPreferencesKey("diag_enabled")
     private val SERVING_HIDDEN = booleanPreferencesKey("serving_hidden")
+    private val THPUT_HIDDEN = booleanPreferencesKey("thput_hidden")
 
     internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
     internal val BAND_FILTER_GSM_SIM1 = stringSetPreferencesKey("band_filter_gsm_sim1")
@@ -193,6 +194,14 @@ object BandPreferences {
 
     suspend fun setUsageSettingHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
         dataStore.edit { it[USAGE_SETTING_HIDDEN] = hidden }
+    }
+
+    fun getThputHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[THPUT_HIDDEN] ?: false }
+    }
+
+    suspend fun setThputHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
+        dataStore.edit { it[THPUT_HIDDEN] = hidden }
     }
 
     fun getServingHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {

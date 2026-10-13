@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
                 var usageSettingHidden by remember { mutableStateOf(false) }
                 var nrModeHidden by remember { mutableStateOf(false) }
                 var servingHidden by remember { mutableStateOf(false) }
+                var thputHidden by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -154,6 +155,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getServingHidden(bandDataStore).collectLatest { hidden ->
                         servingHidden = hidden
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getThputHidden(bandDataStore).collectLatest { hidden ->
+                        thputHidden = hidden
                     }
                 }
 
@@ -381,6 +388,11 @@ class MainActivity : ComponentActivity() {
                     networkMonitor = daemonHolder.networkMonitor,
                     onNetworkRefresh = { recheckSim2() },
                     servingHidden = servingHidden,
+                    thputHidden = thputHidden,
+                    onThputHiddenToggle = { hidden ->
+                        thputHidden = hidden
+                        scope.launch { BandPreferences.setThputHidden(bandDataStore, hidden) }
+                    },
                     onServingHiddenToggle = { hidden ->
                         servingHidden = hidden
                         scope.launch { BandPreferences.setServingHidden(bandDataStore, hidden) }
