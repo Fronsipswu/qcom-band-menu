@@ -1,9 +1,10 @@
 /*
  * rrc_csi.c: CSI-RS ports per NR serving cell, from B821 RRC reconfigurations.
  *
- * B821 carries each RRC message as sent over the air (UPER). Reconfigurations
- * are decoded with the generated 38.331 decoder (rrc_nr_gen.c) and applied to
- * a per-cell copy of the CSI measurement configuration, because the network
+ * B821 carries each RRC message as sent over the air (UPER). RRCSetup (a new
+ * connection: the PCell's first configuration) and reconfigurations are
+ * decoded with the generated 38.331 decoder (rrc_nr_gen.c) and applied to a
+ * per-cell copy of the CSI measurement configuration, because the network
  * only sends changes: AddMod lists replace whole elements, Release lists
  * remove them (releases first), a SetupRelease release clears the field.
  *
@@ -328,29 +329,44 @@ static unsigned le16(const uint8_t *p) {
     return p[0] | (unsigned)p[1] << 8;
 }
 
-/* After the u32 version: the PDU (channel) number, the message length and the
- * message. Header layouts per version, checked against the record size; an
- * unknown version is accepted only where a known message offset fits exactly. */
-static int frame_b821(const uint8_t *payload, int size, int *version, int *pdu, const uint8_t **message) {
+/* One B821 record: which channel, the cell it was received on, the message. */
+struct b821 {
+    int version;
+    int pdu;              /* channel: 3 = DL-CCCH, 4 = DL-DCCH, ... */
+    int pci;
+    uint32_t arfcn;       /* the cell's SSB NR-ARFCN */
+    const uint8_t *message;
+};
+
+/* After the u32 version: the cell's PCI and frequency, the PDU (channel)
+ * number, the message length and the message. Header layouts per version,
+ * checked against the record size; an unknown version is accepted only where
+ * a known message offset fits exactly. */
+static int frame_b821(const uint8_t *payload, int size, struct b821 *record) {
     static const int offsets[] = { 19, 27, 28, 29, 31 };
     if (size < 24)
         return -1;
-    *version = (int)(le16(payload) | le16(payload + 2) << 16);
+    int version = (int)(le16(payload) | le16(payload + 2) << 16);
     const uint8_t *header = payload + 4;
     int length;
     int offset;
-    if (*version == 9) {
-        *pdu = header[13];
+    record->version = version;
+    record->pci = (int)le16(header + 3);
+    if (version == 9) {
+        record->pdu = header[13];
+        record->arfcn = le16(header + 5) | (uint32_t)le16(header + 7) << 16;
         length = le16(header + 18);
         offset = 20;
-    } else if (*version >= 16) {
+    } else if (version >= 16) {
         if (size < 31)
             return -1;
-        *pdu = header[20];
+        record->pdu = header[20];
+        record->arfcn = le16(header + 13) | (uint32_t)le16(header + 15) << 16;
         length = le16(header + 25);
-        offset = *version == 28 ? 31 : *version == 18 ? 28 : 27;
+        offset = version == 28 ? 31 : version == 18 ? 28 : 27;
     } else {
-        *pdu = header[12];
+        record->pdu = header[12];
+        record->arfcn = le16(header + 5) | (uint32_t)le16(header + 7) << 16;
         length = le16(header + 17);
         offset = 19;
     }
@@ -362,11 +378,50 @@ static int frame_b821(const uint8_t *payload, int size, int *version, int *pdu, 
     }
     if (offset < 0 || length < 1)
         return -1;
-    *message = header + offset;
+    record->message = header + offset;
     return length;
 }
 
-static void decode_dl_dcch(const uint8_t *message, int length) {
+/* Downlink messages of the master cell group arrive on the PCell, so the
+ * record header names it. Renaming the SpCell before each message keeps its
+ * identity right even when a handover command was missed (a handover command
+ * itself then switches to the target cell's identity). */
+static void name_spcell(const struct b821 *record) {
+    struct group *master = &groups[0];
+    if (record->pci > 1007)       /* no cell in the header */
+        return;
+    if (master->spcell < 0)
+        master->spcell = 0;
+    struct cell *pcell = &master->cell[master->spcell];
+    pcell->present = 1;
+    pcell->pci = record->pci + 1;
+    pcell->ssb_arfcn = record->arfcn + 1;
+}
+
+/* RRCSetup starts a connection: earlier state is gone, and its master cell
+ * group is the PCell's configuration (often with its CSI setup, which later
+ * reconfigurations then don't repeat). It configures only the PCell (SCells
+ * come later, by reconfiguration) and doesn't name it, but the record header
+ * does: it is the cell the message was received on. */
+static void decode_dl_ccch(const struct b821 *record, const uint8_t *message, int length) {
+    DL_CCCH_Message_t *decoded = NULL;
+    asn_dec_rval_t result =
+        uper_decode_complete(NULL, &asn_DEF_DL_CCCH_Message, (void **)&decoded, message, (size_t)length);
+    if (result.code == RC_OK && result.consumed == (size_t)length
+        && decoded->message->present == DL_CCCH_MessageType_PR_c1
+        && decoded->message->choice.c1->present == DL_CCCH_MessageType__c1_PR_rrcSetup) {
+        const RRCSetup_t *setup = decoded->message->choice.c1->choice.rrcSetup;
+        if (setup->criticalExtensions.present == RRCSetup__criticalExtensions_PR_rrcSetup) {
+            initialised = 0;
+            init_once();
+            apply_cell_group(&setup->criticalExtensions.choice.rrcSetup->masterCellGroup, 0);
+            name_spcell(record);
+        }
+    }
+    ASN_STRUCT_FREE(asn_DEF_DL_CCCH_Message, decoded);
+}
+
+static void decode_dl_dcch(const struct b821 *record, const uint8_t *message, int length) {
     /* c1 / rrcReconfiguration is the all-zero 5-bit prefix; the reduced
      * decoder only knows that alternative, so check before decoding. */
     if (message[0] & 0xF8)
@@ -376,8 +431,10 @@ static void decode_dl_dcch(const uint8_t *message, int length) {
         uper_decode_complete(NULL, &asn_DEF_DL_DCCH_Message, (void **)&decoded, message, (size_t)length);
     if (result.code == RC_OK && result.consumed == (size_t)length
         && decoded->message->present == DL_DCCH_MessageType_PR_c1
-        && decoded->message->choice.c1->present == DL_DCCH_MessageType__c1_PR_rrcReconfiguration)
+        && decoded->message->choice.c1->present == DL_DCCH_MessageType__c1_PR_rrcReconfiguration) {
+        name_spcell(record);
         apply_reconfiguration(decoded->message->choice.c1->choice.rrcReconfiguration, 0);
+    }
     ASN_STRUCT_FREE(asn_DEF_DL_DCCH_Message, decoded);
 }
 
@@ -392,17 +449,17 @@ static void decode_bare_reconfiguration(const uint8_t *message, int length) {
 }
 
 void rrc_csi_b821(const uint8_t *payload, int length) {
-    int version;
-    int pdu;
-    const uint8_t *message;
+    struct b821 record;
     init_once();
-    int message_length = frame_b821(payload, length, &version, &pdu, &message);
+    int message_length = frame_b821(payload, length, &record);
     if (message_length < 1)
         return;
-    if (pdu == 4)
-        decode_dl_dcch(message, message_length);
-    else if ((version == 9 || version == 17) && pdu == 9)
-        decode_bare_reconfiguration(message, message_length);
+    if (record.pdu == 4)
+        decode_dl_dcch(&record, record.message, message_length);
+    else if (record.pdu == 3 && record.version != 9)   /* DL-CCCH (v9's numbering is unknown) */
+        decode_dl_ccch(&record, record.message, message_length);
+    else if ((record.version == 9 || record.version == 17) && record.pdu == 9)
+        decode_bare_reconfiguration(record.message, message_length);
 }
 
 /* ── Query ───────────────────────────────────────────────────────────────── */
@@ -466,9 +523,10 @@ int rrc_csi_ports(int pci, uint32_t arfcn, int pcell) {
     init_once();
     if (find_cell(pci, arfcn, &group, &index))
         return cell_ports(&groups[group], index);
-    if (!pcell)
+    if (pcell == 0)
         return 0;
-    /* An SpCell whose identity was never signalled: master group first. */
+    /* No configured cell has this identity, so it is the SpCell whose identity
+     * was never signalled (master group first). */
     for (int g = 0; g < GROUPS; g++) {
         int spcell = groups[g].spcell;
         if (spcell >= 0 && !groups[g].cell[spcell].pci) {

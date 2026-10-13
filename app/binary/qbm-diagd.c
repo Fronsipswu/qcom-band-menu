@@ -873,7 +873,8 @@ static int write_stats(char *out, size_t cap) {
         PUT(",\"pci\":%d,\"arfcn\":%u", lv ? nrlive[i].pci : c->pci,
             lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn));
         /* RRC names cells by PCI and SSB frequency, not by carrier slot. */
-        int csi_ports = rrc_csi_ports(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn, pcell == i);
+        int csi_ports = rrc_csi_ports(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn,
+                                      pcell >= 0 ? pcell == i : -1);
         if (csi_ports) PUT(",\"csi_ports\":%d", csi_ports);
         /* Band: B825's, else what the RRC configuration names (B825 only
          * comes with a reconfiguration, so a helper started mid-session can
