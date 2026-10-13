@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -155,7 +158,7 @@ fun MainScreen(
                 // snap (velocity already taken) finds it on a page and does
                 // nothing. A launched animation was cancelled by that snap.
                 try {
-                    pagerState.animateScrollToPage(target)
+                    pagerState.animateScrollToPage(target, animationSpec = PageSettleSpec)
                 } catch (e: CancellationException) {
                     // A new touch took over; let it.
                 }
@@ -180,6 +183,7 @@ fun MainScreen(
                 state = pagerState,
                 beyondViewportPageCount = 2,
                 userScrollEnabled = true,
+                flingBehavior = PagerDefaults.flingBehavior(state = pagerState, snapAnimationSpec = PageSettleSpec),
                 modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
             ) { page ->
                 Box(modifier = Modifier.fillMaxSize().nestedScroll(settleAfterChildFling)) {
@@ -390,3 +394,8 @@ fun MainScreen(
 
 /** Same fling threshold as Compose's pager snapping (PagerDefaults). */
 private val SettleVelocityThreshold = 400.dp
+
+/** Page settle: stiffer than the default snap spring, whose long, barely
+ *  visible tail kept the pager scrolling, and a tap during a scroll only stops
+ *  it (the page's controls didn't react for a moment after a swipe). */
+private val PageSettleSpec = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
