@@ -139,7 +139,7 @@ fun NetworkScreen(
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
     /** NSA: separate LTE and NR tables instead of one ENDC table (menu; persisted by the caller). */
-    endcSeparate: Boolean = false,
+    endcSeparate: Boolean = true,
     onEndcSeparateToggle: (Boolean) -> Unit = {},
     backdrop: Backdrop? = null
 ) {
@@ -481,7 +481,7 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 @Composable
 private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
-    endcSeparate: Boolean = false, anchor: ScrollAnchor? = null
+    endcSeparate: Boolean = true, anchor: ScrollAnchor? = null
 ) {
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
@@ -740,13 +740,14 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     // with no grants this round has "–" for the per-grant values and 0.0 Mbps
     // PHY DL; PHY UL is "–" when the carrier sent nothing.
     // ENDC's NR columns fill the same rows: Tx/Rx is CSI-RS ports × Rx (as
-    // the NR table's Port/Rx), Rank the mean layers, no TxMode.
+    // the NR table's Port/Rx), Rank the mean layers.
     if (diag) {
         row("Tx/Rx") {
             text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }
                 ?: it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" })
         }
-        row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
+        // No TxMode row in ENDC (NR has none).
+        if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
         row("Rank") { text(it.diag?.rank?.toString() ?: it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
         row("MCS") { text((it.diag?.mcs ?: it.nr?.mcs)?.let { m -> Math.round(m).toString() }) }
         row("RBs") { text((it.diag?.rbs ?: it.nr?.rbs)?.let { r -> Math.round(r).toString() }) }

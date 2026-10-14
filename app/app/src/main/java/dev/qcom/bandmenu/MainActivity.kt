@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
                 var nrModeHidden by remember { mutableStateOf(false) }
                 var servingHidden by remember { mutableStateOf(false) }
                 var thputHidden by remember { mutableStateOf(false) }
-                var endcSeparate by remember { mutableStateOf(false) }
+                var endcSeparate by remember { mutableStateOf(true) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->

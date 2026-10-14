@@ -69,7 +69,7 @@ fun MainScreen(
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
     /** Network page menu: NSA LTE and NR tables separate, not one ENDC table (persisted by the caller). */
-    endcSeparate: Boolean = false,
+    endcSeparate: Boolean = true,
     onEndcSeparateToggle: (Boolean) -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,

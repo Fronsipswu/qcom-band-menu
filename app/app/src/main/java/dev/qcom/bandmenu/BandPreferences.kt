@@ -206,7 +206,7 @@ object BandPreferences {
     }
 
     fun getEndcSeparate(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[ENDC_SEPARATE] ?: false }
+        return dataStore.data.map { it[ENDC_SEPARATE] ?: true }
     }
 
     suspend fun setEndcSeparate(dataStore: DataStore<Preferences>, separate: Boolean) {
