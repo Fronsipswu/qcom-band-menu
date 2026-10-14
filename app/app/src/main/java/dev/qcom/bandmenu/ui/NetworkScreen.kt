@@ -6,6 +6,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -137,6 +138,9 @@ fun NetworkScreen(
     /** Throughput chart hidden (menu; persisted by the caller). */
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
+    /** NSA: separate LTE and NR tables instead of one ENDC table (menu; persisted by the caller). */
+    endcSeparate: Boolean = true,
+    onEndcSeparateToggle: (Boolean) -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -238,6 +242,13 @@ fun NetworkScreen(
     val minPageHeight = (windowHeight - topBarHeight - 64.dp - navbarSpace - 16.dp).coerceAtLeast(0.dp)
     val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }?.coerceAtLeast(minPageHeight)
 
+    // The card in the middle of the view stays put when cards above it change
+    // (NSA/SA layouts, the SCG coming and going); see ScrollAnchor.
+    val scrollState = rememberScrollState()
+    val anchor = remember(scrollState) { ScrollAnchor(scrollState) }
+    val topBarPx = with(density) { topBarHeight.toPx() }
+    val bottomPx = with(density) { (navbarSpace + if (replayBar) 76.dp else 0.dp).toPx() }
+
     val surfaceColor = MiuixTheme.colorScheme.surface
     val screenBackdrop = rememberLayerBackdrop(onDraw = { drawRect(surfaceColor); drawContent() })
 
@@ -258,7 +269,13 @@ fun NetworkScreen(
                             monitor.setFrozen(!monitor.state.value.frozen)
                         })
                     }
-                    .verticalScroll(rememberScrollState())
+                    .onGloballyPositioned { c ->
+                        anchor.viewport = c
+                        anchor.viewTop = topBarPx
+                        anchor.viewBottom = c.size.height - bottomPx
+                    }
+                    .verticalScroll(scrollState)
+                    .onSizeChanged { anchor.contentResized() }
                     .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
             ) {
@@ -308,11 +325,14 @@ fun NetworkScreen(
                                 val points = if (sim == state.sim && replayRound != null && r != null)
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else state.thputBySim[sim].orEmpty()
-                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points)
+                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
+                                    endcSeparate, anchor.takeIf { page == pagerState.currentPage })
                             }
                         }
                     }
                 }
+                // Keeps the anchored card in place when the page shrinks near its end.
+                Spacer(Modifier.height(with(density) { anchor.slack.toDp() }))
             }
         }
 
@@ -383,25 +403,34 @@ fun NetworkScreen(
                 )
             }
             WindowIconDropdownMenu(
-                entries = listOf(DropdownEntry(items = listOf(
-                    DropdownItem(
-                        text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
-                        onClick = { onDiagToggle(!state.diagEnabled) }
-                    ),
-                    DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
-                    DropdownItem(
-                        text = if (servingHidden) "Show serving cell" else "Hide serving cell",
-                        onClick = { onServingHiddenToggle(!servingHidden) }
-                    ),
-                    DropdownItem(
-                        text = if (thputHidden) "Show throughput" else "Hide throughput",
-                        onClick = { onThputHiddenToggle(!thputHidden) }
-                    ),
-                    DropdownItem(
-                        text = if (state.replayEnabled) "Disable replay" else "Enable replay",
-                        onClick = { onReplayToggle(!state.replayEnabled) }
-                    )
-                ))),
+                // Features, then what the page shows (a divider between).
+                entries = listOf(
+                    DropdownEntry(items = listOf(
+                        DropdownItem(
+                            text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
+                            onClick = { onDiagToggle(!state.diagEnabled) }
+                        ),
+                        DropdownItem(
+                            text = if (state.replayEnabled) "Disable replay" else "Enable replay",
+                            onClick = { onReplayToggle(!state.replayEnabled) }
+                        ),
+                        DropdownItem(text = "Test script", onClick = { showTestSetup = true })
+                    )),
+                    DropdownEntry(items = listOf(
+                        DropdownItem(
+                            text = if (servingHidden) "Show serving cell" else "Hide serving cell",
+                            onClick = { onServingHiddenToggle(!servingHidden) }
+                        ),
+                        DropdownItem(
+                            text = if (thputHidden) "Show throughput" else "Hide throughput",
+                            onClick = { onThputHiddenToggle(!thputHidden) }
+                        ),
+                        DropdownItem(
+                            text = if (endcSeparate) "Combine ENDC" else "Separate ENDC",
+                            onClick = { onEndcSeparateToggle(!endcSeparate) }
+                        )
+                    ))
+                ),
                 collapseOnSelection = true
             ) {
                 Icon(imageVector = MiuixIcons.More, contentDescription = "Menu", tint = MiuixTheme.colorScheme.onBackground)
@@ -450,30 +479,38 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 }
 
 @Composable
-private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>) {
+private fun NetworkContent(
+    snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
+    endcSeparate: Boolean = true, anchor: ScrollAnchor? = null
+) {
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
         SmallTitle("Serving cell", modifier = Modifier.padding(top = 2.dp))
-        SummaryCard(snap, state, snap.cells.firstOrNull())
+        Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull()) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
     if (!servingHidden) {
-        snap.cells.drop(1).forEach { CellSection(it) }
+        snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "cell " + it.title)) { CellSection(it) } }
         if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
             NoticeCard("No serving-cell details were reported.")
         }
     }
-    snap.carrierGroups.forEach { CarrierSection(it) }
+    // NSA: one ENDC table unless the menu separates LTE and NR. Anchored by
+    // position, so the LTE table turning ENDC and back keeps its place.
+    val groups = snap.endc?.takeIf { !endcSeparate }?.let(::listOf) ?: snap.carrierGroups
+    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g) } }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
     if (state.diagEnabled && thput.isNotEmpty()) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
-        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
+        Column(Modifier.scrollAnchor(anchor, "thput")) {
+            ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
+        }
     }
-    if (snap.antennas.isNotEmpty()) {
+    if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "antennas")) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top.
             snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
@@ -487,7 +524,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
     }
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
-    if (snap.cells.isNotEmpty()) {
+    if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "neighbours")) {
         Expandable("Neighbour cells (${snap.neighbors.size})") {
             if (snap.neighbors.isEmpty()) {
                 Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
@@ -630,7 +667,7 @@ private fun CarrierSection(group: CarrierGroup) {
                 Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(4.dp))
             }
-            if (group.table) CaTable(group.carriers, group.diag, group.nrTable) else group.carriers.forEach { c ->
+            if (group.table) CaTable(group.carriers, group.diag, group.nrTable, group.endc) else group.carriers.forEach { c ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold) }
@@ -652,7 +689,7 @@ private fun CarrierSection(group: CarrierGroup) {
 
 /** CA table: one column per carrier, one row per parameter. */
 @Composable
-private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false) = BoxWithConstraints {
+private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false, endc: Boolean = false) = BoxWithConstraints {
     // Up to four carriers (P, S1, S2, S3) each column is fixed at the width
     // four columns share, and the columns sit from the left, so a lone PCell
     // isn't centred in empty space. From five carriers (S4) the columns share
@@ -685,14 +722,16 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
         Text(v ?: "–", style = cellStyle, fontWeight = if (bold) FontWeight.SemiBold else null,
             color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1, softWrap = false)
 
-    // The primary cell's role is blue; the secondaries stay grey.
+    // The primary cells' roles (P; MCG and SCG in ENDC) are blue; the secondaries stay grey.
     row("", header = true) {
-        text(it.role, color = if (it.role == "P") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        text(it.role, color = if (it.role == "P" || it.role == "MCG" || it.role == "SCG") MiuixTheme.colorScheme.primary
+            else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
     if (nr) { NrRows(::row, ::text, barMax, cellStyle); return@Column }
     row("Band") { text(it.band, bold = true) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
-    row("EARFCN") { text(it.channel) }
+    // ENDC: EARFCN and NR-ARFCN share the row.
+    row(if (endc) "ARFCN" else "EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
     row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle) }
     row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle) }
@@ -700,16 +739,22 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
     // with no grants this round has "–" for the per-grant values and 0.0 Mbps
     // PHY DL; PHY UL is "–" when the carrier sent nothing.
+    // ENDC's NR columns fill the same rows: Tx/Rx is CSI-RS ports × Rx (as
+    // the NR table's Port/Rx), Rank the mean layers.
     if (diag) {
-        row("Tx/Rx") { text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }) }
-        row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
-        row("Rank") { text(it.diag?.rank?.toString()) }
-        row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
-        row("RBs") { text(it.diag?.rbs?.let { r -> Math.round(r).toString() }) }
-        row("Mod") { text(it.diag?.modulation?.removeSuffix("QAM")) }
+        row("Tx/Rx") {
+            text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }
+                ?: it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" })
+        }
+        // No TxMode row in ENDC (NR has none).
+        if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
+        row("Rank") { text(it.diag?.rank?.toString() ?: it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+        row("MCS") { text((it.diag?.mcs ?: it.nr?.mcs)?.let { m -> Math.round(m).toString() }) }
+        row("RBs") { text((it.diag?.rbs ?: it.nr?.rbs)?.let { r -> Math.round(r).toString() }) }
+        row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
-        row("PHY DL") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
-        row("PHY UL") { text(it.diag?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+        row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
+        row("PHY UL") { text((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
     }
 } }
 
