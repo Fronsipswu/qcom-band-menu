@@ -146,8 +146,7 @@ fun NetworkScreen(
     val context = LocalContext.current
     val state by monitor.state.collectAsState()
     val density = LocalDensity.current
-    val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
-    val navbarSpace = 64.dp + 16.dp + navInset
+    val navbarSpace = navbarSpace()
     val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top).asPaddingValues(density).calculateTopPadding()
     val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight
     val haptic = LocalHapticFeedback.current
@@ -362,7 +361,7 @@ fun NetworkScreen(
                     if (replayPlaying) replayPlaying = false
                     else { if (replayPos >= r.size - 1) replayPos = 0; replayPlaying = true }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = navbarSpace + 12.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = floatingControlBottom(12.dp))
             )
         }
         // Test script: play/pause at the top left.
@@ -487,7 +486,6 @@ private fun NetworkContent(
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
-        SmallTitle("Serving cell", modifier = Modifier.padding(top = 2.dp))
         Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull()) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }

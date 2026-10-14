@@ -44,9 +44,7 @@ fun InfoScreen(
     onNavbarHiddenToggle: (Boolean) -> Unit = {}
 ) {
     val density = LocalDensity.current
-    val navbarHeightDp = 64.dp
-    val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
-    val navbarSpace = navbarHeightDp + 16.dp + navInset
+    val navbarSpace = navbarSpace()
     val statusBarInset = WindowInsets.statusBars.asPaddingValues(density).calculateTopPadding()
 
     Box(modifier = Modifier.fillMaxSize()) {

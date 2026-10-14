@@ -145,9 +145,7 @@ fun BandLockScreen(
     backdrop: Backdrop? = null
 ) {
     val density = LocalDensity.current
-    val navbarHeightDp = 64.dp
-    val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
-    val navbarSpace = navbarHeightDp + 16.dp + navInset
+    val navbarSpace = navbarSpace()
     val applyResetSpace = 72.dp
     // Match the overlay SmallTopAppBar's own inset source (systemBars top) so
     // the content offset equals the bar's real height in every window mode.
@@ -365,7 +363,7 @@ fun BandLockScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .padding(bottom = navbarSpace + 24.dp),
+                    .padding(bottom = floatingControlBottom(24.dp)),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 TextButton(

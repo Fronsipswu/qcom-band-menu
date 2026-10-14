@@ -105,9 +105,7 @@ fun CellLockScreen(
     backdrop: Backdrop? = null
 ) {
     val density = LocalDensity.current
-    val navbarHeightDp = 64.dp
-    val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
-    val navbarSpace = navbarHeightDp + 16.dp + navInset
+    val navbarSpace = navbarSpace()
     // Match the overlay SmallTopAppBar's own inset source (systemBars top) so
     // the content offset equals the bar's real height in every window mode.
     // statusBars alone is equal in full screen but diverges in a floating /

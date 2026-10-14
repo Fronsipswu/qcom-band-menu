@@ -192,6 +192,7 @@ fun MainScreen(
                 flingBehavior = PagerDefaults.flingBehavior(state = pagerState, snapAnimationSpec = PageSettleSpec),
                 modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
             ) { page ->
+                androidx.compose.runtime.CompositionLocalProvider(LocalNavbarHidden provides navbarHidden) {
                 Box(modifier = Modifier.fillMaxSize().nestedScroll(settleAfterChildFling)) {
                     when (page) {
                         0 -> NetworkScreen(
@@ -268,6 +269,7 @@ fun MainScreen(
                             onNavbarHiddenToggle = onNavbarHiddenToggle
                         )
                     }
+                }
                 }
             }
 
