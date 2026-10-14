@@ -24,7 +24,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /** The window shown: [WINDOW_MS] centred on the cursor. */
 private const val WINDOW_MS = 120_000L
 private const val GRID_MS = 10_000L
-/** The cursor's value may fill this much of the scale before the next step up. */
+/** The scale covers values this far either side of the cursor. */
+private const val SCALE_SPAN_MS = 30_000L
+/** The highest of those values may fill this much of the scale before the next step up. */
 private const val HEADROOM = 0.8
 /** Longer gaps than this between samples break the line. */
 private const val GAP_MS = 2_500L
@@ -38,9 +40,10 @@ internal val UplinkColor = Color(0xFF40E0D0)
  * two minutes.
  * The cursor stays in the middle at [centerMs], the sample shown; the window
  * moves under it. Five grid steps; the step is the smallest of [steps]
- * (Mbps) that keeps the larger of DL and UL at the cursor within [HEADROOM]
- * of the top, so the scale follows the sample on screen. Above the largest
- * top the line clips.
+ * (Mbps) that keeps every DL and UL value within [SCALE_SPAN_MS] of the
+ * cursor under [HEADROOM] of the top, so the scale doesn't flip on single
+ * samples near a step, and a spike only sets it while near the cursor.
+ * Above the largest top the line clips.
  */
 @Composable
 fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
@@ -54,12 +57,15 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
         val boxColor = MiuixTheme.colorScheme.surfaceContainer
         val measurer = rememberTextMeasurer()
         val atCursor = points.lastOrNull { it.t <= centerMs && centerMs - it.t <= GAP_MS }
-        val peak = atCursor?.let { maxOf(it.mbps, it.ulMbps) } ?: 0.0
+        val start = centerMs - WINDOW_MS / 2
+        // The highest DL or UL sample drawn within SCALE_SPAN_MS of the cursor,
+        // the one held in from just before the span included.
+        val peak = points.filter { it.t >= centerMs - SCALE_SPAN_MS - GAP_MS && it.t <= centerMs + SCALE_SPAN_MS }
+            .maxOfOrNull { maxOf(it.mbps, it.ulMbps) } ?: 0.0
         val scaleStep = steps.firstOrNull { peak <= it * 5 * HEADROOM } ?: steps.last()
         Canvas(Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 12.dp, vertical = 10.dp)) {
             val w = size.width
             val h = size.height
-            val start = centerMs - WINDOW_MS / 2
             fun x(t: Long) = (t - start).toFloat() / WINDOW_MS * w
             fun y(v: Double) = h - (v / (scaleStep * 5)).coerceIn(0.0, 1.0).toFloat() * h
 

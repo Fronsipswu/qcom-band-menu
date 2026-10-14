@@ -383,25 +383,30 @@ fun NetworkScreen(
                 )
             }
             WindowIconDropdownMenu(
-                entries = listOf(DropdownEntry(items = listOf(
-                    DropdownItem(
-                        text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
-                        onClick = { onDiagToggle(!state.diagEnabled) }
-                    ),
-                    DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
-                    DropdownItem(
-                        text = if (servingHidden) "Show serving cell" else "Hide serving cell",
-                        onClick = { onServingHiddenToggle(!servingHidden) }
-                    ),
-                    DropdownItem(
-                        text = if (thputHidden) "Show throughput" else "Hide throughput",
-                        onClick = { onThputHiddenToggle(!thputHidden) }
-                    ),
-                    DropdownItem(
-                        text = if (state.replayEnabled) "Disable replay" else "Enable replay",
-                        onClick = { onReplayToggle(!state.replayEnabled) }
-                    )
-                ))),
+                // Features, then what the page shows (a divider between).
+                entries = listOf(
+                    DropdownEntry(items = listOf(
+                        DropdownItem(
+                            text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
+                            onClick = { onDiagToggle(!state.diagEnabled) }
+                        ),
+                        DropdownItem(
+                            text = if (state.replayEnabled) "Disable replay" else "Enable replay",
+                            onClick = { onReplayToggle(!state.replayEnabled) }
+                        ),
+                        DropdownItem(text = "Test script", onClick = { showTestSetup = true })
+                    )),
+                    DropdownEntry(items = listOf(
+                        DropdownItem(
+                            text = if (servingHidden) "Show serving cell" else "Hide serving cell",
+                            onClick = { onServingHiddenToggle(!servingHidden) }
+                        ),
+                        DropdownItem(
+                            text = if (thputHidden) "Show throughput" else "Hide throughput",
+                            onClick = { onThputHiddenToggle(!thputHidden) }
+                        )
+                    ))
+                ),
                 collapseOnSelection = true
             ) {
                 Icon(imageVector = MiuixIcons.More, contentDescription = "Menu", tint = MiuixTheme.colorScheme.onBackground)
