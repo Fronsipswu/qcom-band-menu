@@ -59,7 +59,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.3"
+#define HELPER_VERSION "1.22.5"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -348,6 +348,30 @@ struct meas { int have_rsrp, have_rsrq, have_sinr; double rsrp, rsrq, sinr; uint
 struct live_cell { uint32_t earfcn; int pci; long at_ms; };
 static struct live_cell live[SLOTS];
 #define LIVE_MS 3000
+
+/* Idle: the modem measures once per paging cycle (1.28 or 2.56 s), so many
+ * 1 s windows have no sample. A row stays shown for HOLD_MS after its last
+ * serving record and keeps each value's last mean that long, for the same
+ * cell only (matching carriers still uses LIVE_MS). */
+#define HOLD_MS 5000
+struct held { double v; long at_ms; uint32_t arfcn; int pci; };
+static struct held lte_held[SLOTS][3], nr_held[SLOTS][5];
+
+/* The window's mean when it has samples (remembered for this cell), else the
+ * remembered value while it's under HOLD_MS old and for the same cell. A
+ * negative pci (cell unknown) never holds. */
+static int held_value(struct held *h, double sum, long n, uint32_t arfcn, int pci, long now, double *v) {
+    if (n) {
+        *v = sum / n;
+        *h = (struct held){ *v, now, arfcn, pci };
+        return 1;
+    }
+    if (pci >= 0 && h->at_ms && now - h->at_ms < HOLD_MS && h->arfcn == arfcn && h->pci == pci) {
+        *v = h->v;
+        return 1;
+    }
+    return 0;
+}
 
 static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t earfcn, struct meas *pk) {
     if (L->serving.bits && !at(r, L->serving)) return;  /* serving cell records only (older: one cell, serving) */
@@ -751,6 +775,22 @@ static int nr_learn_ssb(uint32_t ssb, int spci) {
     return best;
 }
 
+/* A pre-2.9 layer naming a serving cell while B825 lists none (RRC idle,
+ * where B825 is empty, or a helper started mid-connection): the slot this
+ * NR-ARFCN already holds (the PCI changes on reselection), else the first
+ * slot not live. Idle X60 (B97F 2.7) reports its camped cell this way and
+ * would otherwise show nothing until a connection brings a B825. -1 while
+ * B825 lists cells: a layer it doesn't name isn't a configured carrier. */
+static int nr_slot_unconfigured(uint32_t arfcn) {
+    long now = now_ms();
+    for (int i = 0; i < SLOTS; i++) if (nrcc[i].known) return -1;
+    for (int i = 0; i < SLOTS; i++)
+        if (nrlive[i].at_ms && now - nrlive[i].at_ms < LIVE_MS && nrlive[i].earfcn == arfcn) return i;
+    for (int i = 0; i < SLOTS; i++)
+        if (!nrlive[i].at_ms || now - nrlive[i].at_ms >= LIVE_MS) return i;
+    return -1;
+}
+
 static void b97f(const uint8_t *p, int n) {
     if (n < 4) return;
     const struct b97f_layout *Lay;
@@ -767,6 +807,7 @@ static void b97f(const uint8_t *p, int n) {
             for (int i = 0; i < SLOTS && cc < 0; i++)
                 if (nrcc[i].known && (nrcc[i].ssb_arfcn == arfcn || nrcc[i].dl_arfcn == arfcn)) cc = i;
             if (cc < 0) cc = nr_learn_ssb(arfcn, spci);
+            if (cc < 0 && spci != 0xFFFF) cc = nr_slot_unconfigured(arfcn);
         } else if (cc < 0 && Lay->spci.bits) {            /* 2.3: raster frequency is not an ARFCN */
             cc = nr_slot_by_unique_pci(spci, &arfcn);
         }
@@ -1069,8 +1110,8 @@ static int write_stats(char *out, size_t cap) {
         /* Which carrier this slot is: B193's live serving record first (it
          * follows handovers and reconfigurations even without a B184), then
          * the last B184. Band, bandwidth and state come from B184 only when
-         * it names the same carrier. */
-        int is_live = live[i].at_ms && now - live[i].at_ms < LIVE_MS;
+         * it names the same carrier. Shown HOLD_MS after its last record. */
+        int is_live = live[i].at_ms && now - live[i].at_ms < HOLD_MS;
         int b184_ok = ca[i].known && b184_current && (!is_live || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
         int configured = is_live || (b184_ok && (i == 0 || ca[i].state > 0));
         if (!configured && s->tb == 0 && s->ul_tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
@@ -1088,9 +1129,14 @@ static int write_stats(char *out, size_t cap) {
                 if (bw > 0) PUT(",\"bw\":%.1f", bw);
             }
         }
-        if (s->n_rsrp) PUT(",\"rsrp\":%.2f", s->rsrp_sum / s->n_rsrp);
-        if (s->n_rsrq) PUT(",\"rsrq\":%.2f", s->rsrq_sum / s->n_rsrq);
-        if (s->n_sinr) PUT(",\"sinr\":%.2f", s->sinr_sum / s->n_sinr);
+        {
+            uint32_t ch = is_live ? live[i].earfcn : b184_ok ? ca[i].earfcn : 0;
+            int pci = is_live ? live[i].pci : b184_ok ? ca[i].pci : -1;
+            double v;
+            if (held_value(&lte_held[i][0], s->rsrp_sum, s->n_rsrp, ch, pci, now, &v)) PUT(",\"rsrp\":%.2f", v);
+            if (held_value(&lte_held[i][1], s->rsrq_sum, s->n_rsrq, ch, pci, now, &v)) PUT(",\"rsrq\":%.2f", v);
+            if (held_value(&lte_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
+        }
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
         if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
@@ -1122,7 +1168,7 @@ static int write_stats(char *out, size_t cap) {
      * from B823. */
     const struct nr_cell *cfg_of[SLOTS] = { 0 };
     int live_of[SLOTS];
-    for (int i = 0; i < SLOTS; i++) live_of[i] = nrlive[i].at_ms && now - nrlive[i].at_ms < LIVE_MS;
+    for (int i = 0; i < SLOTS; i++) live_of[i] = nrlive[i].at_ms && now - nrlive[i].at_ms < HOLD_MS;
     /* After a reconfiguration a slot's old cell can stay live for LIVE_MS
      * while its new slot already reports it: keep only the fresher. */
     for (int i = 0; i < SLOTS; i++)
@@ -1181,11 +1227,16 @@ static int write_stats(char *out, size_t cap) {
                 if (t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
             }
         }
-        if (s->n_rsrp) PUT(",\"rsrp\":%.2f", s->rsrp_sum / s->n_rsrp);
-        if (s->n_rsrq) PUT(",\"rsrq\":%.2f", s->rsrq_sum / s->n_rsrq);
-        if (s->n_sinr) PUT(",\"sinr\":%.2f", s->sinr_sum / s->n_sinr);
-        if (s->n_csinr) PUT(",\"csinr\":%.2f", s->csinr_sum / s->n_csinr);
-        if (s->n_bsinr) PUT(",\"bsinr\":%.2f", s->bsinr_sum / s->n_bsinr);
+        {
+            uint32_t ch = lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn);
+            int pci = lv ? nrlive[i].pci : c->pci;
+            double v;
+            if (held_value(&nr_held[i][0], s->rsrp_sum, s->n_rsrp, ch, pci, now, &v)) PUT(",\"rsrp\":%.2f", v);
+            if (held_value(&nr_held[i][1], s->rsrq_sum, s->n_rsrq, ch, pci, now, &v)) PUT(",\"rsrq\":%.2f", v);
+            if (held_value(&nr_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
+            if (held_value(&nr_held[i][3], s->csinr_sum, s->n_csinr, ch, pci, now, &v)) PUT(",\"csinr\":%.2f", v);
+            if (held_value(&nr_held[i][4], s->bsinr_sum, s->n_bsinr, ch, pci, now, &v)) PUT(",\"bsinr\":%.2f", v);
+        }
         if (s->have_csf) PUT(",\"cqi\":%d,\"ri\":%d", s->cqi, s->ri);
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
