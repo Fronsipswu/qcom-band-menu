@@ -263,9 +263,11 @@ class SnapshotBuilder(
         val pci = l?.pci ?: pcell?.pci
         val earfcn = l?.earfcn ?: pcell?.earfcn
         val band = rfFor(NasRadioIf.LTE)
+        // DIAG's bandwidth (the RRC configuration) first when DIAG has this cell.
+        val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
         val fields = buildList {
             (band?.bandEnum ?: pcell?.bandEnum)?.let { add(Field("Band", NasBands.label(it))) }
-            (pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
+            (d?.bandwidthMhz ?: pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
             earfcn?.let { add(Field("EARFCN", it.toString())) }
             pci?.let { add(Field("PCI", it.toString())) }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->
@@ -282,7 +284,6 @@ class SnapshotBuilder(
         // in SIG_INFO, for both. With DIAG on, all three come from the PCell's
         // B193 values, as in the DIAG CA table (QMI only where DIAG has none).
         val m = if (earfcn != null && pci != null) lteMeas[earfcn to pci] else null
-        val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
         val metrics = listOf(
             Metric("RSRP", MetricKind.RSRP, Rat.LTE, d?.rsrp ?: m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
             Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, d?.rsrq ?: m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
@@ -314,7 +315,9 @@ class SnapshotBuilder(
             if (sa) {
                 // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.
                 put("Band", bandLabel)
-                band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
+                // DIAG first: some modems (X60) report one fixed RF bandwidth
+                // code for every NR band (100 MHz on n41 90 MHz and on n28).
+                (d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
                 put("NARFCN", ch?.toString())
                 put("PCI", pci?.toString())
                 put("SCS", s?.nrScsKhz?.let { "$it kHz" })
