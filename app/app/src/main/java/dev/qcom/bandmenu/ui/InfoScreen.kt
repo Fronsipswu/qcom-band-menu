@@ -39,7 +39,9 @@ fun InfoScreen(
     onDebugToggle: () -> Unit = {},
     onDetach: () -> Unit = {},
     onAttach: () -> Unit = {},
-    onReattach: () -> Unit = {}
+    onReattach: () -> Unit = {},
+    navbarHidden: Boolean = false,
+    onNavbarHiddenToggle: (Boolean) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val navbarHeightDp = 64.dp
@@ -117,6 +119,14 @@ fun InfoScreen(
                         DropdownItem("Detach", onClick = onDetach),
                         DropdownItem("Attach", onClick = onAttach),
                         DropdownItem("Re-Attach", onClick = onReattach)
+                    )
+                ),
+                DropdownEntry(
+                    items = listOf(
+                        DropdownItem(
+                            text = if (navbarHidden) "Show navigation bar" else "Hide navigation bar",
+                            onClick = { onNavbarHiddenToggle(!navbarHidden) }
+                        )
                     )
                 )
             ),
