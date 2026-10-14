@@ -151,6 +151,8 @@ class DiagClient(private val context: Context) {
     }
 
     private var socket: LocalSocket? = null
+    /** The SELinux connectto rule was tried in this app run (see ensureRunning). */
+    private var ruleTried = false
     private var writer: BufferedWriter? = null
     private var reader: BufferedReader? = null
 
@@ -220,14 +222,65 @@ class DiagClient(private val context: Context) {
         // dependencies (liblog, libcutils, libc++) are system libraries. Putting
         // /vendor/lib64 first loaded a vendor libc++ that the system liblog
         // can't use on newer Android ("cannot locate symbol ... __hash_memory").
-        Shell.cmd("setsid '${dest.absolutePath}' -uid ${Process.myUid()} " +
-            "</dev/null >/dev/null 2>'${err.absolutePath}' &").exec()
-        for (i in 1..12) {
-            Thread.sleep(250)
-            if (tryConnect()) return
+        val launch = "setsid '${dest.absolutePath}' -uid ${Process.myUid()} " +
+            "</dev/null >/dev/null 2>'${err.absolutePath}' &"
+        // libsu drops the shell's stderr unless asked; a launch that fails
+        // before the helper runs (no file access) only shows up there.
+        val shellErr = mutableListOf<String>()
+        Shell.cmd(launch).to(mutableListOf(), shellErr).exec()
+        if (waitConnect(12)) return
+        // The helper ran and reported its own failure: not a connection problem.
+        // (libdiag's "diag: ..." trace lines can land here from a healthy helper.)
+        val helperErr = if (err.exists()) err.readLines().filterNot { it.startsWith("diag:") }
+            .joinToString("\n").trim() else ""
+        if (helperErr.isNotEmpty()) throw IOException(helperErr)
+        // KernelSU keeps the capabilities a root process started with: after
+        // the app's root profile changes, the app's persistent root shell can
+        // be uid 0 with none, unable to reach the app's files (Xperia 1 IV).
+        if (!rootHasCapabilities()) throw IOException("Root has no capabilities: restart the app")
+        // Some root solutions' SELinux policy doesn't let apps connect to a
+        // root process's socket (KernelSU on the Xperia 1 IV: connectto
+        // denied while the helper runs). Add only that rule, live until
+        // reboot, then retry; the helper accepts only this app's uid. Tried
+        // once per app run, so phones where DIAG fails for other reasons
+        // aren't patched or slowed down on every round.
+        if (!ruleTried && allowRootSocket().also { ruleTried = true }) {
+            if (waitConnect(4)) return
+            Shell.cmd(launch).to(mutableListOf(), shellErr).exec()
+            if (waitConnect(12)) return
         }
-        val stderr = if (err.exists()) err.readText().trim() else ""
+        val stderr = if (err.exists()) err.readText().trim() else shellErr.joinToString("\n").trim()
         throw IOException(stderr.ifEmpty { "The DIAG helper didn't start" })
+    }
+
+    private fun waitConnect(tries: Int): Boolean {
+        for (i in 1..tries) {
+            Thread.sleep(250)
+            if (tryConnect()) return true
+        }
+        return false
+    }
+
+    /** False when the app's root shell runs without effective capabilities. */
+    private fun rootHasCapabilities(): Boolean {
+        val cap = Shell.cmd("grep CapEff /proc/self/status").exec().out.firstOrNull()
+            ?.substringAfter(':')?.trim() ?: return true
+        return cap.trimStart('0').isNotEmpty()
+    }
+
+    /** Adds `allow untrusted_app su unix_stream_socket connectto` through the
+     *  root solution's live policy tool; true if one of them accepted it. */
+    private fun allowRootSocket(): Boolean {
+        val rule = "allow untrusted_app su unix_stream_socket connectto"
+        // A subshell: libsu's root shell is persistent, so a bare exit would end it.
+        val r = Shell.cmd(
+            "(for t in ksud /data/adb/ksud /data/adb/ksu/bin/ksud; do " +
+                "command -v \$t >/dev/null 2>&1 && \$t sepolicy patch '$rule' >/dev/null 2>&1 && exit 0; done; " +
+            "for t in magiskpolicy /data/adb/magisk/magiskpolicy; do " +
+                "command -v \$t >/dev/null 2>&1 && \$t --live '$rule' >/dev/null 2>&1 && exit 0; done; exit 1)"
+        ).exec()
+        AppLog.i(TAG, "SELinux connectto rule: ${if (r.isSuccess) "added" else "no tool accepted it"}")
+        return r.isSuccess
     }
 
     /** A helper that's exiting can keep the file busy (ETXTBSY) briefly. */
