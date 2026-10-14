@@ -151,10 +151,11 @@ class NetworkMonitor(
         // keeps polling), only pull-to-refresh and SIM switches are shown.
         if (_state.value.sim != sim) return@withLock
         // The chart's history follows the rounds, frozen or not.
-        result.getOrNull()?.mbps?.let { m ->
-            val t = result.getOrNull()!!.snapshot.takenAtElapsedMs
+        result.getOrNull()?.takeIf { it.mbps != null }?.let { r ->
+            val t = r.snapshot.takenAtElapsedMs
             _state.update { s ->
-                val history = (s.thputBySim[sim].orEmpty() + ThputPoint(t, m)).dropWhile { t - it.t > THPUT_KEEP_MS }
+                val point = ThputPoint(t, r.mbps!!, r.ulMbps ?: 0.0)
+                val history = (s.thputBySim[sim].orEmpty() + point).dropWhile { t - it.t > THPUT_KEEP_MS }
                 s.copy(thputBySim = s.thputBySim + (sim to history))
             }
         }
@@ -175,7 +176,7 @@ class NetworkMonitor(
     }
 
     private class RoundResult(val snapshot: NetworkSnapshot, val name: String?, val diagError: String?, val diagFailed: Boolean,
-        val mbps: Double? = null)
+        val mbps: Double? = null, val ulMbps: Double? = null)
 
     private fun readRound(sim: Int, fresh: Boolean, withDiag: Boolean): Result<RoundResult> = runCatching {
         if (!daemon.isReady.value) throw IllegalStateException("Waiting for the daemon…")
@@ -206,7 +207,7 @@ class NetworkMonitor(
             it.append(elapsed, ReplayFormat.encode(sim, elapsed, snap.roundMs, name, nrHardwareBands,
                 NetworkReads.ROUND, rawReads, if (diagStats != null) diag.lastStatsJson else null))
         }
-        RoundResult(snap, name, diagError, withDiag && diagStats == null, diagStats?.totalMbps)
+        RoundResult(snap, name, diagError, withDiag && diagStats == null, diagStats?.totalMbps, diagStats?.totalUlMbps)
     }
 
     /** The recording of [sim] so far, for the replay while frozen. Blocking. */

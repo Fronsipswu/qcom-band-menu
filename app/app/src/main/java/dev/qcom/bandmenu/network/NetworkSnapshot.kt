@@ -295,12 +295,15 @@ class SnapshotBuilder(
         // NSA keeps a fixed set of fields ("–" when the NR leg is down) so the
         // SCG card holds its shape instead of popping in and out.
         fun MutableList<Field>.put(label: String, v: String?) { if (v != null) add(Field(label, v)) else if (!sa) add(Field(label, "–")) }
-        // RF band info has no NR entry in NSA; derive the band from the ARFCN.
-        val bandLabel = band?.let { NasBands.label(it.bandEnum) } ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) }
-        val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
         // With DIAG on, this cell's values come from the DIAG NR table's entry
         // for the same PCI and NR-ARFCN (QMI where DIAG has none).
         val d = diag?.nr?.firstOrNull { it.pci == pci && (it.arfcn == ch || it.dlArfcn == ch) }
+        // RF band info has no NR entry in NSA: DIAG's configured band, else
+        // the band derived from the ARFCN (ambiguous where bands overlap).
+        val bandLabel = band?.let { NasBands.label(it.bandEnum) }
+            ?: d?.band?.takeIf { it > 0 }?.let { "n$it" }
+            ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) }
+        val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
         val fields = buildList {
             if (sa) {
                 // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.

@@ -22,11 +22,13 @@
  *   LTE 0xB173 PDSCH Stat Indication: per TB MCS, modulation, RBs, layers,
  *          CRC, TB size, carrier slot
  *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
+ *       0xB139 PUSCH Tx Report: UL TB size and carrier slot
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
- *   NR  0xB887 PDSCH status, 0xB97F measurements, 0xB8D8 SNR, 0xB8A7 CSF,
- *       0xB825 RRC configuration, 0xB823 serving cell (see below)
+ *   NR  0xB883 UL physical channel schedule, 0xB887 PDSCH status, 0xB97F
+ *       measurements, 0xB8D8 SNR, 0xB8A7 CSF, 0xB825 RRC configuration,
+ *       0xB823 serving cell (see below)
  *   NR on X65 (no B8D8): 0xB8DD serving SNR (B8D8's successor), 0xB96A
  *       per-beam measurements (strongest beam's SNR)
  *   NR  0xB821 RRC OTA: reconfigurations, decoded (rrc_csi.c) for each
@@ -59,7 +61,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.21.0"
+#define HELPER_VERSION "1.23.0"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -74,18 +76,22 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
-static uint16_t CODES[] = { 0xB173, 0xB126, 0xB184, 0xB193,             /* LTE */
-                            0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, /* NR */
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193,     /* LTE */
+                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
                             0xB821 };                                   /* NR RRC */
-#define NCODES 13
+#define NCODES 15
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
 struct slot {
     /* B173, C/SPS-C RNTI TBs only */
-    long tb, fail, bytes_pass, bytes_all, mcs_sum, rb_sum, mod[5];
+    /* mcs_sum/mcs_tb leave out reserved-index retransmissions (see b173());
+     * mcs_all_sum is over every TB, as before 1.22.3, kept for comparison. */
+    long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, mod[5];
     long recs, layers_sum;
+    /* B139 PUSCH TBs, including retransmissions */
+    long ul_tb, ul_bytes;
     /* B126 */
     long n126, rank[4], scheme[16];
     int tx, rx;
@@ -200,15 +206,53 @@ static void b173(const uint8_t *p, int n) {
             if (!crc) s->fail++;
             s->bytes_all += size;
             if (crc) s->bytes_pass += size;
-            s->mcs_sum += at(tb, L->mcs);
+            /* MCS mean: LTE retransmissions mostly carry a reserved index
+             * (29-31; 28 with QPSK on the 256QAM table) that gives only the
+             * modulation. Up to 1.22.2 they were averaged in ("mcs_all" keeps
+             * that figure); in the test logs they raised the mean by 0.1-1.9
+             * on average per log. They still count for throughput and BLER. */
+            int mcs = at(tb, L->mcs);
+            int mod_raw = L->mod.bits ? (int)at(tb, L->mod) : 0;
+            s->mcs_all_sum += mcs;
+            if (mcs < 29 && !(mcs == 28 && mod_raw == 2)) {
+                s->mcs_sum += mcs;
+                s->mcs_tb++;
+            }
             s->rb_sum += at(tb, L->rbs);
             if (L->mod.bits) {
-                int m = mod_index(at(tb, L->mod));
+                int m = mod_index(mod_raw);
                 if (m >= 0) s->mod[m]++;
             }
             counted = 1;
         }
         if (counted) { s->recs++; s->layers_sum += layers; }
+    }
+}
+
+/* LTE PUSCH scheduling records. PHY throughput counts every non-dropped TB;
+ * retransmissions are traffic over the air and are deliberately included. */
+static void b139(const uint8_t *p, int n) {
+    if (n < 1) return;
+    const struct b139_layout *L;
+    FIND_LAYOUT(B139_LAYOUTS, p[0], L);
+    if (!L || !fits(L->rec_count, n)) return;
+    int count = at(p, L->rec_count);
+    int start = L->rec_start / 8;
+    int size = L->rec_bits / 8;
+    if (!size || start > n || count > (n - start) / size) return;
+    if (start + count * size != n) return;
+    long add_tb[SLOTS] = { 0 };
+    long add_bytes[SLOTS] = { 0 };
+    for (int i = 0; i < count; i++) {
+        const uint8_t *record = p + start + i * size;
+        int carrier = L->carrier.bits ? at(record, L->carrier) : 0;
+        if (carrier >= SLOTS || (L->drop.bits && at(record, L->drop))) continue;
+        add_tb[carrier]++;
+        add_bytes[carrier] += at(record, L->tb_size);
+    }
+    for (int i = 0; i < SLOTS; i++) {
+        win[i].ul_tb += add_tb[i];
+        win[i].ul_bytes += add_bytes[i];
     }
 }
 
@@ -257,12 +301,16 @@ static void b184(const uint8_t *p, int n) {
         int off = L->sc_start / 8 + i * sc_bytes;
         if (off + sc_bytes > n) break;
         const uint8_t *c = p + off;
-        ca[i + 1].known = 1;
-        ca[i + 1].earfcn = at(c, L->s_earfcn);
-        ca[i + 1].pci = at(c, L->s_pci);
-        ca[i + 1].band = at(c, L->s_band);
-        ca[i + 1].bw_raw = L->s_bw.bits ? (int)at(c, L->s_bw) : -1;
-        ca[i + 1].state = (int)at(c, L->s_state) + L->state_add; /* normalized: 0 absent, 1 deactivated, 2 activated */
+        /* The SCell's own carrier slot where the version has one: during an
+         * SCell swap a lone SCell can be listed first with slot 2. */
+        int slot = L->s_slot.bits ? (int)at(c, L->s_slot) : i + 1;
+        if (slot < 1 || slot >= SLOTS) slot = i + 1;
+        ca[slot].known = 1;
+        ca[slot].earfcn = at(c, L->s_earfcn);
+        ca[slot].pci = at(c, L->s_pci);
+        ca[slot].band = at(c, L->s_band);
+        ca[slot].bw_raw = L->s_bw.bits ? (int)at(c, L->s_bw) : -1;
+        ca[slot].state = (int)at(c, L->s_state) + L->state_add; /* normalized: 0 absent, 1 deactivated, 2 activated */
     }
     ca_seen = 1;
 }
@@ -409,8 +457,12 @@ static void b193(const uint8_t *p, int n) {
 /* Per NR carrier (cc_id 0-7, the modem's numbering shared by B825, B97F,
  * B8D8 and B8A7), reset on every "stats". */
 struct nr_slot {
-    /* B887, C-RNTI and CS-RNTI TBs only */
-    long tb, fail, bytes_pass, bytes_all, mcs_sum, rb_sum, layers_sum, mod[5], rx[4];
+    /* B887, C-RNTI and CS-RNTI TBs only. mcs_sum/mcs_tb leave out
+     * retransmissions signalled with a reserved MCS index (see b887());
+     * mcs_all_sum is over every TB, as before 1.22.2, kept for comparison. */
+    long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, layers_sum, mod[5], rx[4];
+    /* B883 PUSCH TBs, including retransmissions */
+    long ul_tb, ul_bytes;
     /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
      * of TRS records (CSI-SINR); B96A strongest beam's SNR: means over the
      * window */
@@ -420,6 +472,80 @@ struct nr_slot {
     int cqi, ri, have_csf;
 };
 static struct nr_slot nrwin[SLOTS];
+
+/* Length of a count-prefixed channel block. */
+static int b883_counted_bytes(const uint8_t *p, int n, int base_bits,
+                              int item_bits) {
+    int base = base_bits / 8;
+    if (base > n) return -1;
+    int item = item_bits / 8;
+    if (!item || !n) return -1;
+    int count = p[0];
+    if (count > (n - base) / item) return -1;
+    return base + count * item;
+}
+
+/* NR UL scheduling records contain a variable sequence of channel blocks.
+ * Walk the complete packet first and publish byte totals only when its final
+ * boundary is exact, so a malformed record cannot partly update a window. */
+static void b883(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b883_layout *L;
+    FIND_LAYOUT(B883_LAYOUTS, nr_ver(p), L);
+    if (!L || !fits(L->rec_count, n)) return;
+    int records = at(p, L->rec_count);
+    int pos = L->rec_start / 8;
+    long add_tb[SLOTS] = { 0 };
+    long add_bytes[SLOTS] = { 0 };
+    for (int r = 0; r < records; r++) {
+        int record = pos;
+        if (record > n || !fits(L->carrier_count, n - record)) return;
+        int carriers = at(p + record, L->carrier_count);
+        pos = record + L->carriers_at / 8;
+        for (int c = 0; c < carriers; c++) {
+            int header = L->header_bits / 8;
+            if (header > n - pos) return;
+            const uint8_t *carrier_header = p + pos;
+            int carrier = at(carrier_header, L->carrier);
+            int mask = at(carrier_header, L->mask);
+            pos += header;
+            if (mask & 16) return;
+            if (mask & 1) {
+                int size = L->pusch_bits / 8;
+                if (size > n - pos || !fits(L->tb_size, size)) return;
+                if (carrier < SLOTS) {
+                    add_tb[carrier]++;
+                    add_bytes[carrier] += at(p + pos, L->tb_size);
+                }
+                pos += size;
+            }
+            if (mask & 2) {
+                int size = b883_counted_bytes(p + pos, n - pos,
+                                              L->pucch_base_bits,
+                                              L->pucch_item_bits);
+                if (size < 0) return;
+                pos += size;
+            }
+            if (mask & 4) {
+                int size = b883_counted_bytes(p + pos, n - pos,
+                                              L->srs_base_bits,
+                                              L->srs_item_bits);
+                if (size < 0) return;
+                pos += size;
+            }
+            if (mask & 8) {
+                int size = L->prach_bits / 8;
+                if (size > n - pos) return;
+                pos += size;
+            }
+        }
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        nrwin[i].ul_tb += add_tb[i];
+        nrwin[i].ul_bytes += add_bytes[i];
+    }
+}
 
 /* B825 serving-cell list (replaced by every B825; empty = idle or no NR). */
 struct nr_cell {
@@ -546,18 +672,34 @@ static void b887(const uint8_t *p, int n) {
             nrtb[cc].pci = pci;
             nrtb[cc].arfcn = arfcn;
             nrtb[cc].bw_mhz = bwc < 13 ? tb_bw[bwc] : 0;
+            /* FR2 uses another code list: code 1 = 100 MHz (66 RBs at 120 kHz
+             * on X55/X60 mmWave captures; the generic list would say 10 MHz).
+             * Other FR2 codes are unconfirmed and left unknown. */
+            if (L->band_type.bits && at(it, L->band_type)) nrtb[cc].bw_mhz = bwc == 1 ? 100 : 0;
             nrtb[cc].scs_khz = mu < 4 ? 15 << mu : 0;
             struct nr_slot *s = &nrwin[cc];
             int size = at(it, L->tb_size), crc = at(it, L->crc);
-            /* Old 3-bit CRC fields also encode ACK-as-NACK, NACK-as-ACK,
-             * carrier deactivation and HARQ flush.  They are neither a
-             * successfully delivered TB nor an ordinary CRC failure. */
-            if (crc > 1) continue;
             s->tb++;
             if (!crc) s->fail++;
             s->bytes_all += size;
             if (crc) s->bytes_pass += size;
-            s->mcs_sum += at(it, L->mcs);
+            /* MCS mean: a retransmission may be signalled with a reserved
+             * index (28-31 on the 256QAM table, 29-31 on 64QAM) that only
+             * gives the modulation; the TB size is the first transmission's.
+             * Such TBs still count for throughput, BLER, RBs and layers, but
+             * not for the MCS mean. In the test logs (X55 to X85) no new
+             * transmission used 28-31 on the 256QAM table, while nearly every
+             * retransmission did, raising the old all-TB mean by about 1-2 at
+             * 10% BLER. Up to 1.22.1 the mean included them ("mcs_all" keeps
+             * that figure for comparison). Versions without a new-transmission
+             * field leave out 29-31, reserved on every table. */
+            int mcs = at(it, L->mcs);
+            int reserved = L->new_tx.bits ? (!at(it, L->new_tx) && mcs >= 28) : mcs >= 29;
+            s->mcs_all_sum += mcs;
+            if (!reserved) {
+                s->mcs_sum += mcs;
+                s->mcs_tb++;
+            }
             s->rb_sum += at(it, L->rbs);
             s->layers_sum += at(it, L->layers) + 1;      /* raw field: layers - 1 */
             if (L->mod.bits) {
@@ -652,23 +794,43 @@ static void b97f(const uint8_t *p, int n) {
  * on SSB give SS-SINR, on TRS (a CSI-RS for tracking) CSI-SINR: two
  * different measurements (4-9 dB apart on SM8550). Versions without the
  * reference-signal field count as SS-SINR. */
-static void serving_snr(const struct b8d8_layout *L, const uint8_t *p, int n) {
-    if (!L || !fits(L->carrier, n)) return;
-    if (L->rs.bits && !fits(L->rs, n)) return;
-    int trs = L->rs.bits && at(p, L->rs);           /* 1 = TRS */
-    int cc = at(p, L->carrier);
-    if (cc >= SLOTS) return;
+static void serving_snr(const struct b8d8_layout *layout, const uint8_t *payload, int size) {
+    if (!layout || !fits(layout->carrier, size) || !fits(layout->rs, size))
+        return;
+    if (layout->payload_bytes && size != layout->payload_bytes)
+        return;
+    int carrier = at(payload, layout->carrier);
+    if (layout->pci.bits) {
+        if (!fits(layout->pci, size) || !fits(layout->arfcn, size))
+            return;
+        /* Older records rotate between frequencies without a usable slot. */
+        carrier = nr_cc_for(at(payload, layout->pci), at(payload, layout->arfcn));
+    }
+    if (carrier < 0 || carrier >= SLOTS)
+        return;
     int have = 0;
     double best_db = 0;
-    for (int i = 0; i < 4 && fits(L->snr[i], n); i++) {
-        uint32_t raw = at(p, L->snr[i]);
-        if (!raw) continue;
+    for (int i = 0; i < 4; i++) {
+        if (!fits(layout->snr[i], size))
+            return;
+        uint32_t raw = at(payload, layout->snr[i]);
+        if (!raw)
+            continue;
         double db = 10.0 * log10(raw / 1024.0);
-        if (!have || db > best_db) { best_db = db; have = 1; }
+        if (!have || db > best_db) {
+            best_db = db;
+            have = 1;
+        }
     }
-    if (!have || best_db <= -30 || best_db >= 60) return;
-    if (trs) { nrwin[cc].csinr_sum += best_db; nrwin[cc].n_csinr++; }
-    else { nrwin[cc].sinr_sum += best_db; nrwin[cc].n_sinr++; }
+    if (!have || best_db <= -30 || best_db >= 60)
+        return;
+    if (layout->rs.bits && at(payload, layout->rs)) {
+        nrwin[carrier].csinr_sum += best_db;
+        nrwin[carrier].n_csinr++;
+    } else {
+        nrwin[carrier].sinr_sum += best_db;
+        nrwin[carrier].n_sinr++;
+    }
 }
 
 static void b8d8(const uint8_t *p, int n) {
@@ -685,61 +847,149 @@ static void b8dd(const uint8_t *p, int n) {
     serving_snr(L, p, n);
 }
 
-/* NR5G ML1 beam measurements (B96A, X65): for each carrier (PCI, SSB
- * NR-ARFCN) the SNR of its strongest beam, each beam's better RX. A per-beam
- * searcher measurement, not the serving SS-SINR. */
-static void b96a(const uint8_t *p, int n) {
-    if (n < 4) return;
-    const struct b96a_layout *L;
-    FIND_LAYOUT(B96A_LAYOUTS, nr_ver(p), L);
-    if (!L || !fits(L->pci, n)) return;
-    int pci = at(p, L->pci), pos = L->groups_at;
-    while (pos + L->group_bits <= n * 8) {
-        const uint8_t *g = p + pos / 8;
-        uint32_t arfcn = at(g, L->g_arfcn);
-        int beams = at(g, L->g_count);
-        pos += L->group_bits;
-        if (!beams) return;
-        int have = 0;
-        double best_rsrp = 0, best_snr = 0;
-        for (int k = 0; k < beams; k++, pos += L->beam_bits) {
-            if (pos + L->beam_bits > n * 8) return;
-            const uint8_t *bm = p + pos / 8;
-            double rsrp = -1e9, snr = -1e9;
-            for (int r = 0; r < 2; r++) {
-                double a = (int16_t)at(bm, L->rsrp[r]) / 128.0, s2 = (int16_t)at(bm, L->snr[r]) / 128.0;
-                if (a > rsrp) rsrp = a;
-                if (s2 > snr) snr = s2;
-            }
-            if (rsrp > -160 && rsrp < -20 && (!have || rsrp > best_rsrp)) { best_rsrp = rsrp; best_snr = snr; have = 1; }
+/* Keep the strongest beam separately for each configured cell. Older groups
+ * contain beams of different PCIs, so their first beam cannot name the group. */
+static void b96a_beams(const struct b96a_layout *layout, const uint8_t *beams,
+                      int count, uint32_t arfcn, int packet_pci) {
+    struct meas best_beam[SLOTS] = {{0}};
+    for (int i = 0; i < count; i++) {
+        const uint8_t *beam = beams + i * (layout->beam_bits / 8);
+        int pci = layout->beam_pci.bits ? (int)at(beam, layout->beam_pci) : packet_pci;
+        int carrier = nr_cc_for(pci, arfcn);
+        if (carrier < 0 || carrier >= SLOTS)
+            continue;
+        double rsrp = -1e9;
+        double snr = -1e9;
+        for (int chain = 0; chain < 2; chain++) {
+            double power = (int16_t)at(beam, layout->rsrp[chain]) / 128.0;
+            double ratio = (int16_t)at(beam, layout->snr[chain]) / 128.0;
+            if (power > rsrp)
+                rsrp = power;
+            if (ratio > snr)
+                snr = ratio;
         }
-        int cc = nr_cc_for(pci, arfcn);
-        if (have && cc >= 0 && cc < SLOTS && best_snr > -30 && best_snr < 60) { nrwin[cc].bsinr_sum += best_snr; nrwin[cc].n_bsinr++; }
+        struct meas *best = &best_beam[carrier];
+        if (rsrp > -160 && rsrp < -20 && (!best->have_rsrp || rsrp > best->rsrp)) {
+            best->have_rsrp = 1;
+            best->rsrp = rsrp;
+            best->sinr = snr;
+        }
+    }
+    for (int carrier = 0; carrier < SLOTS; carrier++) {
+        const struct meas *best = &best_beam[carrier];
+        if (best->have_rsrp && best->sinr > -30 && best->sinr < 60) {
+            nrwin[carrier].bsinr_sum += best->sinr;
+            nrwin[carrier].n_bsinr++;
+        }
     }
 }
 
-/* NR5G MAC CSF Report: each report in the first record gives the RI and
- * wideband CQI of the carrier it describes (its resource carrier; they're all
- * sent on carrier 0). L1-RSRP reports have no CSI metrics and are skipped.
- * Where reports vary in size (3.1-3.3) only the first is read. */
-static void b8a7(const uint8_t *p, int n) {
-    if (n < 4) return;
-    const struct b8a7_layout *L;
-    FIND_LAYOUT(B8A7_LAYOUTS, nr_ver(p), L);
-    if (!L) return;
-    int rec = L->rec_start / 8, rep = rec + L->reps_at / 8;
-    if (rep > n || !at(p, L->rec_count)) return;
-    int reports = at(p + rec, L->rep_count), size = L->rep_bits / 8;
-    if (!size && reports > 1) reports = 1;
-    for (int k = 0; k < reports && k < 16; k++, rep += size) {
-        if (!fits(L->cqi, n - rep) || !fits(L->ri, n - rep)) return;
-        const uint8_t *r = p + rep;
-        if (at(r, L->quantity) & 32) continue;          /* RSRP report */
-        int cc = at(r, L->carrier);
-        if (cc >= SLOTS) continue;
-        nrwin[cc].ri = at(r, L->ri) + 1;
-        nrwin[cc].cqi = at(r, L->cqi);
-        nrwin[cc].have_csf = 1;
+/* Validate the whole parent/group/beam hierarchy before applying any values.
+ * Newer layouts omit parent counts and carry groups through the payload end. */
+static int b96a_walk(const struct b96a_layout *layout, const uint8_t *payload, int size, int apply) {
+    int legacy = layout->parent_count.bits != 0;
+    int parents = legacy ? (int)at(payload, layout->parent_count) : 1;
+    int position = (legacy ? layout->parents_at : layout->groups_at) / 8;
+    int header_bytes = layout->group_bits / 8;
+    int beam_bytes = layout->beam_bits / 8;
+    int pci = at(payload, layout->pci);
+    for (int parent = 0; parent < parents; parent++) {
+        int groups = -1;
+        if (legacy) {
+            int parent_bytes = layout->parent_bits / 8;
+            if (position > size || parent_bytes > size - position)
+                return 0;
+            groups = at(payload + position, layout->group_count);
+            position += parent_bytes;
+        }
+        for (int group = 0; legacy ? group < groups : position < size; group++) {
+            if (position > size || header_bytes > size - position)
+                return 0;
+            const uint8_t *header = payload + position;
+            int beams = at(header, layout->g_count);
+            uint32_t arfcn = at(header, layout->g_arfcn);
+            position += header_bytes;
+            if (beams > (size - position) / beam_bytes)
+                return 0;
+            if (apply)
+                b96a_beams(layout, payload + position, beams, arfcn, pci);
+            position += beams * beam_bytes;
+        }
+    }
+    return position == size;
+}
+
+/* Per-beam SNR is separate from the serving reference-signal SINR. */
+static void b96a(const uint8_t *payload, int size) {
+    if (size < 4)
+        return;
+    const struct b96a_layout *layout;
+    FIND_LAYOUT(B96A_LAYOUTS, nr_ver(payload), layout);
+    if (!layout || !fits(layout->pci, size) || !fits(layout->parent_count, size))
+        return;
+    if (b96a_walk(layout, payload, size, 0))
+        b96a_walk(layout, payload, size, 1);
+}
+
+/* Bound all fixed-size reports before updating state: a truncated later
+ * record must not leave a partially applied packet. */
+static int b8a7_complete(const struct b8a7_layout *layout, const uint8_t *payload, int size) {
+    int position = layout->rec_start / 8;
+    int records = at(payload, layout->rec_count);
+    int header_bytes = layout->reps_at / 8;
+    int report_bytes = layout->rep_bits / 8;
+    for (int i = 0; i < records; i++) {
+        if (position > size || header_bytes > size - position
+            || !fits(layout->rep_count, size - position))
+            return 0;
+        int reports = at(payload + position, layout->rep_count);
+        position += header_bytes;
+        if (reports > (size - position) / report_bytes)
+            return 0;
+        position += reports * report_bytes;
+    }
+    return position == size;
+}
+
+/* Every record can update the resource carrier's RI/CQI. L1-RSRP reports
+ * have no CSI metrics. Variable-size layouts retain the first-report-only
+ * fallback until their intervening blocks can be traversed safely. */
+static void b8a7(const uint8_t *payload, int size) {
+    if (size < 4)
+        return;
+    const struct b8a7_layout *layout;
+    FIND_LAYOUT(B8A7_LAYOUTS, nr_ver(payload), layout);
+    if (!layout || !fits(layout->rec_count, size))
+        return;
+    int report_bytes = layout->rep_bits / 8;
+    int records = at(payload, layout->rec_count);
+    if (report_bytes && !b8a7_complete(layout, payload, size))
+        return;
+    if (!report_bytes && records > 1)
+        records = 1;
+    int position = layout->rec_start / 8;
+    for (int i = 0; i < records; i++) {
+        if (position > size || !fits(layout->rep_count, size - position))
+            return;
+        int reports = at(payload + position, layout->rep_count);
+        position += layout->reps_at / 8;
+        if (!report_bytes && reports > 1)
+            reports = 1;
+        for (int j = 0; j < reports; j++, position += report_bytes) {
+            if (position > size || !fits(layout->cqi, size - position)
+                || !fits(layout->ri, size - position) || !fits(layout->carrier, size - position)
+                || !fits(layout->quantity, size - position))
+                return;
+            const uint8_t *report = payload + position;
+            if (at(report, layout->quantity) & 32)
+                continue;
+            int carrier = at(report, layout->carrier);
+            if (carrier >= SLOTS)
+                continue;
+            nrwin[carrier].ri = at(report, layout->ri) + 1;
+            nrwin[carrier].cqi = at(report, layout->cqi);
+            nrwin[carrier].have_csf = 1;
+        }
     }
 }
 
@@ -753,8 +1003,10 @@ static void on_log(unsigned char *ptr, int len) {
     n_logs++;
     if (code == 0xB173) b173(pl, pn);
     else if (code == 0xB126) b126(pl, pn);
+    else if (code == 0xB139) b139(pl, pn);
     else if (code == 0xB184) b184(pl, pn);
     else if (code == 0xB193) b193(pl, pn);
+    else if (code == 0xB883) b883(pl, pn);
     else if (code == 0xB887) b887(pl, pn);
     else if (code == 0xB97F) b97f(pl, pn);
     else if (code == 0xB8D8) b8d8(pl, pn);
@@ -823,7 +1075,7 @@ static int write_stats(char *out, size_t cap) {
         int is_live = live[i].at_ms && now - live[i].at_ms < LIVE_MS;
         int b184_ok = ca[i].known && b184_current && (!is_live || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
         int configured = is_live || (b184_ok && (i == 0 || ca[i].state > 0));
-        if (!configured && s->tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
+        if (!configured && s->tb == 0 && s->ul_tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
         PUT("%s{\"slot\":%d", first ? "" : ",", i);
         first = 0;
         if (is_live || b184_ok) {
@@ -843,10 +1095,12 @@ static int write_stats(char *out, size_t cap) {
         if (s->n_sinr) PUT(",\"sinr\":%.2f", s->sinr_sum / s->n_sinr);
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
+        if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
-            PUT(",\"bler\":%.2f,\"mcs\":%.2f,\"rbs\":%.2f", 100.0 * s->fail / s->tb,
-                (double)s->mcs_sum / s->tb, (double)s->rb_sum / s->tb);
+            PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
+            if (s->mcs_tb > 0) PUT(",\"mcs\":%.2f", (double)s->mcs_sum / s->mcs_tb);
+            PUT(",\"mcs_all\":%.2f,\"rbs\":%.2f", (double)s->mcs_all_sum / s->tb, (double)s->rb_sum / s->tb);
             if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
         }
         if (s->recs > 0) PUT(",\"layers\":%.2f", (double)s->layers_sum / s->recs);
@@ -937,10 +1191,13 @@ static int write_stats(char *out, size_t cap) {
         if (s->have_csf) PUT(",\"cqi\":%d,\"ri\":%d", s->cqi, s->ri);
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
+        if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
         if (s->tb > 0) {
             int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
-            PUT(",\"bler\":%.2f,\"mcs\":%.2f,\"rbs\":%.2f,\"layers\":%.2f", 100.0 * s->fail / s->tb,
-                (double)s->mcs_sum / s->tb, (double)s->rb_sum / s->tb, (double)s->layers_sum / s->tb);
+            PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
+            if (s->mcs_tb > 0) PUT(",\"mcs\":%.2f", (double)s->mcs_sum / s->mcs_tb);
+            PUT(",\"mcs_all\":%.2f,\"rbs\":%.2f,\"layers\":%.2f", (double)s->mcs_all_sum / s->tb,
+                (double)s->rb_sum / s->tb, (double)s->layers_sum / s->tb);
             if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
             if (rx >= 0) PUT(",\"rx\":%d", rx + 1);
         }

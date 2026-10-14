@@ -61,7 +61,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -408,21 +410,13 @@ fun NetworkScreen(
     }
 }
 
-/** Timeline for the frozen reading: play, slider (fine scrubbing), the sample's time. */
+/** Timeline for the frozen reading: play and the slider (fine scrubbing; the sample's time while held). */
 @Composable
 private fun ReplayBar(
     size: Int, pos: Int, elapsedMs: Long, playing: Boolean,
     onPos: (Int) -> Unit, onPlay: () -> Unit, onDragStart: () -> Unit, modifier: Modifier = Modifier
 ) {
-    var speed by remember { mutableStateOf<Float?>(null) }
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    speed?.let {
-        Text(
-            "×0.25",
-            style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
-    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
@@ -430,18 +424,13 @@ private fun ReplayBar(
                     contentDescription = if (playing) "Pause replay" else "Play replay",
                     tint = if (playing) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
             }
-            ScrubSlider(
-                value = pos, max = size - 1, onValue = onPos, onSpeed = { speed = it }, onDragStart = onDragStart,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(10.dp))
-            // The sample's clock time; tabular digits keep the slider's width steady.
+            // The sample's clock time, shown above the thumb while it's held.
             val wall = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - elapsedMs)
-            Text(
-                java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
-                style = MiuixTheme.textStyles.footnote1.copy(fontFeatureSettings = "tnum"),
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(end = 10.dp), maxLines = 1
+            ScrubSlider(
+                value = pos, max = size - 1, onValue = onPos,
+                bubble = java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
+                onDragStart = onDragStart,
+                modifier = Modifier.weight(1f).padding(end = 10.dp)
             )
         }
     }
@@ -482,7 +471,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
     if (state.diagEnabled && thput.isNotEmpty()) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
-        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) 2000 else 500)
+        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
     }
     if (snap.antennas.isNotEmpty()) {
         Expandable("Antenna measurements") {
@@ -671,6 +660,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     val colWidth = (maxWidth - 64.dp) / 4
     val fixedCols = carriers.size <= 4
     val barMax = colWidth - 6.dp
+    // Cell text shrinks when the columns get too narrow for the widest value
+    // at the normal size (many carriers), instead of wrapping onto two lines.
+    val cellStyle = fittedCellStyle(carriers, if (fixedCols) colWidth else (maxWidth - 64.dp) / carriers.size)
     Column {
     val line = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     @Composable
@@ -690,23 +682,24 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
     }
     @Composable
     fun text(v: String?, bold: Boolean = false, color: Color = MiuixTheme.colorScheme.onBackground) =
-        Text(v ?: "–", style = MiuixTheme.textStyles.body2, fontWeight = if (bold) FontWeight.SemiBold else null,
-            color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1)
+        Text(v ?: "–", style = cellStyle, fontWeight = if (bold) FontWeight.SemiBold else null,
+            color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1, softWrap = false)
 
     // The primary cell's role is blue; the secondaries stay grey.
     row("", header = true) {
         text(it.role, color = if (it.role == "P") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
-    if (nr) { NrRows(::row, ::text, barMax); return@Column }
+    if (nr) { NrRows(::row, ::text, barMax, cellStyle); return@Column }
     row("Band") { text(it.band, bold = true) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     row("EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax) }
-    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax) }
-    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax) }
+    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle) }
+    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle) }
+    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, style = cellStyle) }
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
-    // with no grants this round has "–" for the per-grant values and 0.0 Mbps.
+    // with no grants this round has "–" for the per-grant values and 0.0 Mbps
+    // PHY DL; PHY UL is "–" when the carrier sent nothing.
     if (diag) {
         row("Tx/Rx") { text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }) }
         row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
@@ -714,7 +707,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
         row("MCS") { text(it.diag?.mcs?.let { m -> Math.round(m).toString() }) }
         row("RBs") { text(it.diag?.rbs?.let { r -> Math.round(r).toString() }) }
         row("Mod") { text(it.diag?.modulation?.removeSuffix("QAM")) }
-        row("Thput") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+        // Values coloured as the chart's lines.
+        row("PHY DL") { text(it.diag?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
+        row("PHY UL") { text(it.diag?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
     }
 } }
 
@@ -729,20 +724,21 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false)
 private fun NrRows(
     row: @Composable (String, Boolean, @Composable (Carrier) -> Unit) -> Unit,
     text: @Composable (String?, Boolean, Color) -> Unit,
-    barMax: Dp
+    barMax: Dp,
+    cellStyle: TextStyle
 ) {
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
-    @Composable fun t(v: String?, bold: Boolean = false) = text(v, bold, fg)
+    @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
     r("Band") { t(it.band, bold = true) }
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
     r("SCS") { t(it.nr?.scsKhz?.toString()) }
-    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR) }
-    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR) }
-    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR) }
-    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR) }
+    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle) }
+    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle) }
+    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
+    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
@@ -750,14 +746,37 @@ private fun NrRows(
     r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
-    r("Thput") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true) }
+    // Values coloured as the chart's lines.
+    r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
+    r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+}
+
+/**
+ * The CA table's cell text style: body2, scaled down when a column (minus its
+ * padding) is narrower than the widest value would be at body2. The widest
+ * candidates are a signal value, a rate and each carrier's channel, bold.
+ */
+@Composable
+private fun fittedCellStyle(carriers: List<Carrier>, columnWidth: Dp): TextStyle {
+    val base = MiuixTheme.textStyles.body2
+    val measurer = rememberTextMeasurer()
+    val available = with(LocalDensity.current) { (columnWidth - 8.dp).toPx() }
+    val widest = remember(carriers.map { it.channel }, base) {
+        val bold = base.copy(fontWeight = FontWeight.SemiBold)
+        (listOf("-140.0", "1000.0") + carriers.map { it.channel }).maxOf { measurer.measure(it, bold).size.width }
+    }
+    val fit = if (widest > 0) available / widest else 1f
+    return if (fit >= 1f) base else base.copy(fontSize = base.fontSize * fit)
 }
 
 /** A value with a level-coloured bar behind it. */
 @Composable
-private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE) {
+private fun CellValueBar(
+    v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
+    style: TextStyle = MiuixTheme.textStyles.body2
+) {
     if (v == null) {
-        Text("–", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text("–", style = style, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         return
     }
     val scale = signalScale(kind, rat)
@@ -770,7 +789,8 @@ private fun CellValueBar(v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspeci
             .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(formatMetric(v), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground)
+        Text(formatMetric(v), style = style, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+            maxLines = 1, softWrap = false)
     }
 }
 

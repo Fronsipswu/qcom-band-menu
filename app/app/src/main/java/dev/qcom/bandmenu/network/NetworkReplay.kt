@@ -27,7 +27,8 @@ fun readOutcome(status: String, rx: String): ReadOutcome {
 fun readOutcome(o: JSONObject): ReadOutcome = readOutcome(o.optString("status"), o.optString("rx"))
 
 /** Combined DL throughput at [t] (elapsed ms), for the throughput chart. */
-data class ThputPoint(val t: Long, val mbps: Double)
+/** One chart sample: combined PHY downlink and uplink, Mbps. */
+data class ThputPoint(val t: Long, val mbps: Double, val ulMbps: Double = 0.0)
 
 /** One recorded round: everything SnapshotBuilder needs. */
 class ReplayRound(
@@ -195,7 +196,7 @@ class ReplaySession(private val entries: List<Entry>) {
             thput.getOrPut(i) {
                 try {
                     val d = JSONObject(String(entries[i].line, Charsets.UTF_8)).optJSONObject("d")
-                    d?.let { ThputPoint(entries[i].elapsedMs, DiagStats.parse(it).totalMbps) }
+                    d?.let { DiagStats.parse(it).let { s -> ThputPoint(entries[i].elapsedMs, s.totalMbps, s.totalUlMbps) } }
                 } catch (e: JSONException) { null }
             }
         }
