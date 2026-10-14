@@ -59,7 +59,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.2"
+#define HELPER_VERSION "1.22.3"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -84,7 +84,9 @@ static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193,     /* LTE *
 
 struct slot {
     /* B173, C/SPS-C RNTI TBs only */
-    long tb, fail, bytes_pass, bytes_all, mcs_sum, rb_sum, mod[5];
+    /* mcs_sum/mcs_tb leave out reserved-index retransmissions (see b173());
+     * mcs_all_sum is over every TB, as before 1.22.3, kept for comparison. */
+    long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, mod[5];
     long recs, layers_sum;
     /* B139 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
@@ -202,10 +204,21 @@ static void b173(const uint8_t *p, int n) {
             if (!crc) s->fail++;
             s->bytes_all += size;
             if (crc) s->bytes_pass += size;
-            s->mcs_sum += at(tb, L->mcs);
+            /* MCS mean: LTE retransmissions mostly carry a reserved index
+             * (29-31; 28 with QPSK on the 256QAM table) that gives only the
+             * modulation. Up to 1.22.2 they were averaged in ("mcs_all" keeps
+             * that figure); in the test logs they raised the mean by 0.1-1.9
+             * on average per log. They still count for throughput and BLER. */
+            int mcs = at(tb, L->mcs);
+            int mod_raw = L->mod.bits ? (int)at(tb, L->mod) : 0;
+            s->mcs_all_sum += mcs;
+            if (mcs < 29 && !(mcs == 28 && mod_raw == 2)) {
+                s->mcs_sum += mcs;
+                s->mcs_tb++;
+            }
             s->rb_sum += at(tb, L->rbs);
             if (L->mod.bits) {
-                int m = mod_index(at(tb, L->mod));
+                int m = mod_index(mod_raw);
                 if (m >= 0) s->mod[m]++;
             }
             counted = 1;
@@ -286,12 +299,16 @@ static void b184(const uint8_t *p, int n) {
         int off = L->sc_start / 8 + i * sc_bytes;
         if (off + sc_bytes > n) break;
         const uint8_t *c = p + off;
-        ca[i + 1].known = 1;
-        ca[i + 1].earfcn = at(c, L->s_earfcn);
-        ca[i + 1].pci = at(c, L->s_pci);
-        ca[i + 1].band = at(c, L->s_band);
-        ca[i + 1].bw_raw = L->s_bw.bits ? (int)at(c, L->s_bw) : -1;
-        ca[i + 1].state = (int)at(c, L->s_state) + L->state_add; /* normalized: 0 absent, 1 deactivated, 2 activated */
+        /* The SCell's own carrier slot where the version has one: during an
+         * SCell swap a lone SCell can be listed first with slot 2. */
+        int slot = L->s_slot.bits ? (int)at(c, L->s_slot) : i + 1;
+        if (slot < 1 || slot >= SLOTS) slot = i + 1;
+        ca[slot].known = 1;
+        ca[slot].earfcn = at(c, L->s_earfcn);
+        ca[slot].pci = at(c, L->s_pci);
+        ca[slot].band = at(c, L->s_band);
+        ca[slot].bw_raw = L->s_bw.bits ? (int)at(c, L->s_bw) : -1;
+        ca[slot].state = (int)at(c, L->s_state) + L->state_add; /* normalized: 0 absent, 1 deactivated, 2 activated */
     }
     ca_seen = 1;
 }
@@ -653,13 +670,13 @@ static void b887(const uint8_t *p, int n) {
             nrtb[cc].pci = pci;
             nrtb[cc].arfcn = arfcn;
             nrtb[cc].bw_mhz = bwc < 13 ? tb_bw[bwc] : 0;
+            /* FR2 uses another code list: code 1 = 100 MHz (66 RBs at 120 kHz
+             * on X55/X60 mmWave captures; the generic list would say 10 MHz).
+             * Other FR2 codes are unconfirmed and left unknown. */
+            if (L->band_type.bits && at(it, L->band_type)) nrtb[cc].bw_mhz = bwc == 1 ? 100 : 0;
             nrtb[cc].scs_khz = mu < 4 ? 15 << mu : 0;
             struct nr_slot *s = &nrwin[cc];
             int size = at(it, L->tb_size), crc = at(it, L->crc);
-            /* Old 3-bit CRC fields also encode ACK-as-NACK, NACK-as-ACK,
-             * carrier deactivation and HARQ flush.  They are neither a
-             * successfully delivered TB nor an ordinary CRC failure. */
-            if (crc > 1) continue;
             s->tb++;
             if (!crc) s->fail++;
             s->bytes_all += size;
@@ -1079,8 +1096,9 @@ static int write_stats(char *out, size_t cap) {
         if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
-            PUT(",\"bler\":%.2f,\"mcs\":%.2f,\"rbs\":%.2f", 100.0 * s->fail / s->tb,
-                (double)s->mcs_sum / s->tb, (double)s->rb_sum / s->tb);
+            PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
+            if (s->mcs_tb > 0) PUT(",\"mcs\":%.2f", (double)s->mcs_sum / s->mcs_tb);
+            PUT(",\"mcs_all\":%.2f,\"rbs\":%.2f", (double)s->mcs_all_sum / s->tb, (double)s->rb_sum / s->tb);
             if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
         }
         if (s->recs > 0) PUT(",\"layers\":%.2f", (double)s->layers_sum / s->recs);
