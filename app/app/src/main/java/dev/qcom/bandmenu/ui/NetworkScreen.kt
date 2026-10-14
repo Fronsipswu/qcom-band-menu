@@ -6,6 +6,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -238,6 +239,13 @@ fun NetworkScreen(
     val minPageHeight = (windowHeight - topBarHeight - 64.dp - navbarSpace - 16.dp).coerceAtLeast(0.dp)
     val pagerHeight = pageHeights[pagerState.currentPage]?.let { with(density) { it.toDp() } }?.coerceAtLeast(minPageHeight)
 
+    // The card in the middle of the view stays put when cards above it change
+    // (NSA/SA layouts, the SCG coming and going); see ScrollAnchor.
+    val scrollState = rememberScrollState()
+    val anchor = remember(scrollState) { ScrollAnchor(scrollState) }
+    val topBarPx = with(density) { topBarHeight.toPx() }
+    val bottomPx = with(density) { (navbarSpace + if (replayBar) 76.dp else 0.dp).toPx() }
+
     val surfaceColor = MiuixTheme.colorScheme.surface
     val screenBackdrop = rememberLayerBackdrop(onDraw = { drawRect(surfaceColor); drawContent() })
 
@@ -258,7 +266,13 @@ fun NetworkScreen(
                             monitor.setFrozen(!monitor.state.value.frozen)
                         })
                     }
-                    .verticalScroll(rememberScrollState())
+                    .onGloballyPositioned { c ->
+                        anchor.viewport = c
+                        anchor.viewTop = topBarPx
+                        anchor.viewBottom = c.size.height - bottomPx
+                    }
+                    .verticalScroll(scrollState)
+                    .onSizeChanged { anchor.contentResized() }
                     .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
             ) {
@@ -308,11 +322,14 @@ fun NetworkScreen(
                                 val points = if (sim == state.sim && replayRound != null && r != null)
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else state.thputBySim[sim].orEmpty()
-                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points)
+                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
+                                    anchor.takeIf { page == pagerState.currentPage })
                             }
                         }
                     }
                 }
+                // Keeps the anchored card in place when the page shrinks near its end.
+                Spacer(Modifier.height(with(density) { anchor.slack.toDp() }))
             }
         }
 
@@ -455,30 +472,35 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 }
 
 @Composable
-private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>) {
+private fun NetworkContent(
+    snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
+    anchor: ScrollAnchor? = null
+) {
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
         SmallTitle("Serving cell", modifier = Modifier.padding(top = 2.dp))
-        SummaryCard(snap, state, snap.cells.firstOrNull())
+        Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull()) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
     if (!servingHidden) {
-        snap.cells.drop(1).forEach { CellSection(it) }
+        snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "cell " + it.title)) { CellSection(it) } }
         if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
             NoticeCard("No serving-cell details were reported.")
         }
     }
-    snap.carrierGroups.forEach { CarrierSection(it) }
+    snap.carrierGroups.forEach { Column(Modifier.scrollAnchor(anchor, "group " + it.title)) { CarrierSection(it) } }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
     if (state.diagEnabled && thput.isNotEmpty()) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
-        ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
+        Column(Modifier.scrollAnchor(anchor, "thput")) {
+            ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
+        }
     }
-    if (snap.antennas.isNotEmpty()) {
+    if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "antennas")) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top.
             snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
@@ -492,7 +514,7 @@ private fun NetworkContent(snap: NetworkSnapshot, state: NetworkMonitor.State, s
     }
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
-    if (snap.cells.isNotEmpty()) {
+    if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "neighbours")) {
         Expandable("Neighbour cells (${snap.neighbors.size})") {
             if (snap.neighbors.isEmpty()) {
                 Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
