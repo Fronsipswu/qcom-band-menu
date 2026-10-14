@@ -67,6 +67,18 @@ class SnapshotCaptureTest {
         // NSA reads carry no NR TAC/NCI.
         assertTrue(nsa.first().cells[1].fields.none { it.label == "NCI" || it.label == "TAC" })
 
+        // ENDC table: the MCG is the LTE table's PCell, the SCG the NR serving cell.
+        nsa.forEach { s ->
+            val endc = s.endc!!
+            println("  {${endc.title}} " + endc.carriers.joinToString { "${it.role} ${it.band} ${it.channel} pci=${it.pci} rsrp=${it.rsrp}" })
+            assertEquals("MCG", endc.carriers[0].role)
+            assertEquals(s.carrierGroups.first().carriers.first().channel, endc.carriers[0].channel)
+            assertEquals("SCG", endc.carriers[1].role)
+            assertTrue(endc.carriers[1].band!!.startsWith("n"))
+            assertEquals(endc.carriers.drop(2).mapIndexed { i, _ -> "S${i + 1}" }, endc.carriers.drop(2).map { it.role })
+        }
+        assertTrue(sa.all { it.endc == null })
+
         val off = rounds("nsa-n28-off-20261009-1.jsonl").map(::snapshot)
         println(dump(off.first()))
         // NSA without an NR secondary: the NR aggregation card stays, empty.

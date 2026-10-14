@@ -68,6 +68,9 @@ fun MainScreen(
     /** Network page menu: throughput chart hidden (persisted by the caller). */
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
+    /** Network page menu: NSA LTE and NR tables separate, not one ENDC table (persisted by the caller). */
+    endcSeparate: Boolean = false,
+    onEndcSeparateToggle: (Boolean) -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -200,6 +203,8 @@ fun MainScreen(
                             onServingHiddenToggle = onServingHiddenToggle,
                             thputHidden = thputHidden,
                             onThputHiddenToggle = onThputHiddenToggle,
+                            endcSeparate = endcSeparate,
+                            onEndcSeparateToggle = onEndcSeparateToggle,
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(

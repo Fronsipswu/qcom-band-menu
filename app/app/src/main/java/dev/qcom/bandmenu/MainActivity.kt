@@ -108,6 +108,7 @@ class MainActivity : ComponentActivity() {
                 var nrModeHidden by remember { mutableStateOf(false) }
                 var servingHidden by remember { mutableStateOf(false) }
                 var thputHidden by remember { mutableStateOf(false) }
+                var endcSeparate by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -161,6 +162,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getThputHidden(bandDataStore).collectLatest { hidden ->
                         thputHidden = hidden
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getEndcSeparate(bandDataStore).collectLatest { separate ->
+                        endcSeparate = separate
                     }
                 }
 
@@ -396,6 +403,11 @@ class MainActivity : ComponentActivity() {
                     onServingHiddenToggle = { hidden ->
                         servingHidden = hidden
                         scope.launch { BandPreferences.setServingHidden(bandDataStore, hidden) }
+                    },
+                    endcSeparate = endcSeparate,
+                    onEndcSeparateToggle = { separate ->
+                        endcSeparate = separate
+                        scope.launch { BandPreferences.setEndcSeparate(bandDataStore, separate) }
                     },
                     onDiagToggle = { on ->
                         daemonHolder.networkMonitor.setDiagEnabled(on)

@@ -67,7 +67,9 @@ data class CarrierGroup(
     /** DIAG is on: the table adds its PDSCH rows. */
     val diag: Boolean = false,
     /** An NR table from DIAG (NR row set). */
-    val nrTable: Boolean = false
+    val nrTable: Boolean = false,
+    /** NSA's LTE and NR carriers in the LTE table's rows (MCG, SCG, S1...). */
+    val endc: Boolean = false
 )
 
 data class Neighbor(
@@ -90,6 +92,8 @@ data class NetworkSnapshot(
     val rrc: List<Field>,
     val cells: List<CellCard>,
     val carrierGroups: List<CarrierGroup>,
+    /** NSA only: [carrierGroups]' LTE and NR tables combined into one. */
+    val endc: CarrierGroup? = null,
     val neighbors: List<Neighbor>,
     val antennas: List<AntennaGroup>,
     /** Reads that failed this round (shown in debug and as a footnote). */
@@ -197,6 +201,7 @@ class SnapshotBuilder(
             }
         }
         val failed = reads.filter { (_, o) -> o !is ReadOutcome.Ok }.keys + malformed
+        val lteGroup = lteCarriers()
         return NetworkSnapshot(
             sim = sim,
             takenAtElapsedMs = takenAtElapsedMs,
@@ -207,7 +212,8 @@ class SnapshotBuilder(
             roaming = common?.roaming,
             rrc = rrcFields(),
             cells = cells,
-            carrierGroups = listOfNotNull(lteCarriers(), nrCarriers()),
+            carrierGroups = listOfNotNull(lteGroup, nrCarriers()),
+            endc = if (mode == ServiceMode.NR_NSA) endcCarriers(lteGroup) else null,
             neighbors = neighbors(),
             antennas = antennas(),
             failedReads = failed.toList()
@@ -528,6 +534,50 @@ class SnapshotBuilder(
                 )
             }
         )
+    }
+
+    /**
+     * NSA's LTE and NR carriers in one table with the LTE table's rows (NR
+     * fitted in: ARFCN for both channels; no NR-only rows such as SCS or
+     * CSI-SINR). Columns: MCG (the LTE PCell), SCG (the NR PSCell), the NR
+     * SCells, then the LTE SCells; the SCells numbered S1, S2... across both.
+     * NR carriers come from DIAG, else from QMI (the SCG's serving cell and
+     * the NR SCells' frequencies).
+     */
+    private fun endcCarriers(lte: CarrierGroup?): CarrierGroup? {
+        val mcg = lte?.carriers?.firstOrNull() ?: return null
+        val diagNr = diagNrCarriers()?.carriers
+        val nr = diagNr ?: qmiNrCarriers()
+        val scells = nr.drop(1) + lte.carriers.drop(1)
+        return CarrierGroup(
+            title = "ENDC",
+            summary = "",
+            table = true,
+            diag = diag != null,
+            endc = true,
+            carriers = listOf(mcg.copy(role = "MCG")) + nr.take(1).map { it.copy(role = "SCG") } +
+                scells.mapIndexed { i, c -> c.copy(role = "S${i + 1}") },
+            note = if (diagNr == null && nr.size > 1) "QMI only reports frequency data for NR Scells" else null
+        )
+    }
+
+    /** The NR leg from QMI: the SCG's serving cell, then frequency-only NR SCells. */
+    private fun qmiNrCarriers(): List<Carrier> {
+        val ch = sys?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull() ?: return emptyList()
+        val band = rfFor(NasRadioIf.NR5G)
+        val scg = Carrier(
+            role = "SCG",
+            band = band?.let { NasBands.label(it.bandEnum) } ?: nrBandLabelForArfcn(ch, nrHardwareBands),
+            channel = ch.toString(),
+            bandwidthMhz = band?.bandwidthMhz,
+            state = "Primary",
+            pci = sys?.nrPci ?: loc?.nr?.pci,
+            rsrp = sig?.nrRsrp?.toDouble(), rsrq = sig?.nrRsrq?.toDouble(), sinr = sig?.nrSnr
+        )
+        val scells = arfcn?.nrServing.orEmpty().filter { it != ch }.map {
+            Carrier("S", nrBandLabelForArfcn(it, nrHardwareBands) ?: "n?", it.toString(), null, null, null)
+        }
+        return listOf(scg) + scells
     }
 
     // ── Neighbours and antennas ──────────────────────────────────────────
