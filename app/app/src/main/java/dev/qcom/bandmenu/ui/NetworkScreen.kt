@@ -499,7 +499,8 @@ private fun NetworkContent(
     // NSA: one ENDC table unless the menu separates LTE and NR. Anchored by
     // position, so the LTE table turning ENDC and back keeps its place.
     val groups = snap.endc?.takeIf { !endcSeparate }?.let(::listOf) ?: snap.carrierGroups
-    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g) } }
+    // With the serving cell hidden, the tables go without their headings too.
+    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g, title = !servingHidden) } }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
     if (state.diagEnabled && thput.isNotEmpty()) {
@@ -657,8 +658,8 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
 }
 
 @Composable
-private fun CarrierSection(group: CarrierGroup) {
-    SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp))
+private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
+    if (title) SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp))
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             if (group.summary.isNotEmpty()) {

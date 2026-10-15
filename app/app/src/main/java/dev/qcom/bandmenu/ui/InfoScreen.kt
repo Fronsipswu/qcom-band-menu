@@ -93,7 +93,7 @@ fun InfoScreen(
 
             SmallTitle("Powered by")
             Text(
-                "miuix UI framework\nlibsu\nAndroidLiquidGlass",
+                "miuix UI framework\nlibsu\nAndroidLiquidGlass\nasn1c (Lev Walkin; mouse07410 fork)",
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
