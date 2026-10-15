@@ -71,7 +71,10 @@ data class DiagNrCarrier(
     val csiPorts: Int? = null
 )
 
-data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr: List<DiagNrCarrier> = emptyList()) {
+data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr: List<DiagNrCarrier> = emptyList(),
+    /** Raw timing-advance index of the last random access (the RAR): LTE B168,
+     *  NR B88A. The helper drops it when the serving cell changes. */
+    val lteTimingAdvance: Int? = null, val nrTimingAdvance: Int? = null) {
     /** Combined PHY downlink throughput: every LTE and NR carrier. */
     val totalMbps: Double get() = carriers.sumOf { it.mbps } + nr.sumOf { it.mbps }
 
@@ -129,7 +132,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     rank = c.i("rank"), transmissionMode = c.i("tm"),
                     txAntennas = c.i("tx"), rxAntennas = c.i("rx")
                 )
-            }, nr)
+            }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"))
         }
     }
 }
@@ -147,7 +150,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.8"
+        private const val EXPECTED_VERSION = "1.22.10"
     }
 
     private var socket: LocalSocket? = null

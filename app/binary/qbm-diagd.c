@@ -26,9 +26,12 @@
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
+ *       0xB168 Random Access MSG2: the RAR's timing advance (the "ta" of
+ *          the stats JSON, raw index; see b168())
  *   NR  0xB883 UL physical channel schedule, 0xB887 PDSCH status, 0xB97F
  *       measurements, 0xB8D8 SNR, 0xB8A7 CSF, 0xB825 RRC configuration,
- *       0xB823 serving cell (see below)
+ *       0xB823 serving cell (see below), 0xB88A RACH Attempt: the RAR's
+ *       timing advance (the "nr_ta" of the stats JSON; see b88a())
  *   NR on X65 (no B8D8): 0xB8DD serving SNR (B8D8's successor), 0xB96A
  *       per-beam measurements (strongest beam's SNR)
  *   NR  0xB821 RRC OTA: reconfigurations, decoded (rrc_csi.c) for each
@@ -60,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.8"
+#define HELPER_VERSION "1.22.10"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -76,11 +79,11 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
-static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193,     /* LTE */
-                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, /* NR */
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, /* LTE */
+                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
                             0xB821 };                                   /* NR RRC */
-#define NCODES 15
+#define NCODES 17
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -496,6 +499,104 @@ static void b193(const uint8_t *p, int n) {
             live[i].pci = pk[i].pci;
             live[i].at_ms = now_ms();
         }
+    }
+}
+
+/* ── Timing Advance (random-access RAR) ──────────────────────────────────── */
+
+/* The serving card shows the raw TA index: the LTE RAR TA is an 11-bit index
+ * in 16Ts units (36.213), the NR one a 12-bit index (38.213). A TA belongs to
+ * the cell it was received on, so it is shown only while that cell is still
+ * the PCell; after a cell change the card shows "–" until the next random
+ * access. */
+
+/* A serving cell's identity, as the TA is tied to it. */
+struct cell_id { int known; uint32_t arfcn; int pci; };
+
+/* The last random access's TA and the cell it was tied to (bound = 0 until
+ * the serving cell was known once after it arrived). */
+struct ta {
+    int have;
+    int value;
+    long ms;                /* when it arrived, or was last re-bound */
+    int bound;
+    struct cell_id cell;
+};
+static struct ta lte_ta_s[SIMS], nr_ta_s[SIMS];
+#define lte_ta (lte_ta_s[sim])
+#define nr_ta (nr_ta_s[sim])
+
+/* A random access that completes a handover reports the target cell while the
+ * measurements still name the old one for a moment: a value younger than
+ * REBIND_MS moves to the new cell instead of being dropped. */
+#define REBIND_MS 5000
+
+static void ta_store(struct ta *t, int value) {
+    t->have = 1;
+    t->value = value;
+    t->ms = now_ms();
+    t->bound = 0;
+}
+
+/* Ties a stored TA to the current serving cell; returns whether it may be
+ * shown. */
+static int ta_bind(struct ta *t, struct cell_id serving, long now) {
+    if (!t->have)
+        return 0;
+    if (!serving.known)
+        return t->bound;                 /* keep the earlier tie until the cell is known */
+    if (!t->bound) {                     /* first known cell after the value arrived */
+        t->bound = 1;
+        t->cell = serving;
+        return 1;
+    }
+    if (t->cell.arfcn == serving.arfcn && t->cell.pci == serving.pci)
+        return 1;
+    if (now - t->ms <= REBIND_MS) {      /* handover just completed: follow it */
+        t->cell = serving;
+        t->ms = now;
+        return 1;
+    }
+    t->have = 0;                         /* an older value belongs to the old cell */
+    return 0;
+}
+
+/* LTE Random Access MSG2: the RAR's timing advance. Version 24 only (X60,
+ * X70, X80 and X85 all send it; v1 never appeared in a log). A failed RACH
+ * has the included bit clear; values past the 11-bit index maximum are the
+ * modem's "not present" filler (0xFFFF). Only the PCell's (cell index 0):
+ * an SCell's random access (connected mode, index 1+) has its own, usually
+ * much smaller TA, which would otherwise replace the PCell's on its card. */
+static void b168(const uint8_t *p, int n) {
+    if (n < 12 || p[0] != 24) return;
+    const uint8_t *b = p + 1;                            /* 11-byte body */
+    if (bits(b, 24, 3) != 0) return;                     /* cell index: PCell only */
+    if (!bits(b, 50, 1)) return;                         /* timing_advance_included */
+    uint32_t ta = bits(b, 72, 16);
+    if (ta > 1282) return;
+    ta_store(&lte_ta, (int)ta);
+}
+
+/* NR RACH Attempt: the RAR's timing advance. The container layout differs
+ * per log version (the message offsets move), so only TA positions validated
+ * on real logs are decoded (each matched every RAR of its log). */
+static const struct { uint32_t ver; int off, bytes; } B88A_TA[] = {
+    { 0x00020007,  64, 108 },   /* 2.7, X60 */
+    { 0x0003000A, 120, 180 },   /* 3.10, X70: msg2 block at 112, TA 8 bytes in */
+    { 0x00030012, 176, 232 },   /* 3.18, X80 */
+    { 0x00030013, 184, 240 },   /* 3.19, X85 */
+};
+
+static void b88a(const uint8_t *p, int n) {
+    if (n < 4) return;
+    uint32_t ver = nr_ver(p);
+    for (size_t i = 0; i < sizeof B88A_TA / sizeof B88A_TA[0]; i++) {
+        if (B88A_TA[i].ver != ver) continue;
+        if (n < B88A_TA[i].bytes) return;
+        uint32_t ta = le16(p + B88A_TA[i].off);
+        if (ta > 3846) return;                           /* 12-bit index maximum */
+        ta_store(&nr_ta, (int)ta);
+        return;
     }
 }
 
@@ -1096,6 +1197,7 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB139) b139(pl, pn);
     else if (code == 0xB184) b184(pl, pn);
     else if (code == 0xB193) b193(pl, pn);
+    else if (code == 0xB168) b168(pl, pn);
     else if (code == 0xB883) b883(pl, pn);
     else if (code == 0xB887) b887(pl, pn);
     else if (code == 0xB97F) b97f(pl, pn);
@@ -1105,6 +1207,7 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB8A7) b8a7(pl, pn);
     else if (code == 0xB825) b825(pl, pn);
     else if (code == 0xB823) b823(pl, pn);
+    else if (code == 0xB88A) b88a(pl, pn);
     else if (code == 0xB821) rrc_csi_b821(pl, pn);
     pthread_mutex_unlock(&lock);
 }
@@ -1141,6 +1244,33 @@ static int argmax(const long *v, int n) {
 }
 
 static long window_start;
+
+/* The NR PCell a TA is tied to: B823's carrier, else (no B823 yet) the first
+ * live carrier, which in SA with one carrier is the PCell. */
+static struct cell_id nr_ta_cell(int pcell, const int *live_of, const struct nr_cell *const *cfg_of) {
+    struct cell_id id = { 0, 0, -1 };
+    if (pcell >= 0) {
+        id.known = 1;
+        if (live_of[pcell]) {
+            id.arfcn = nrlive[pcell].earfcn;
+            id.pci = nrlive[pcell].pci;
+        } else {
+            const struct nr_cell *c = cfg_of[pcell];
+            id.arfcn = c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn;
+            id.pci = c->pci;
+        }
+        return id;
+    }
+    for (int i = 0; i < SLOTS; i++) {
+        if (!live_of[i])
+            continue;
+        id.known = 1;
+        id.arfcn = nrlive[i].earfcn;
+        id.pci = nrlive[i].pci;
+        return id;
+    }
+    return id;
+}
 
 static int write_stats(char *out, size_t cap, int for_sim) {
     pthread_mutex_lock(&lock);
@@ -1243,6 +1373,11 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             if ((c && c->pci == nr_pcell_pci && (c->ssb_arfcn == nr_pcell_arfcn || c->dl_arfcn == nr_pcell_arfcn))
                 || (live_of[i] && nrlive[i].pci == nr_pcell_pci && nrlive[i].earfcn == nr_pcell_arfcn)) pcell = i;
         }
+    /* Each RAT's TA is shown only while its cell is the PCell (see ta_bind).
+     * LTE PCell: slot 0's live serving record. */
+    struct cell_id lte_cell = { live[0].at_ms && now - live[0].at_ms < HOLD_MS, live[0].earfcn, live[0].pci };
+    int show_lte_ta = ta_bind(&lte_ta, lte_cell, now);
+    int show_nr_ta = ta_bind(&nr_ta, nr_ta_cell(pcell, live_of, cfg_of), now);
     PUT(",\"nr\":[");
     first = 1;
     for (int i = 0; i < SLOTS && !silent; i++) {
@@ -1309,7 +1444,11 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         }
         PUT("}");
     }
-    PUT("]}\n");
+    PUT("]");
+    /* The last random access's TA, as the raw index. */
+    if (!silent && show_lte_ta) PUT(",\"lte_ta\":%d", lte_ta.value);
+    if (!silent && show_nr_ta) PUT(",\"nr_ta\":%d", nr_ta.value);
+    PUT("}\n");
 #undef PUT
     /* Every SIM's window restarts: the next answer for either SIM covers the
      * time since this one. */
