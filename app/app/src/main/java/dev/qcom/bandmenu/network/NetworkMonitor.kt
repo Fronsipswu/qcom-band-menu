@@ -186,7 +186,7 @@ class NetworkMonitor(
         // DIAG only adds to the QMI round; its failure never fails the round.
         var diagError: String? = null
         val diagStats = if (withDiag) {
-            try { diag.stats() } catch (e: Exception) {
+            try { diag.stats(sim) } catch (e: Exception) {
                 AppLog.w(TAG, "DIAG stats failed: ${e.message}")
                 diagError = e.message ?: "DIAG read failed"
                 null
@@ -260,6 +260,17 @@ class NetworkMonitor(
      * turned off, no card, or UNKNOWN when it can't be read. Blocking; call
      * off the main thread.
      */
+    /** Both SIMs' card status from one read: [SIM 1, SIM 2] (UNKNOWN if unreadable). */
+    fun simStatuses(): List<SimSlotStatus> = try {
+        val resp = daemon.uimCardStatus()
+        val rx = resp.optJSONObject("uim_card_status")?.takeIf { it.optString("status") == "ok" }?.optString("rx")
+        val status = rx?.takeIf { it.isNotEmpty() }?.let(QmiFrame::parseHex)?.takeIf { it.ok }?.let(::decodeCardStatus)
+        listOf(status?.statusOf(1) ?: SimSlotStatus.UNKNOWN, status?.statusOf(2) ?: SimSlotStatus.UNKNOWN)
+    } catch (e: Exception) {
+        AppLog.w(TAG, "card status read failed: ${e.message}")
+        listOf(SimSlotStatus.UNKNOWN, SimSlotStatus.UNKNOWN)
+    }
+
     fun simStatus(sim: Int): SimSlotStatus = try {
         val resp = daemon.uimCardStatus()
         val rx = resp.optJSONObject("uim_card_status")?.takeIf { it.optString("status") == "ok" }?.optString("rx")

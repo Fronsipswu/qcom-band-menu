@@ -200,6 +200,7 @@ fun MainScreen(
                             isActive = pagerState.settledPage == 0,
                             simLabels = simLabels,
                             sim2Available = modemState?.sim2Available != false,
+                            sim1Status = modemState?.sim1Status ?: dev.qcom.bandmenu.network.SimSlotStatus.UNKNOWN,
                             onRefresh = onNetworkRefresh,
                             onReplayToggle = onReplayToggle,
                             onDiagToggle = onDiagToggle,

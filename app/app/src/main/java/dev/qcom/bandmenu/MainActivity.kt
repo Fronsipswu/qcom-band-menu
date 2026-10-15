@@ -252,7 +252,7 @@ class MainActivity : ComponentActivity() {
                                         // (both still bind with DSDS on). UNKNOWN (one-slot phone,
                                         // unreadable) falls back to the bind: with DSDS off or a
                                         // single SIM, the modem refuses subscription 2.
-                                        val sim2Status = daemonHolder.networkMonitor.simStatus(2)
+                                        val (sim1Status, sim2Status) = daemonHolder.networkMonitor.simStatuses()
                                         var sim2Available = sim2Status != SimSlotStatus.DISABLED && sim2Status != SimSlotStatus.NO_SIM
                                         var sim2Parsed: DaemonResponse? = null
                                         if (!sim2Available) {
@@ -302,7 +302,8 @@ class MainActivity : ComponentActivity() {
                                             sim1PlmnLock, sim2PlmnLock,
                                             initNrIndependentSupported ?: nrIndependentSupported,
                                             sim2Available = sim2Available,
-                                            sim2Status = sim2Status
+                                            sim2Status = sim2Status,
+                                            sim1Status = sim1Status
                                         )
 
                                         // I6: Enable verbose logging on startup if debug is enabled
@@ -335,16 +336,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // SIM 2 can be turned off or taken out at any time. Re-read its card
-                // status on resume and on every pull-to-refresh: if it became usable
-                // or unusable, init again so SIM 2's state is (un)loaded and the SIM
-                // pagers gain or drop their second page. One read-only request.
-                // Every check reads card status afresh, so an unreadable status at
-                // startup (UNKNOWN) doesn't stop later checks.
+                // Either SIM can be turned off or taken out at any time. Re-read card
+                // status on resume and on every pull-to-refresh. SIM 2: if it became
+                // usable or unusable, init again so its state is (un)loaded and the SIM
+                // pagers gain or drop their second page. SIM 1 stays bound (the modem
+                // keeps subscription 1), so only its status (tab label, Network note)
+                // changes. One read-only request. Every check reads card status afresh,
+                // so an unreadable status at startup (UNKNOWN) doesn't stop later checks.
                 fun recheckSim2() {
                     if (modemState == null || isLoading) return
                     scope.launch {
-                        val status = withContext(Dispatchers.IO) { daemonHolder.networkMonitor.simStatus(2) }
+                        val (status1, status) = withContext(Dispatchers.IO) { daemonHolder.networkMonitor.simStatuses() }
+                        if (status1 != SimSlotStatus.UNKNOWN && modemState != null && status1 != modemState?.sim1Status) {
+                            AppLog.i(TAG, "SIM 1 card status ${modemState?.sim1Status} -> $status1")
+                            modemState = modemState?.copy(sim1Status = status1)
+                        }
                         val current = modemState ?: return@launch
                         // Unreadable this time: can't tell, try again on the next check.
                         // Unchanged: nothing to do (a SIM 2 that's ready but that the
@@ -378,7 +384,11 @@ class MainActivity : ComponentActivity() {
                     monitor.nrHardwareBands = state.hardware.nr
                     simLabels = withContext(Dispatchers.IO) {
                         simTabLabels(listOf(
-                            monitor.operatorNameForLabel(1),
+                            when (state.sim1Status) {
+                                SimSlotStatus.DISABLED -> "Off"
+                                SimSlotStatus.NO_SIM -> "No SIM"
+                                else -> monitor.operatorNameForLabel(1)
+                            },
                             if (state.sim2Available) monitor.operatorNameForLabel(2)
                             else when (state.sim2Status) {
                                 SimSlotStatus.DISABLED -> "Off"

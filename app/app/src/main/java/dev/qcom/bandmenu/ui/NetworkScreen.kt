@@ -126,6 +126,8 @@ fun NetworkScreen(
     isActive: Boolean,
     simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     sim2Available: Boolean = true,
+    /** SIM 1's card status: off or absent shows a note instead of its readings. */
+    sim1Status: dev.qcom.bandmenu.network.SimSlotStatus = dev.qcom.bandmenu.network.SimSlotStatus.UNKNOWN,
     /** Extra work on pull-to-refresh (MainActivity re-checks SIM 2's card status). */
     onRefresh: () -> Unit = {},
     /** Menu: replay on or off. */
@@ -314,6 +316,8 @@ fun NetworkScreen(
                         val snap = pageState.snapshot
                         when {
                             sim == 2 && !sim2Available -> Sim2UnavailableNote()
+                            sim == 1 && sim1Status == dev.qcom.bandmenu.network.SimSlotStatus.DISABLED -> NoticeCard("SIM 1 is turned off.")
+                            sim == 1 && sim1Status == dev.qcom.bandmenu.network.SimSlotStatus.NO_SIM -> NoticeCard("No SIM in slot 1.")
                             snap == null && pageState.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
                             snap == null -> NoticeCard(pageState.error!!)
                             else -> {
