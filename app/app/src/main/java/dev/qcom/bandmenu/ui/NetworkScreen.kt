@@ -146,8 +146,7 @@ fun NetworkScreen(
     val context = LocalContext.current
     val state by monitor.state.collectAsState()
     val density = LocalDensity.current
-    val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
-    val navbarSpace = 64.dp + 16.dp + navInset
+    val navbarSpace = navbarSpace()
     val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top).asPaddingValues(density).calculateTopPadding()
     val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight
     val haptic = LocalHapticFeedback.current
@@ -362,7 +361,7 @@ fun NetworkScreen(
                     if (replayPlaying) replayPlaying = false
                     else { if (replayPos >= r.size - 1) replayPos = 0; replayPlaying = true }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = navbarSpace + 12.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = floatingControlBottom(12.dp))
             )
         }
         // Test script: play/pause at the top left.
@@ -487,7 +486,6 @@ private fun NetworkContent(
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
-        SmallTitle("Serving cell", modifier = Modifier.padding(top = 2.dp))
         Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull()) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
@@ -501,7 +499,8 @@ private fun NetworkContent(
     // NSA: one ENDC table unless the menu separates LTE and NR. Anchored by
     // position, so the LTE table turning ENDC and back keeps its place.
     val groups = snap.endc?.takeIf { !endcSeparate }?.let(::listOf) ?: snap.carrierGroups
-    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g) } }
+    // With the serving cell hidden, the tables go without their headings too.
+    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g, title = !servingHidden) } }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
     if (state.diagEnabled && thput.isNotEmpty()) {
@@ -659,8 +658,8 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
 }
 
 @Composable
-private fun CarrierSection(group: CarrierGroup) {
-    SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp))
+private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
+    if (title) SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp))
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             if (group.summary.isNotEmpty()) {

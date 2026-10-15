@@ -136,8 +136,18 @@ class SnapshotBuilder(
     /** NR bands the modem supports, to resolve overlapping NR-ARFCN ranges. */
     private val nrHardwareBands: Set<Int> = emptySet(),
     /** DIAG PDSCH stats for this round; null when DIAG is off. */
-    private val diag: DiagStats? = null
+    private val diag: DiagStats? = null,
+    /** DIAG mode is on (even when this round's DIAG read failed or hasn't started). */
+    private val diagMode: Boolean = diag != null
 ) {
+
+    /**
+     * An NR band derived from the NR-ARFCN. In DIAG mode an ARFCN two bands
+     * share (n77/n78, n38/n41, n5/n26) gives none, so the band shows "–"
+     * until the modem names it (B825, B823, RRC); one that only one band
+     * covers is shown at once.
+     */
+    private fun nrBandFromArfcn(arfcn: Long): String? = nrBandLabelForArfcn(arfcn, nrHardwareBands, pairs = !diagMode)
 
     private inline fun <T> decode(key: String, block: (QmiFrame) -> T): T? {
         val r = reads[key] as? ReadOutcome.Ok ?: return null
@@ -263,9 +273,11 @@ class SnapshotBuilder(
         val pci = l?.pci ?: pcell?.pci
         val earfcn = l?.earfcn ?: pcell?.earfcn
         val band = rfFor(NasRadioIf.LTE)
+        // DIAG's bandwidth (the RRC configuration) first when DIAG has this cell.
+        val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
         val fields = buildList {
             (band?.bandEnum ?: pcell?.bandEnum)?.let { add(Field("Band", NasBands.label(it))) }
-            (pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
+            (d?.bandwidthMhz ?: pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
             earfcn?.let { add(Field("EARFCN", it.toString())) }
             pci?.let { add(Field("PCI", it.toString())) }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->
@@ -282,7 +294,6 @@ class SnapshotBuilder(
         // in SIG_INFO, for both. With DIAG on, all three come from the PCell's
         // B193 values, as in the DIAG CA table (QMI only where DIAG has none).
         val m = if (earfcn != null && pci != null) lteMeas[earfcn to pci] else null
-        val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
         val metrics = listOf(
             Metric("RSRP", MetricKind.RSRP, Rat.LTE, d?.rsrp ?: m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
             Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, d?.rsrq ?: m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
@@ -307,14 +318,16 @@ class SnapshotBuilder(
         // RF band info has no NR entry in NSA: DIAG's configured band, else
         // the band derived from the ARFCN (ambiguous where bands overlap).
         val bandLabel = band?.let { NasBands.label(it.bandEnum) }
-            ?: d?.band?.takeIf { it > 0 }?.let { "n$it" }
-            ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) }
+            ?: d?.band?.takeIf { it > 0 && nrBandFitsArfcn(it, d.arfcn) }?.let { "n$it" }
+            ?: ch?.let(::nrBandFromArfcn)
         val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
         val fields = buildList {
             if (sa) {
                 // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.
-                put("Band", bandLabel)
-                band?.bandwidthMhz?.let { add(Field("Bandwidth", mhz(it))) }
+                put("Band", bandLabel ?: if (diagMode) "–" else null)
+                // DIAG first: some modems (X60) report one fixed RF bandwidth
+                // code for every NR band (100 MHz on n41 90 MHz and on n28).
+                (d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
                 put("NARFCN", ch?.toString())
                 put("PCI", pci?.toString())
                 put("SCS", s?.nrScsKhz?.let { "$it kHz" })
@@ -490,7 +503,7 @@ class SnapshotBuilder(
             title = "NR aggregation",
             summary = "",
             carriers = extra.map { ch ->
-                Carrier(nrBandLabelForArfcn(ch, nrHardwareBands) ?: "n?", null,
+                Carrier(nrBandFromArfcn(ch) ?: if (diagMode) "–" else "n?", null,
                     ch.toString() + (nrFrequencyForArfcn(ch.toInt())?.let { " (${String.format(Locale.US, "%.1f MHz", it)})" } ?: ""), null, null, null)
             },
             note = "QMI only reports frequency data for NR Scells"
@@ -504,6 +517,9 @@ class SnapshotBuilder(
      * when B825, sent only on reconfiguration, hasn't been seen).
      * The PCell: B823 when the helper saw one, else QMI's NR serving cell,
      * else the modem's carrier 0.
+     * Band: the helper's (B825, B823 for the PCell, RRC), used only if the
+     * cell's NR-ARFCN is in it; else derived from the NR-ARFCN when only one
+     * band covers it; else "–" until the modem names it.
      */
     private fun diagNrCarriers(): CarrierGroup? {
         val list = diag?.nr?.takeIf { it.isNotEmpty() } ?: return null
@@ -522,7 +538,7 @@ class SnapshotBuilder(
             carriers = ordered.mapIndexed { i, d ->
                 Carrier(
                     role = if (i == 0) "P" else "S$i",
-                    band = d.band?.takeIf { it > 0 }?.let { "n$it" } ?: nrBandLabelForArfcn(d.arfcn, nrHardwareBands),
+                    band = d.band?.takeIf { it > 0 && nrBandFitsArfcn(it, d.arfcn) }?.let { "n$it" } ?: nrBandFromArfcn(d.arfcn),
                     channel = d.arfcn.toString(),
                     bandwidthMhz = d.bandwidthMhz?.toDouble(),
                     state = if (d === primary) "Primary" else "Active",
@@ -567,7 +583,7 @@ class SnapshotBuilder(
         val band = rfFor(NasRadioIf.NR5G)
         val scg = Carrier(
             role = "SCG",
-            band = band?.let { NasBands.label(it.bandEnum) } ?: nrBandLabelForArfcn(ch, nrHardwareBands),
+            band = band?.let { NasBands.label(it.bandEnum) } ?: nrBandFromArfcn(ch),
             channel = ch.toString(),
             bandwidthMhz = band?.bandwidthMhz,
             state = "Primary",
@@ -575,7 +591,7 @@ class SnapshotBuilder(
             rsrp = sig?.nrRsrp?.toDouble(), rsrq = sig?.nrRsrq?.toDouble(), sinr = sig?.nrSnr
         )
         val scells = arfcn?.nrServing.orEmpty().filter { it != ch }.map {
-            Carrier("S", nrBandLabelForArfcn(it, nrHardwareBands) ?: "n?", it.toString(), null, null, null)
+            Carrier("S", nrBandFromArfcn(it) ?: if (diagMode) null else "n?", it.toString(), null, null, null)
         }
         return listOf(scg) + scells
     }

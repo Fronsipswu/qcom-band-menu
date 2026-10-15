@@ -93,6 +93,9 @@ fun MainScreen(
     snackbarMessage: String?,
     snackbarIsError: Boolean,
     onSnackbarShown: () -> Unit,
+    /** Info page menu: the floating navigation bar hidden (persisted by the caller); pages still swipe. */
+    navbarHidden: Boolean = false,
+    onNavbarHiddenToggle: (Boolean) -> Unit = {},
     debugEnabled: Boolean,
     onDebugToggle: () -> Unit,
     onCellLockSimSwitch: (Int) -> Unit,
@@ -189,6 +192,7 @@ fun MainScreen(
                 flingBehavior = PagerDefaults.flingBehavior(state = pagerState, snapAnimationSpec = PageSettleSpec),
                 modifier = Modifier.fillMaxSize().layerBackdrop(backdrop)
             ) { page ->
+                androidx.compose.runtime.CompositionLocalProvider(LocalNavbarHidden provides navbarHidden) {
                 Box(modifier = Modifier.fillMaxSize().nestedScroll(settleAfterChildFling)) {
                     when (page) {
                         0 -> NetworkScreen(
@@ -260,14 +264,17 @@ fun MainScreen(
                             onDebugToggle = onDebugToggle,
                             onDetach = onDetach,
                             onAttach = onAttach,
-                            onReattach = onReattach
+                            onReattach = onReattach,
+                            navbarHidden = navbarHidden,
+                            onNavbarHiddenToggle = onNavbarHiddenToggle
                         )
                     }
+                }
                 }
             }
 
             // Navbar overlay (floating on top of content, edge-to-edge)
-            Box(
+            if (!navbarHidden) Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
@@ -306,7 +313,7 @@ fun MainScreen(
 
             // Snackbar overlay (above the floating navbar)
             val navInset = WindowInsets.navigationBars.asPaddingValues(density).calculateBottomPadding()
-            val navbarHeightDp = 64.dp
+            val navbarHeightDp = if (navbarHidden) 0.dp else 64.dp
             // Bands page has Apply/Reset buttons (~72dp) at the bottom, so the snackbar
             // needs extra clearance. Cells and Info pages have no buttons.
             val buttonSpace = if (selectedIndex == 1) 62.dp else 0.dp

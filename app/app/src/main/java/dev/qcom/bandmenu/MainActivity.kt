@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 var servingHidden by remember { mutableStateOf(false) }
                 var thputHidden by remember { mutableStateOf(false) }
                 var endcSeparate by remember { mutableStateOf(true) }
+                var navbarHidden by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -168,6 +169,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getEndcSeparate(bandDataStore).collectLatest { separate ->
                         endcSeparate = separate
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getNavbarHidden(bandDataStore).collectLatest { hidden ->
+                        navbarHidden = hidden
                     }
                 }
 
@@ -1095,6 +1102,11 @@ class MainActivity : ComponentActivity() {
                     snackbarMessage = snackbarMessage,
                     snackbarIsError = snackbarIsError,
                     onSnackbarShown = { snackbarMessage = null },
+                    navbarHidden = navbarHidden,
+                    onNavbarHiddenToggle = { hidden ->
+                        navbarHidden = hidden
+                        scope.launch { BandPreferences.setNavbarHidden(bandDataStore, hidden) }
+                    },
                     debugEnabled = debugEnabled,
                     onDebugToggle = {
                         val newVal = !debugEnabled

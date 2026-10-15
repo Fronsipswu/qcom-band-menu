@@ -35,6 +35,7 @@ object BandPreferences {
     private val SERVING_HIDDEN = booleanPreferencesKey("serving_hidden")
     private val THPUT_HIDDEN = booleanPreferencesKey("thput_hidden")
     private val ENDC_SEPARATE = booleanPreferencesKey("endc_separate")
+    private val NAVBAR_HIDDEN = booleanPreferencesKey("navbar_hidden")
 
     internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
     internal val BAND_FILTER_GSM_SIM1 = stringSetPreferencesKey("band_filter_gsm_sim1")
@@ -203,6 +204,14 @@ object BandPreferences {
 
     suspend fun setThputHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
         dataStore.edit { it[THPUT_HIDDEN] = hidden }
+    }
+
+    fun getNavbarHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[NAVBAR_HIDDEN] ?: false }
+    }
+
+    suspend fun setNavbarHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
+        dataStore.edit { it[NAVBAR_HIDDEN] = hidden }
     }
 
     fun getEndcSeparate(dataStore: DataStore<Preferences>): Flow<Boolean> {
