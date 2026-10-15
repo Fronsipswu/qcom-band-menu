@@ -588,9 +588,8 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                     }
                 }
             }
-            // Operator, PLMN and roaming: a row of their own after the cell's
-            // first row (band, bandwidth, channel); in NR SA after the second
-            // (PCI, SCS, frequency) too.
+            // Operator, PLMN and roaming: the top row (GSM: after the cell's first
+            // row).
             val operatorRow = listOf(
                 Field("Operator", state.operatorName ?: "–"),
                 Field("PLMN", snap.plmn?.toString() ?: "–"),
@@ -604,7 +603,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             val fields = serving?.fields.orEmpty()
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.NR_SA) 2 else 1)
+                FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.GSM) 1 else 0)
             }
         }
     }

@@ -282,17 +282,23 @@ class SnapshotBuilder(
         val band = rfFor(NasRadioIf.LTE)
         // DIAG's bandwidth (the RRC configuration) first when DIAG has this cell.
         val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
+        // Rows of three (after the operator row): Band, Bandwidth, EARFCN / PCI,
+        // TAC, Timing Advance / eNB/Sector, DL / UL. The first two rows
+        // show "–" for a missing value so each field keeps its row.
         val fields = buildList {
-            (band?.bandEnum ?: pcell?.bandEnum)?.let { add(Field("Band", NasBands.label(it))) }
-            (d?.bandwidthMhz ?: pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
-            earfcn?.let { add(Field("EARFCN", it.toString())) }
-            pci?.let { add(Field("PCI", it.toString())) }
+            fun row(label: String, v: String?) = add(Field(label, v ?: "–"))
+            row("Band", (band?.bandEnum ?: pcell?.bandEnum)?.let { NasBands.label(it) })
+            row("Bandwidth", (d?.bandwidthMhz ?: pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let(::mhz))
+            row("EARFCN", earfcn?.toString())
+            row("PCI", pci?.toString())
+            row("TAC", (l?.tac ?: sys?.common?.get(Rat.LTE)?.tac)?.toString())
+            row("Timing Advance", null)   // placeholder
+            // eNB/sector only (not the full ECI): fits a slot, so DL / UL shares the row.
+            (l?.eci ?: sys?.common?.get(Rat.LTE)?.cellId)?.let { eci ->
+                add(Field("eNB/Sector", "${eci shr 8}/${eci and 0xFF}"))
+            }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->
                 add(Field("DL / UL", "${fmt(f.downlinkMhz)} / ${f.uplinkMhz?.let(::fmt) ?: "—"} MHz"))
-            }
-            (l?.tac ?: sys?.common?.get(Rat.LTE)?.tac)?.let { add(Field("TAC", it.toString())) }
-            (l?.eci ?: sys?.common?.get(Rat.LTE)?.cellId)?.let { eci ->
-                add(Field("ECI (eNB/sector)", "$eci (${eci shr 8}/${eci and 0xFF})"))
             }
         }
         val s = sig
@@ -330,18 +336,22 @@ class SnapshotBuilder(
         val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
         val fields = buildList {
             if (sa) {
-                // Rows of three: Band, Bandwidth, NR-ARFCN / PCI, SCS, Frequency / TAC, NCI.
-                put("Band", bandLabel ?: if (diagMode) "–" else null)
+                // Rows of three (after the operator row): Band, Bandwidth, NR-ARFCN /
+                // SCS, Frequency, Timing Advance / PCI, TAC, NCI. A missing value is
+                // "–" so each field keeps its row.
+                fun row(label: String, v: String?) = add(Field(label, v ?: "–"))
+                row("Band", bandLabel)
                 // DIAG first: some modems (X60) report one fixed RF bandwidth
                 // code for every NR band (100 MHz on n41 90 MHz and on n28).
-                (d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz)?.let { add(Field("Bandwidth", mhz(it))) }
-                put("NARFCN", ch?.toString())
-                put("PCI", pci?.toString())
-                put("SCS", s?.nrScsKhz?.let { "$it kHz" })
-                put("Frequency", frequency)
-                (s?.nrTac ?: n?.tac)?.let { add(Field("TAC", it.toString())) }
+                row("Bandwidth", (d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz)?.let(::mhz))
+                row("NARFCN", ch?.toString())
+                row("SCS", s?.nrScsKhz?.let { "$it kHz" })
+                row("Frequency", frequency)
+                row("Timing Advance", null)   // placeholder
+                row("PCI", pci?.toString())
+                row("TAC", (s?.nrTac ?: n?.tac)?.toString())
                 // NCI is never split into gNB/sector: the gNB ID length isn't reported.
-                (s?.nrNci ?: n?.nci)?.let { add(Field("NCI", it.toString())) }
+                row("NCI", (s?.nrNci ?: n?.nci)?.toString())
             } else {
                 put("Band", bandLabel)
                 put("NARFCN", ch?.toString())
@@ -373,8 +383,9 @@ class SnapshotBuilder(
             uarfcn?.let { add(Field("UARFCN", it.toString())) }
             uarfcn?.let(::wcdmaFrequencyForUarfcn)?.let { add(Field("Frequency", mhz(it))) }
             w?.psc?.let { add(Field("PSC", it.toString())) }
-            // Cell ID = RNC (high 16 bits) and CID.
-            w?.cellId?.let { add(Field("Cell ID", "$it (${it shr 16}, ${it and 0xFFFF})")) }
+            // Cell ID = RNC (high 16 bits) / CID, short enough for PSC, Cell ID and
+            // LAC to share a row.
+            w?.cellId?.let { add(Field("Cell ID", "${it shr 16} / ${it and 0xFFFF}")) }
             w?.lac?.let { add(Field("LAC", it.toString())) }
             errRate?.second?.let { add(Field("BLER", "$it %")) }
         }
