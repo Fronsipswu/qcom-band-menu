@@ -7,6 +7,10 @@
 
 #include <stdint.h>
 
+/* The SIM (0 = SIM 1, 1 = SIM 2) the next calls apply to; each keeps its
+ * own configuration. */
+void rrc_csi_select(int index);
+
 /* Applies one B821 log payload (from its version word on). Messages other
  * than RRC reconfigurations are ignored. */
 void rrc_csi_b821(const uint8_t *payload, int length);

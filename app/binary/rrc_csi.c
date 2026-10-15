@@ -53,8 +53,17 @@ struct group {
     struct cell cell[CELLS];
 };
 
-static struct group groups[GROUPS];
-static int initialised;
+/* One configuration per SIM (dual SIM); rrc_csi_select picks the current. */
+#define SIMS 2
+static struct group groups_s[SIMS][GROUPS];
+static int initialised_s[SIMS];
+static int sim;
+#define groups (groups_s[sim])
+#define initialised (initialised_s[sim])
+
+void rrc_csi_select(int index) {
+    sim = index >= 0 && index < SIMS ? index : 0;
+}
 
 static void init_once(void) {
     if (initialised)

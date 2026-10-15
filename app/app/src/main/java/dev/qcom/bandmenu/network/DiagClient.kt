@@ -147,7 +147,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.7"
+        private const val EXPECTED_VERSION = "1.22.8"
     }
 
     private var socket: LocalSocket? = null
@@ -161,23 +161,28 @@ class DiagClient(private val context: Context) {
     var lastStatsJson: JSONObject? = null
         private set
 
-    /** One window of stats, starting the helper first if needed. Blocking. */
+    /**
+     * One window of stats for [sim] (1 or 2), starting the helper first if
+     * needed. Blocking. The helper keeps each SIM's logs apart when the modem
+     * names their subscription ("sim_tags"); otherwise everything is SIM 1.
+     */
     @Synchronized
-    fun stats(): DiagStats {
+    fun stats(sim: Int = 1): DiagStats {
+        val ask = """{"cmd":"stats","sim":$sim}"""
         if (socket == null) ensureRunning()
         val resp = try {
-            request("""{"cmd":"stats"}""")
+            request(ask)
         } catch (e: IOException) {
             // The helper exited (watchdog after a pause, or a crash): once more.
             close()
             ensureRunning()
-            request("""{"cmd":"stats"}""")
+            request(ask)
         }
         if (resp.optString("version") != EXPECTED_VERSION) {
             AppLog.i(TAG, "helper v${resp.optString("version")} != v$EXPECTED_VERSION, restarting")
             stopHelper()
             ensureRunning()
-            return DiagStats.parse(request("""{"cmd":"stats"}""").also { lastStatsJson = it })
+            return DiagStats.parse(request(ask).also { lastStatsJson = it })
         }
         lastStatsJson = resp
         return DiagStats.parse(resp)

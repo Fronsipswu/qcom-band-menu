@@ -12,7 +12,8 @@
  *
  * Socket: abstract "qbm_diagd", one NDJSON request per line, only from <app
  * uid> (SO_PEERCRED):
- *   {"cmd":"stats"}  -> per-carrier summary since the previous "stats"
+ *   {"cmd":"stats","sim":N} -> SIM N's per-carrier summary since the previous
+ *                       "stats" (N 1 or 2, default 1)
  *   {"cmd":"stop"}   -> unsubscribe, release and exit
  * Without a "stats" request for WATCHDOG_MS the helper unsubscribes and exits
  * by itself, so it never keeps logging after the app goes away.
@@ -59,7 +60,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.7"
+#define HELPER_VERSION "1.22.8"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -68,6 +69,7 @@
 #define SLOTS 8
 
 typedef int (*lsm_init_t)(void *);
+typedef int (*set_version_t)(int, int);
 typedef int (*lsm_deinit_t)(void);
 typedef int (*reg_client_t)(int *, uint16_t *, int, void *);
 typedef int (*rel_client_t)(int *);
@@ -102,9 +104,28 @@ struct slot {
 struct ca_cell { int known; uint32_t earfcn; int pci, band, bw_raw, state; };
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static struct slot win[SLOTS];
-static struct ca_cell ca[SLOTS];       /* [0] = PCell, [n] = SCell n */
-static int ca_seen = 0;
+
+/* Dual SIM: with the DCI extended header (diag_dci_set_version 1) every log
+ * names its subscription (1 = SIM 1, 2 = SIM 2), and each SIM keeps its own
+ * state. Per-SIM variables are arrays over SIMS, used through a macro that
+ * picks the current SIM, `sim` (set under `lock` by on_log and write_stats).
+ * Without the header (older libdiag) everything is SIM 1. */
+#define SIMS 2
+static int sim = 0;
+static int sim_tags = 0;               /* the extended header was granted */
+
+static struct slot win_s[SIMS][SLOTS];
+#define win (win_s[sim])
+static struct ca_cell ca_s[SIMS][SLOTS];   /* [0] = PCell, [n] = SCell n */
+#define ca (ca_s[sim])
+static int ca_seen_s[SIMS];
+#define ca_seen (ca_seen_s[sim])
+/* A SIM that sent no log for SILENT_MS is off or out of service (an idle
+ * SIM still measures every paging cycle, <= 2.56 s): its last carrier lists
+ * are not shown. */
+#define SILENT_MS 10000
+static long last_log_s[SIMS];
+#define last_log_ms (last_log_s[sim])
 static long n_logs = 0;
 static const char *lib_route = "default";   /* how libdiag was opened: "default" or "sphal" */
 static volatile int stopping = 0;
@@ -113,6 +134,7 @@ static volatile sig_atomic_t stop_flag = 0;
 static void on_signal(int s) { (void)s; stop_flag = 1; }
 static long now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000L + t.tv_nsec / 1000000; }
 static uint16_t le16(const uint8_t *p) { return p[0] | (p[1] << 8); }
+static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 
 /* Little-endian bit field (bit 0 = LSB of byte 0), as in the Qualcomm ICD. */
 static uint32_t bits(const uint8_t *p, int off, int len) {
@@ -346,7 +368,8 @@ struct meas { int have_rsrp, have_rsrq, have_sinr; double rsrp, rsrq, sinr; uint
  * helper started after CA was set up may never see one; B193 arrives
  * several times a second. */
 struct live_cell { uint32_t earfcn; int pci; long at_ms; };
-static struct live_cell live[SLOTS];
+static struct live_cell live_s[SIMS][SLOTS];
+#define live (live_s[sim])
 #define LIVE_MS 3000
 
 /* Idle: the modem measures once per paging cycle (1.28 or 2.56 s), so many
@@ -355,7 +378,9 @@ static struct live_cell live[SLOTS];
  * cell only (matching carriers still uses LIVE_MS). */
 #define HOLD_MS 5000
 struct held { double v; long at_ms; uint32_t arfcn; int pci; };
-static struct held lte_held[SLOTS][3], nr_held[SLOTS][5];
+static struct held lte_held_s[SIMS][SLOTS][3], nr_held_s[SIMS][SLOTS][5];
+#define lte_held (lte_held_s[sim])
+#define nr_held (nr_held_s[sim])
 
 /* The window's mean when it has samples (remembered for this cell), else the
  * remembered value while it's under HOLD_MS old and for the same cell. A
@@ -493,7 +518,8 @@ struct nr_slot {
     /* B8A7: last report in the window */
     int cqi, ri, have_csf;
 };
-static struct nr_slot nrwin[SLOTS];
+static struct nr_slot nrwin_s[SIMS][SLOTS];
+#define nrwin (nrwin_s[sim])
 
 /* Length of a count-prefixed channel block. */
 static int b883_counted_bytes(const uint8_t *p, int n, int base_bits,
@@ -574,20 +600,28 @@ struct nr_cell {
     int known, pci, band, bw_mhz, scs_khz, max_layers;
     uint32_t dl_arfcn, ssb_arfcn;
 };
-static struct nr_cell nrcc[SLOTS];
-static int nr_b825_seen = 0;
+static struct nr_cell nrcc_s[SIMS][SLOTS];
+#define nrcc (nrcc_s[sim])
+static int nr_b825_seen_s[SIMS];
+#define nr_b825_seen (nr_b825_seen_s[sim])
 /* B97F: which carrier each cc_id is right now (SSB NR-ARFCN, serving PCI). */
-static struct live_cell nrlive[SLOTS];
+static struct live_cell nrlive_s[SIMS][SLOTS];
+#define nrlive (nrlive_s[sim])
 /* B887: each carrier's bandwidth and SCS as its TBs report them, for the
  * cell named (B825 is only sent when the configuration changes, so a helper
  * started mid-session may never see one). */
 struct nr_tb_info { int pci, bw_mhz, scs_khz; uint32_t arfcn; };
-static struct nr_tb_info nrtb[SLOTS];
+static struct nr_tb_info nrtb_s[SIMS][SLOTS];
+#define nrtb (nrtb_s[sim])
 /* B823: the PCell (serving cell) and its band (0 = not in this version). */
-static int nr_pcell_pci = -1;
-static uint32_t nr_pcell_arfcn = 0;
-static int nr_pcell_band = 0;
-static long nr_pcell_ms = 0;
+static int nr_pcell_pci_s[SIMS] = { -1, -1 };
+#define nr_pcell_pci (nr_pcell_pci_s[sim])
+static uint32_t nr_pcell_arfcn_s[SIMS];
+#define nr_pcell_arfcn (nr_pcell_arfcn_s[sim])
+static int nr_pcell_band_s[SIMS];
+#define nr_pcell_band (nr_pcell_band_s[sim])
+static long nr_pcell_ms_s[SIMS];
+#define nr_pcell_ms (nr_pcell_ms_s[sim])
 
 /* NR5G RRC Configuration Info: count-field arrays (CC groups) before the
  * serving cell list, then the cells; positions per version from
@@ -1037,13 +1071,25 @@ static void b8a7(const uint8_t *payload, int size) {
     }
 }
 
-/* DCI log: [u16 len][u16 code][u64 timestamp][payload]. */
+/* DCI log: [u16 len][u16 code][u64 timestamp][payload]. With the extended
+ * header: [0x98][1][2 reserved][u32 subscription][i32 -1][log] (seen on
+ * SM8550 with two SIMs; every log carries it). */
 static void on_log(unsigned char *ptr, int len) {
     if (len < 12 || stopping) return;
+    int sub = 1;
+    if (len >= 24 && (int32_t)le32(ptr + 8) == -1 && le16(ptr + 12) + 12 == len) {
+        sub = (int)le32(ptr + 4);
+        ptr += 12;
+        len -= 12;
+    }
+    if (sub < 1 || sub > SIMS) return;
     uint16_t code = le16(ptr + 2);
     const uint8_t *pl = ptr + 12;
     int pn = len - 12;
     pthread_mutex_lock(&lock);
+    sim = sub - 1;
+    rrc_csi_select(sim);
+    last_log_ms = now_ms();
     n_logs++;
     if (code == 0xB173) b173(pl, pn);
     else if (code == 0xB126) b126(pl, pn);
@@ -1096,21 +1142,24 @@ static int argmax(const long *v, int n) {
 
 static long window_start;
 
-static int write_stats(char *out, size_t cap) {
+static int write_stats(char *out, size_t cap, int for_sim) {
     pthread_mutex_lock(&lock);
+    sim = for_sim >= 1 && for_sim <= SIMS ? for_sim - 1 : 0;
+    rrc_csi_select(sim);
     long now = now_ms(), ms = now - window_start;
     if (ms < 1) ms = 1;
     size_t o = 0;
 #define PUT(...) do { int k = snprintf(out + o, o < cap ? cap - o : 0, __VA_ARGS__); if (k > 0) o += (size_t)k; } while (0)
-    PUT("{\"ok\":true,\"version\":\"%s\",\"lib\":\"%s\",\"ms\":%ld,\"logs\":%ld,\"ca_known\":%s,\"carriers\":[",
-        HELPER_VERSION, lib_route, ms, n_logs, ca_seen ? "true" : "false");
+    PUT("{\"ok\":true,\"version\":\"%s\",\"lib\":\"%s\",\"ms\":%ld,\"logs\":%ld,\"sim\":%d,\"sim_tags\":%s,\"ca_known\":%s,\"carriers\":[",
+        HELPER_VERSION, lib_route, ms, n_logs, sim + 1, sim_tags ? "true" : "false", ca_seen ? "true" : "false");
     int first = 1;
+    int silent = !last_log_ms || now - last_log_ms > SILENT_MS;
     /* A B184 is only current while its PCell is the live one: after a
      * handover or release without a new B184 (X85 sends them on events
      * only), its SCell list belongs to the old PCell. */
     int live0 = live[0].at_ms && now - live[0].at_ms < LIVE_MS;
     int b184_current = !live0 || (ca[0].known && ca[0].earfcn == live[0].earfcn && ca[0].pci == live[0].pci);
-    for (int i = 0; i < SLOTS; i++) {
+    for (int i = 0; i < SLOTS && !silent; i++) {
         struct slot *s = &win[i];
         /* Which carrier this slot is: B193's live serving record first (it
          * follows handovers and reconfigurations even without a B184), then
@@ -1196,7 +1245,7 @@ static int write_stats(char *out, size_t cap) {
         }
     PUT(",\"nr\":[");
     first = 1;
-    for (int i = 0; i < SLOTS; i++) {
+    for (int i = 0; i < SLOTS && !silent; i++) {
         struct nr_slot *s = &nrwin[i];
         const struct nr_cell *c = cfg_of[i];
         int lv = live_of[i], cfg = c != NULL;
@@ -1262,8 +1311,10 @@ static int write_stats(char *out, size_t cap) {
     }
     PUT("]}\n");
 #undef PUT
-    memset(win, 0, sizeof win);
-    memset(nrwin, 0, sizeof nrwin);
+    /* Every SIM's window restarts: the next answer for either SIM covers the
+     * time since this one. */
+    memset(win_s, 0, sizeof win_s);
+    memset(nrwin_s, 0, sizeof nrwin_s);
     window_start = now;
     pthread_mutex_unlock(&lock);
     return o < cap ? (int)o : -1;
@@ -1365,6 +1416,9 @@ int main(int argc, char **argv) {
     uint16_t periph = DIAG_CON_MPSS;
     int r = diag_register_dci_client(&client, &periph, DIAG_PROC_MSM, &sig);
     if (r != DCI_NO_ERROR) { fprintf(stderr, "DCI register failed: %d\n", r); Diag_LSM_DeInit(); return 1; }
+    /* The extended header names each log's subscription (dual SIM). */
+    set_version_t diag_dci_set_version = (set_version_t)dlsym(h, "diag_dci_set_version");
+    sim_tags = diag_dci_set_version && diag_dci_set_version(client, 1) == DCI_NO_ERROR;
     diag_register_dci_stream_proc(client, on_log, on_event);
     r = diag_log_stream_config(client, 1, CODES, NCODES);
     if (r != DCI_NO_ERROR) {
@@ -1407,7 +1461,8 @@ int main(int argc, char **argv) {
                 *nl = 0;
                 if (strstr(in, "\"stats\"")) {
                     last_request = now_ms();
-                    int n = write_stats(out, sizeof out);
+                    const char *n_sim = strstr(in, "\"sim\":");
+                    int n = write_stats(out, sizeof out, n_sim ? atoi(n_sim + 6) : 1);
                     if (n < 0 || write_all(cfd, out, (size_t)n) < 0) { close(cfd); cfd = -1; break; }
                 } else if (strstr(in, "\"stop\"")) {
                     write_all(cfd, "{\"ok\":true,\"stopping\":true}\n", 28);
