@@ -855,9 +855,9 @@ private fun CellValueBar(
 }
 
 /** A value with a fading blue bar behind it (the MCS/RBs rows): solid
- * primary at the left edge, fading out along the fill, [fraction] of the
- * cell's width. A null [fraction] shows the plain value, like a cell with
- * no bar. */
+ * primary at the fill's right end, fading out toward the left edge, over
+ * [fraction] of the cell's width. A null [fraction] shows the plain value,
+ * like a cell with no bar. */
 @Composable
 private fun CellGradientBar(text: String?, fraction: Float?, maxWidth: Dp, style: TextStyle) {
     if (text == null || fraction == null) {
@@ -872,7 +872,7 @@ private fun CellGradientBar(text: String?, fraction: Float?, maxWidth: Dp, style
             .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
             .drawBehind {
                 val w = size.width * fraction
-                drawRect(Brush.horizontalGradient(listOf(blue, blue.copy(alpha = 0.12f)), endX = w),
+                drawRect(Brush.horizontalGradient(listOf(blue.copy(alpha = 0.12f), blue), endX = w),
                     size = Size(w, size.height))
             }
             .padding(vertical = 1.dp),
