@@ -109,6 +109,19 @@ class SnapshotCaptureTest {
     }
 
     @Test
+    fun nsaNeedsALiveNrLeg() {
+        // With the ARFCN list, NSA follows its NR fields; without it, SYS_INFO's
+        // NR PCI counts only with a valid NR RSRP (a leftover PCI doesn't).
+        val nsa = rounds("nsa-qmi-20261009-3.jsonl").first()
+        assertEquals(ServiceMode.NR_NSA, snapshot(nsa).mode)
+        val noArfcn = nsa - NetworkReads.ARFCN
+        assertEquals(ServiceMode.NR_NSA, snapshot(noArfcn).mode)
+        // SIG_INFO without a valid NR RSRP (from the WCDMA capture: no NR values).
+        val noNrSig = rounds("wcdma-20261009-1.jsonl").first { NetworkReads.SIG in it }.getValue(NetworkReads.SIG)
+        assertEquals(ServiceMode.LTE, snapshot(noArfcn + (NetworkReads.SIG to noNrSig)).mode)
+    }
+
+    @Test
     fun lteTrafficCaptureShowsCarrierAggregation() {
         // load capture has SYS_INFO in only some samples; merge it into each round.
         assumeTrue(dir != null)

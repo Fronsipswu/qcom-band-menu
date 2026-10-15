@@ -176,7 +176,14 @@ class SnapshotBuilder(
 
     val mode: ServiceMode = run {
         val s = sys ?: return@run ServiceMode.NO_SERVICE
-        val nrLeg = s.nrPci != null || !arfcn?.nrServing.isNullOrEmpty() || arfcn?.nrRrc != null
+        // The ARFCN list's NR RRC state / serving channels when it was read (every
+        // NSA capture has them, also rounds without SYS_INFO's NR PCI). Without
+        // it, SYS_INFO's NR PCI (TLV 0x54) only with a valid NR RSRP in SIG_INFO:
+        // the PCI can stay after NR is gone (OnePlus 11 set to LTE only kept
+        // reporting one, with NR RSRP invalid, and the page stuck on NR NSA);
+        // every NSA capture has a valid NR RSRP.
+        val nrLeg = if (arfcn != null) !arfcn.nrServing.isNullOrEmpty() || arfcn.nrRrc != null
+            else s.nrPci != null && sig?.nrRsrp != null
         // NSA only while an NR leg is actually up; when the SCG drops the page
         // falls back to the LTE layout (EN-DC availability is not used).
         when {
