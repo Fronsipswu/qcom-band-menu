@@ -140,6 +140,11 @@ class NasDecodeTest {
         assertEquals("n41", nrBandLabelForArfcn(529950, setOf(1, 28, 40, 41)))
         assertEquals("n26", nrBandLabelForArfcn(172500, setOf(26)))
         assertEquals("n28", nrBandLabelForArfcn(153630))
+        // DIAG mode (pairs = false): an overlap gives no band; one band only is shown.
+        assertNull(nrBandLabelForArfcn(647328, setOf(77, 78), pairs = false))
+        assertEquals("n77", nrBandLabelForArfcn(667296, setOf(77, 78), pairs = false))
+        assertEquals("n78", nrBandLabelForArfcn(636000, setOf(1, 28, 78), pairs = false))
+        assertEquals("n41", nrBandLabelForArfcn(529950, pairs = false))
         assertNull(nrBandForArfcn(5))
         assertEquals(8, lteBandForEarfcn(3750)); assertEquals(3, lteBandForEarfcn(1275))
         assertEquals(1, wcdmaBandForUarfcn(10563)); assertEquals(8, wcdmaBandForUarfcn(2987))

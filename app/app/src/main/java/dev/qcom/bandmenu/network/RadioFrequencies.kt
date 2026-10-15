@@ -167,14 +167,14 @@ private val NR_AMBIGUOUS_PAIRS = listOf(
 
 /**
  * Band label for a derived NR band. Inside one of [NR_AMBIGUOUS_PAIRS] it's
- * "n77/78" etc. (short enough for a CA table column), unless the modem's
- * supported bands rule one of the two out, which leaves the other. Otherwise
- * "n<band>" from [nrBandForArfcn].
+ * "n77/78" etc. (short enough for a CA table column), or null with
+ * [pairs] false, unless the modem's supported bands rule one of the two out,
+ * which leaves the other. Otherwise "n<band>" from [nrBandForArfcn].
  */
-fun nrBandLabelForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): String? {
+fun nrBandLabelForArfcn(arfcn: Long, supported: Set<Int> = emptySet(), pairs: Boolean = true): String? {
     NR_AMBIGUOUS_PAIRS.firstOrNull { arfcn in it.third }?.let { (a, b, _) ->
         val possible = listOf(a, b).filter { supported.isEmpty() || it in supported }
-        return if (possible.size == 1) "n${possible[0]}" else "n$a/$b"
+        return if (possible.size == 1) "n${possible[0]}" else if (pairs) "n$a/$b" else null
     }
     return nrBandForArfcn(arfcn, supported)?.let { "n$it" }
 }

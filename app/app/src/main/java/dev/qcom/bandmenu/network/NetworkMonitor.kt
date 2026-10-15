@@ -192,7 +192,7 @@ class NetworkMonitor(
                 null
             }
         } else null
-        val snap = SnapshotBuilder(reads, nrHardwareBands, diagStats)
+        val snap = SnapshotBuilder(reads, nrHardwareBands, diagStats, diagMode = withDiag)
             .build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
