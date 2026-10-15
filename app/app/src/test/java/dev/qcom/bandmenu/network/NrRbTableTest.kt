@@ -1,5 +1,7 @@
 package dev.qcom.bandmenu.network
 
+import dev.qcom.bandmenu.ui.mcsCell
+import dev.qcom.bandmenu.ui.rbCell
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -60,5 +62,85 @@ class NrRbTableTest {
         assertEquals(1, nrFrequencyRange(null, 2_016_666))
         assertEquals(1, nrFrequencyRange(41, 501_000))
         assertEquals(1, nrFrequencyRange(null, 600_000))
+    }
+
+    /** A carrier, DIAG records optional per argument. */
+    private fun barCell(diag: DiagCarrier? = null, nr: DiagNrCarrier? = null) =
+        Carrier("P", null, "", null, null, null, diag = diag, nr = nr)
+
+    private fun lte(mcs: Double? = null, rbs: Double? = null) = DiagCarrier(
+        0, null, null, null, null, null, null, null, null, 0, 0.0, null, null, mcs, rbs,
+        null, null, null, null, null)
+
+    private fun nr(mcs: Double? = null, rbs: Double?,
+                  band: Int? = 78, arfcn: Long = 636_576, scsKhz: Int? = 30, bwMhz: Int? = 100) = DiagNrCarrier(
+        0, null, 1, arfcn, null, band, bwMhz, scsKhz, null,
+        null, null, null, null, null, 0, 0.0, null, null, mcs, rbs,
+        null, null, null)
+
+    @Test
+    fun mcsCellValueAndFractionOf31() {
+        val (text, fraction) = mcsCell(barCell(nr = nr(mcs = 15.5, rbs = 50.0)))
+        assertEquals("16", text)                       // Math.round(15.5) rounds half-up
+        assertEquals(0.5f, fraction!!, 1e-6f)
+        // The value chain stays diag ?: nr, both records span 0..31.
+        val (t28, f28) = mcsCell(barCell(diag = lte(mcs = 28.0)))
+        assertEquals("28", t28)
+        assertEquals(28f / 31f, f28!!, 1e-6f)
+        assertEquals("31" to 1.0f, mcsCell(barCell(nr = nr(mcs = 31.0, rbs = 0.0))))
+        assertEquals("0" to 0.0f, mcsCell(barCell(nr = nr(mcs = 0.0, rbs = 0.0))))
+        // Above the top: the bar clamps full.
+        assertEquals("40" to 1.0f, mcsCell(barCell(nr = nr(mcs = 40.0, rbs = 0.0))))
+        // No MCS this window: plain "–", no fraction.
+        val (tNull, fNull) = mcsCell(barCell(diag = lte(), nr = nr(mcs = null, rbs = null)))
+        assertNull(tNull)
+        assertNull(fNull)
+    }
+
+    @Test
+    fun rbCellLteOverTheFixedHundred() {
+        val (text, fraction) = rbCell(barCell(diag = lte(rbs = 100.0)))
+        assertEquals("100", text)
+        assertEquals(1.0f, fraction!!, 1e-6f)
+        val (t, f) = rbCell(barCell(diag = lte(rbs = 240.0)))
+        assertEquals("240", t)
+        assertEquals(1.0f, f!!, 1e-6f)                  // above the maximum: clamped full
+        val (t43, f43) = rbCell(barCell(diag = lte(rbs = 42.6)))
+        assertEquals("43", t43)
+        assertEquals(0.426f, f43!!, 1e-4f)
+        val (tNone, fNone) = rbCell(barCell(diag = lte(rbs = null)))
+        assertNull(tNone)
+        assertNull(fNone)
+    }
+
+    @Test
+    fun rbCellNrOverTheTables() {
+        // FR1 defaults (band n78, 30 kHz, 100 MHz): 273 max.
+        val (text, fraction) = rbCell(barCell(nr = nr(rbs = 136.5)))
+        assertEquals("137", text)
+        assertEquals(0.5f, fraction!!, 1e-6f)
+        // FR2 (n257-class band, 120 kHz, 100 MHz): 66 max.
+        val (t, f) = rbCell(barCell(nr = nr(rbs = 33.0, band = 257, arfcn = 2_077_152, scsKhz = 120)))
+        assertEquals("33", t)
+        assertEquals(0.5f, f!!, 1e-6f)
+    }
+
+    @Test
+    fun rbCellNrUsesTheCellsFrequencyRange() {
+        val (_, fr2f) = rbCell(barCell(nr = nr(rbs = 66.0, band = 258, arfcn = 2_077_152, scsKhz = 60)))
+        assertEquals(0.5f, fr2f!!, 1e-6f)               // FR2 60 kHz, 100 MHz -> 132
+        val (_, fr1f) = rbCell(barCell(nr = nr(rbs = 67.5, scsKhz = 60)))
+        assertEquals(0.5f, fr1f!!, 1e-6f)              // FR1 60 kHz, 100 MHz -> 135
+    }
+
+    @Test
+    fun rbCellNrWithoutCellConfigHasNoBar() {
+        // The cell's SCS/bandwidth arrive with RRC reconfiguration or traffic;
+        // until then the value shows with no bar.
+        assertEquals("100", rbCell(barCell(nr = nr(rbs = 100.0, scsKhz = null))).first)
+        assertNull(rbCell(barCell(nr = nr(rbs = 100.0, scsKhz = null))).second)
+        assertNull(rbCell(barCell(nr = nr(rbs = 100.0, bwMhz = null))).second)
+        // An SCS the band never carries: no table entry either.
+        assertNull(rbCell(barCell(nr = nr(rbs = 100.0, scsKhz = 240, bwMhz = 100))).second)
     }
 }

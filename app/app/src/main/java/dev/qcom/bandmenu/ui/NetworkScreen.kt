@@ -79,12 +79,15 @@ import dev.qcom.bandmenu.network.AntennaGroup
 import dev.qcom.bandmenu.network.Carrier
 import dev.qcom.bandmenu.network.CarrierGroup
 import dev.qcom.bandmenu.network.CellCard
+import dev.qcom.bandmenu.network.DiagNrCarrier
 import dev.qcom.bandmenu.network.Field
 import dev.qcom.bandmenu.network.Metric
 import dev.qcom.bandmenu.network.MetricKind
 import dev.qcom.bandmenu.network.Neighbor
 import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
+import dev.qcom.bandmenu.network.nrFrequencyRange
+import dev.qcom.bandmenu.network.nrMaxResourceBlocks
 import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ReplaySession
 import dev.qcom.bandmenu.network.ThputPoint
@@ -837,6 +840,30 @@ private fun CellValueBar(
             maxLines = 1, softWrap = false)
     }
 }
+
+/** The MCS cell of [c]: the rounded mean, and its share of the 0..31 range. */
+internal fun mcsCell(c: Carrier): Pair<String?, Float?> {
+    val v = c.diag?.mcs ?: c.nr?.mcs ?: return null to null
+    return Math.round(v).toString() to fillFraction(v, 31.0)
+}
+
+/** The RBs cell of [c]: the rounded mean, and its share of the cell's maximum
+ * RBs — the NR tables from the cell's FR/SCS/bandwidth (and no bar until those
+ * are reported), an LTE cell always over the fixed 100. */
+internal fun rbCell(c: Carrier): Pair<String?, Float?> {
+    val v = c.diag?.rbs ?: c.nr?.rbs ?: return null to null
+    return Math.round(v).toString() to rbFraction(c.nr, v)
+}
+
+private fun rbFraction(nr: DiagNrCarrier?, rbs: Double): Float? {
+    if (nr == null) return fillFraction(rbs, 100.0)
+    val scsKhz = nr.scsKhz ?: return null
+    val bwMhz = nr.bandwidthMhz ?: return null
+    val max = nrMaxResourceBlocks(nrFrequencyRange(nr.band, nr.arfcn), scsKhz, bwMhz) ?: return null
+    return fillFraction(rbs, max.toDouble())
+}
+
+private fun fillFraction(v: Double, max: Double): Float = (v / max).coerceIn(0.0, 1.0).toFloat()
 
 @Composable
 private fun Expandable(title: String, content: @Composable () -> Unit) {
