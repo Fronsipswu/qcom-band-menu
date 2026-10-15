@@ -438,7 +438,10 @@ static void decode_dl_dcch(const struct b821 *record, const uint8_t *message, in
     ASN_STRUCT_FREE(asn_DEF_DL_DCCH_Message, decoded);
 }
 
-/* Some modems log the NSA secondary configuration as a bare RRCReconfiguration. */
+/* Modems log the NSA secondary configuration (carried to the UE inside an
+ * LTE message) as a bare RRCReconfiguration, under a channel number that
+ * changes between versions: 9 up to v19, 11 in v26 (X80), 13 in v28 (X85),
+ * those two with no cell in the header. */
 static void decode_bare_reconfiguration(const uint8_t *message, int length) {
     RRCReconfiguration_t *decoded = NULL;
     asn_dec_rval_t result =
@@ -446,6 +449,15 @@ static void decode_bare_reconfiguration(const uint8_t *message, int length) {
     if (result.code == RC_OK && result.consumed == (size_t)length)
         apply_reconfiguration(decoded, 1);
     ASN_STRUCT_FREE(asn_DEF_RRCReconfiguration, decoded);
+}
+
+static int bare_reconfiguration_pdu(int version) {
+    switch (version) {
+    case 9: case 12: case 17: case 19: return 9;
+    case 26: return 11;
+    case 28: return 13;
+    default: return -1;
+    }
 }
 
 void rrc_csi_b821(const uint8_t *payload, int length) {
@@ -458,8 +470,13 @@ void rrc_csi_b821(const uint8_t *payload, int length) {
         decode_dl_dcch(&record, record.message, message_length);
     else if (record.pdu == 3 && record.version != 9)   /* DL-CCCH (v9's numbering is unknown) */
         decode_dl_ccch(&record, record.message, message_length);
-    else if ((record.version == 9 || record.version == 12 || record.version == 17
-              || record.version == 19) && record.pdu == 9)
+    else if (record.pdu == bare_reconfiguration_pdu(record.version))
+        decode_bare_reconfiguration(record.message, message_length);
+    /* A version not in the table: its channel number is unknown, but the
+     * record names no cell (as in v17/v26/v28) and holds a whole cell group
+     * configuration (tens to thousands of bytes); only a complete decode is
+     * applied. */
+    else if (bare_reconfiguration_pdu(record.version) < 0 && record.pci > 1007 && message_length >= 32)
         decode_bare_reconfiguration(record.message, message_length);
 }
 
