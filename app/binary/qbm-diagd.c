@@ -59,7 +59,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.5"
+#define HELPER_VERSION "1.22.6"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -583,9 +583,10 @@ static struct live_cell nrlive[SLOTS];
  * started mid-session may never see one). */
 struct nr_tb_info { int pci, bw_mhz, scs_khz; uint32_t arfcn; };
 static struct nr_tb_info nrtb[SLOTS];
-/* B823: the PCell (serving cell). */
+/* B823: the PCell (serving cell) and its band (0 = not in this version). */
 static int nr_pcell_pci = -1;
 static uint32_t nr_pcell_arfcn = 0;
+static int nr_pcell_band = 0;
 static long nr_pcell_ms = 0;
 
 /* NR5G RRC Configuration Info: count-field arrays (CC groups) before the
@@ -623,7 +624,10 @@ static void b825(const uint8_t *p, int n) {
     }
 }
 
-/* NR5G RRC Serving Cell Info: the PCell's PCI and DL NR-ARFCN. */
+/* NR5G RRC Serving Cell Info: the PCell's PCI, DL NR-ARFCN and band. The
+ * band is the modem's own, so it settles overlapping bands (n77/n78) where
+ * the NR-ARFCN can't; B825, which also names it, only comes with a
+ * reconfiguration. */
 static void b823(const uint8_t *p, int n) {
     if (n < 4) return;
     const struct b823_layout *L;
@@ -631,6 +635,7 @@ static void b823(const uint8_t *p, int n) {
     if (!L || !fits(L->pci, n) || !fits(L->dl_arfcn, n)) return;
     nr_pcell_pci = at(p, L->pci);
     nr_pcell_arfcn = at(p, L->dl_arfcn);
+    nr_pcell_band = L->band.bits && fits(L->band, n) ? (int)at(p, L->band) : 0;
     nr_pcell_ms = now_ms();
 }
 
@@ -1205,12 +1210,15 @@ static int write_stats(char *out, size_t cap) {
         int csi_ports = rrc_csi_ports(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn,
                                       pcell >= 0 ? pcell == i : -1);
         if (csi_ports) PUT(",\"csi_ports\":%d", csi_ports);
-        /* Band: B825's, else what the RRC configuration names (B825 only
-         * comes with a reconfiguration, so a helper started mid-session can
-         * have the RRC one and not B825's). */
-        int rrc_band = rrc_csi_band(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn);
+        /* Band: B825's, else B823's for the PCell, else what the RRC
+         * configuration names (B825 only comes with a reconfiguration, so a
+         * helper started mid-session can lack it; the RRC band is the first
+         * of the cell's band list). */
+        int band = cfg && c->band ? c->band : 0;
+        if (!band && pcell == i) band = nr_pcell_band;
+        if (!band) band = rrc_csi_band(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn);
         if (cfg) {
-            PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, c->band ? c->band : rrc_band);
+            PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, band);
             if (c->bw_mhz) PUT(",\"bw\":%d", c->bw_mhz);
             /* B825 0.x has no SCS: this carrier's TBs give it (same cell). */
             const struct nr_tb_info *t = &nrtb[i];
@@ -1219,7 +1227,7 @@ static int write_stats(char *out, size_t cap) {
             else if (tb_cell && t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
             if (c->max_layers) PUT(",\"max_layers\":%d", c->max_layers);
         } else {
-            if (rrc_band) PUT(",\"band\":%d", rrc_band);
+            if (band) PUT(",\"band\":%d", band);
             /* No B825: bandwidth and SCS from this carrier's TBs (same cell). */
             struct nr_tb_info *t = &nrtb[i];
             if (t->pci == nrlive[i].pci && t->arfcn == nrlive[i].earfcn) {

@@ -308,7 +308,7 @@ class SnapshotBuilder(
         // RF band info has no NR entry in NSA: DIAG's configured band, else
         // the band derived from the ARFCN (ambiguous where bands overlap).
         val bandLabel = band?.let { NasBands.label(it.bandEnum) }
-            ?: d?.band?.takeIf { it > 0 }?.let { "n$it" }
+            ?: d?.band?.takeIf { it > 0 && nrBandFitsArfcn(it, d.arfcn) }?.let { "n$it" }
             ?: ch?.let { nrBandLabelForArfcn(it, nrHardwareBands) }
         val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
         val fields = buildList {
@@ -507,6 +507,9 @@ class SnapshotBuilder(
      * when B825, sent only on reconfiguration, hasn't been seen).
      * The PCell: B823 when the helper saw one, else QMI's NR serving cell,
      * else the modem's carrier 0.
+     * Band: the helper's (B825, B823 for the PCell, RRC), else for the PCell
+     * QMI's NR band, else derived from the NR-ARFCN ("n77/78" where bands
+     * overlap). A reported band is used only if the cell's NR-ARFCN is in it.
      */
     private fun diagNrCarriers(): CarrierGroup? {
         val list = diag?.nr?.takeIf { it.isNotEmpty() } ?: return null
@@ -516,6 +519,7 @@ class SnapshotBuilder(
             ?: list.firstOrNull { it.pcell == null && it.pci == qmiPci && it.arfcn == qmiArfcn }
             ?: list.minBy { it.cc }
         val ordered = listOf(primary) + list.filter { it !== primary }.sortedBy { it.cc }
+        val qmiBand = rfFor(NasRadioIf.NR5G)?.let { NasBands.decode(it.bandEnum) }?.takeIf { it.rat == Rat.NR }?.number
         return CarrierGroup(
             title = "NR aggregation",
             summary = "",
@@ -525,7 +529,9 @@ class SnapshotBuilder(
             carriers = ordered.mapIndexed { i, d ->
                 Carrier(
                     role = if (i == 0) "P" else "S$i",
-                    band = d.band?.takeIf { it > 0 }?.let { "n$it" } ?: nrBandLabelForArfcn(d.arfcn, nrHardwareBands),
+                    band = (d.band?.takeIf { it > 0 && nrBandFitsArfcn(it, d.arfcn) }
+                        ?: qmiBand?.takeIf { d === primary && nrBandFitsArfcn(it, d.arfcn) })?.let { "n$it" }
+                        ?: nrBandLabelForArfcn(d.arfcn, nrHardwareBands),
                     channel = d.arfcn.toString(),
                     bandwidthMhz = d.bandwidthMhz?.toDouble(),
                     state = if (d === primary) "Primary" else "Active",

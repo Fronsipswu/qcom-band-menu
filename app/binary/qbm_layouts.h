@@ -86,7 +86,7 @@ struct b825_layout {
     uint16_t bw_mhz[18];                         /* DL bandwidth code -> MHz (0 = invalid) */
 };
 
-struct b823_layout { uint32_t ver; struct pos pci, dl_arfcn; };   /* payload bits */
+struct b823_layout { uint32_t ver; struct pos pci, dl_arfcn, band; };   /* payload bits; band absent before 0.3 */
 
 struct b8d8_layout {
     uint32_t ver;
@@ -448,14 +448,14 @@ static const struct b825_layout B825_LAYOUTS[] = {
 
 /* B823 NR5G RRC serving cell (the PCell). */
 static const struct b823_layout B823_LAYOUTS[] = {
-    { 0x00001, { 32, 16 }, { 48, 32 } },  /* 0.1 */
-    { 0x00002, { 32, 16 }, { 48, 32 } },  /* 0.2 */
-    { 0x00003, { 32, 16 }, { 48, 32 } },  /* 0.3 */
-    { 0x00004, { 32, 16 }, { 48, 32 } },  /* 0.4 */
-    { 0x30000, { 32, 16 }, { 112, 32 } },  /* 3.0 */
-    { 0x30001, { 42, 16 }, { 122, 32 } },  /* 3.1 */
-    { 0x30002, { 56, 16 }, { 136, 32 } },  /* 3.2 */
-    { 0x30003, { 56, 16 }, { 136, 32 } },  /* 3.3 */
+    { 0x00001, { 32, 16 }, { 48, 32 }, { 0, 0 } },  /* 0.1 */
+    { 0x00002, { 32, 16 }, { 48, 32 }, { 0, 0 } },  /* 0.2 */
+    { 0x00003, { 32, 16 }, { 48, 32 }, { 256, 16 } },  /* 0.3 */
+    { 0x00004, { 32, 16 }, { 48, 32 }, { 288, 16 } },  /* 0.4 */
+    { 0x30000, { 32, 16 }, { 112, 32 }, { 352, 16 } },  /* 3.0 */
+    { 0x30001, { 42, 16 }, { 122, 32 }, { 362, 16 } },  /* 3.1 */
+    { 0x30002, { 56, 16 }, { 136, 32 }, { 376, 16 } },  /* 3.2 */
+    { 0x30003, { 56, 16 }, { 136, 32 }, { 376, 16 } },  /* 3.3 */
 };
 
 /* B8D8 NR5G LL1 serving SNR: carrier and four linear chain SNRs. */

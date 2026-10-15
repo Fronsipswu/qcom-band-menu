@@ -167,16 +167,25 @@ private val NR_AMBIGUOUS_PAIRS = listOf(
 
 /**
  * Band label for a derived NR band. Inside one of [NR_AMBIGUOUS_PAIRS] it's
- * "n77 / n78" etc., unless the modem's supported bands rule one of the two
- * out, which leaves the other. Otherwise "n<band>" from [nrBandForArfcn].
+ * "n77/78" etc. (short enough for a CA table column), unless the modem's
+ * supported bands rule one of the two out, which leaves the other. Otherwise
+ * "n<band>" from [nrBandForArfcn].
  */
 fun nrBandLabelForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): String? {
     NR_AMBIGUOUS_PAIRS.firstOrNull { arfcn in it.third }?.let { (a, b, _) ->
         val possible = listOf(a, b).filter { supported.isEmpty() || it in supported }
-        return if (possible.size == 1) "n${possible[0]}" else "n$a / n$b"
+        return if (possible.size == 1) "n${possible[0]}" else "n$a/$b"
     }
     return nrBandForArfcn(arfcn, supported)?.let { "n$it" }
 }
+
+/**
+ * False only when [band] is in the table and [arfcn] is outside its downlink
+ * channels: a band the modem reported doesn't fit the cell's frequency (a
+ * misread field), so it shouldn't be shown.
+ */
+fun nrBandFitsArfcn(band: Int, arfcn: Long): Boolean =
+    NR_BAND_DL.filter { it.first == band }.let { r -> r.isEmpty() || r.any { arfcn in it.second.first.toLong()..it.second.last.toLong() } }
 
 fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
     val candidates = NR_BAND_DL.filter { (_, r) -> arfcn in r.first.toLong()..r.last.toLong() }.map { it.first }

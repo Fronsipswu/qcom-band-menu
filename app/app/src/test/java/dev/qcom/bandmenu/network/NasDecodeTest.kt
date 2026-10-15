@@ -117,13 +117,22 @@ class NasDecodeTest {
     }
 
     @Test
+    fun reportedNrBandMustFitTheArfcn() {
+        assertTrue(nrBandFitsArfcn(77, 627360))      // n77 at 3410.4 MHz (B823 on an S22 Ultra)
+        assertTrue(nrBandFitsArfcn(78, 627360))
+        assertFalse(nrBandFitsArfcn(78, 667296))     // 4009 MHz is above n78
+        assertFalse(nrBandFitsArfcn(7, 647328))
+        assertTrue(nrBandFitsArfcn(999, 647328))     // not in the table: not ruled out
+    }
+
+    @Test
     fun nestedNrBandsAreLabelledAsPairs() {
         // n78 inside n77, n38 inside n41, n5 inside n26: the ARFCN can't tell them apart.
-        assertEquals("n77 / n78", nrBandLabelForArfcn(628800))
-        assertEquals("n77 / n78", nrBandLabelForArfcn(653333, setOf(77, 78)))
+        assertEquals("n77/78", nrBandLabelForArfcn(628800))
+        assertEquals("n77/78", nrBandLabelForArfcn(653333, setOf(77, 78)))
         assertEquals("n77", nrBandLabelForArfcn(660000))
-        assertEquals("n38 / n41", nrBandLabelForArfcn(520000))
-        assertEquals("n5 / n26", nrBandLabelForArfcn(175000))
+        assertEquals("n38/41", nrBandLabelForArfcn(520000))
+        assertEquals("n5/26", nrBandLabelForArfcn(175000))
         // The modem's supported bands can rule one out.
         assertEquals("n78", nrBandLabelForArfcn(636000, setOf(1, 28, 78)))
         assertEquals("n41", nrBandLabelForArfcn(520000, setOf(28, 41)))
