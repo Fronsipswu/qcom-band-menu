@@ -438,6 +438,7 @@ class MainActivity : ComponentActivity() {
                     onCellLockSimSwitch = simSwitch@{ slot ->
                         cellLockSelectedSim = slot
                         if (slot == 1 && modemState?.sim2Available == false) return@simSwitch
+                        if (slot == 0 && modemState?.simOffset == 1) return@simSwitch
                         scope.launch {
                             modemLock.withLock {
                                 val sim = slot + 1

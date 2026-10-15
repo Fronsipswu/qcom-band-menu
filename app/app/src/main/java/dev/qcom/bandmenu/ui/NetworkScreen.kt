@@ -46,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -126,8 +127,11 @@ fun NetworkScreen(
     isActive: Boolean,
     simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     sim2Available: Boolean = true,
-    /** SIM 1's card status: off or absent shows a note instead of its readings. */
+    /** SIM 1's card status: off or absent shows a note instead of its readings
+     *  (only reachable when neither SIM is usable; otherwise its page is hidden). */
     sim1Status: dev.qcom.bandmenu.network.SimSlotStatus = dev.qcom.bandmenu.network.SimSlotStatus.UNKNOWN,
+    /** Page p shows SIM p + 1 + simOffset (1 when only SIM 2 is usable). */
+    simOffset: Int = 0,
     /** Extra work on pull-to-refresh (MainActivity re-checks SIM 2's card status). */
     onRefresh: () -> Unit = {},
     /** Menu: replay on or off. */
@@ -228,13 +232,17 @@ fun NetworkScreen(
     // SIM pager, as on the Bands page: the pager is the source of truth and
     // the monitor follows its target page. Sized to the current page so a
     // short SIM page leaves no blank scroll space.
-    // Without a usable SIM 2 there's one page, so a swipe goes straight on to
-    // the neighbouring screen.
-    val pagerState = rememberPagerState(initialPage = if (sim2Available) state.sim - 1 else 0,
-        pageCount = { if (sim2Available) 2 else 1 })
+    // With one usable SIM there's one page, so a swipe goes straight on to
+    // the neighbouring screen. Page p is SIM p + 1 + simOffset.
+    val onePage = simOffset == 1 || !sim2Available
+    val pagerState = rememberPagerState(initialPage = if (onePage) 0 else state.sim - 1,
+        pageCount = { if (simOffset == 1 || !sim2Available) 1 else 2 })
     val pagerScope = rememberCoroutineScope()
+    val currentOffset by rememberUpdatedState(simOffset)
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.targetPage }.collect { monitor.selectSim(it + 1) }
+        // Follows the SIM shown, so SIM 1 turning off (same page, now SIM 2)
+        // switches polling too.
+        snapshotFlow { pagerState.targetPage + currentOffset }.collect { monitor.selectSim(it + 1) }
     }
     val pageHeights = remember { mutableStateMapOf<Int, Int>() }
     // At least the visible area below the tabs, so a swipe anywhere on a short
@@ -282,11 +290,12 @@ fun NetworkScreen(
             ) {
                 TabRowWithContour(
                     tabs = simLabels,
-                    selectedTabIndex = pagerState.targetPage,
+                    selectedTabIndex = pagerState.targetPage + simOffset,
                     onTabSelected = {
-                        if (it >= pagerState.pageCount) return@TabRowWithContour
+                        val target = it - simOffset
+                        if (target !in 0 until pagerState.pageCount) return@TabRowWithContour
                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        if (pagerState.targetPage != it) pagerScope.launch { pagerState.animateScrollToPage(it) }
+                        if (pagerState.targetPage != target) pagerScope.launch { pagerState.animateScrollToPage(target) }
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
@@ -298,7 +307,7 @@ fun NetworkScreen(
                     verticalAlignment = Alignment.Top,
                     modifier = Modifier.fillMaxWidth().then(pagerHeight?.let { Modifier.height(it) } ?: Modifier)
                 ) { page ->
-                    val sim = page + 1
+                    val sim = page + 1 + simOffset
                     // Only the selected SIM is polled; the other page shows
                     // that SIM's own last reading (or a spinner), never this one's.
                     val pageState = if (sim == state.sim && replayRound != null)

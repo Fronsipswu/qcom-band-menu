@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -134,17 +135,21 @@ fun CellLockScreen(
     // animateScrollToPage cancel the release fling (both run at
     // MutatePriority.Default), and when that effect was itself cancelled by its
     // key changing, the pager stayed stuck between pages.
-    // One page without a usable SIM 2: a swipe goes straight to the next screen.
-    val pagerState = rememberPagerState(pageCount = { if (modemState?.sim2Available == false) 1 else 2 })
-    val selectedSim by remember { derivedStateOf { pagerState.targetPage } }
+    // One page when a SIM isn't usable: a swipe goes straight to the next
+    // screen. Page p is slot p + simOffset (1 when only SIM 2 is usable).
+    val simOffset = modemState?.simOffset ?: 0
+    val pagerState = rememberPagerState(pageCount = { modemState?.simPageCount ?: 2 })
+    val currentOffset by rememberUpdatedState(simOffset)
+    val selectedSim by remember { derivedStateOf { pagerState.targetPage + currentOffset } }
     // The SIM the caller was last told about, so a swipe and a tab tap each
-    // report a switch once.
+    // report a switch once. Keyed on the slot, so SIM 1 turning off (same
+    // page, now SIM 2) also switches.
     var notifiedSim by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(pagerState.targetPage) {
-        if (notifiedSim != pagerState.targetPage) {
-            notifiedSim = pagerState.targetPage
-            onSimSwitch(pagerState.targetPage)
+    LaunchedEffect(selectedSim) {
+        if (notifiedSim != selectedSim) {
+            notifiedSim = selectedSim
+            onSimSwitch(selectedSim)
         }
     }
 
@@ -178,12 +183,13 @@ fun CellLockScreen(
                             tabs = simLabels,
                             selectedTabIndex = selectedSim,
                             onTabSelected = { index ->
-                                if (index >= pagerState.pageCount) return@TabRowWithContour
+                                val target = index - simOffset
+                                if (target !in 0 until pagerState.pageCount) return@TabRowWithContour
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 notifiedSim = index
                                 onSimSwitch(index)
-                                if (pagerState.targetPage != index) {
-                                    scope.launch { pagerState.animateScrollToPage(index) }
+                                if (pagerState.targetPage != target) {
+                                    scope.launch { pagerState.animateScrollToPage(target) }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -194,12 +200,13 @@ fun CellLockScreen(
                             beyondViewportPageCount = 1,
                             modifier = Modifier.fillMaxWidth().weight(1f)
                         ) { page ->
-                            if (page == 1 && !modemState.sim2Available) {
+                            val slot = page + simOffset
+                            if (slot == 1 && !modemState.sim2Available) {
                                 Column(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) { Sim2UnavailableNote() }
                             } else SimCellLockPage(
-                                simSlot = page,
-                                cellLockState = if (page == 0) modemState.sim1CellLock else modemState.sim2CellLock,
-                                plmnLockState = if (page == 0) modemState.sim1PlmnLock else modemState.sim2PlmnLock,
+                                simSlot = slot,
+                                cellLockState = if (slot == 0) modemState.sim1CellLock else modemState.sim2CellLock,
+                                plmnLockState = if (slot == 0) modemState.sim1PlmnLock else modemState.sim2PlmnLock,
                                 refreshKey = refreshKey,
                                 lockResult = lockResult,
                                 onLockResultConsumed = onLockResultConsumed,

@@ -145,11 +145,21 @@ data class ModemState(
     val sim2Available: Boolean = true,
     /** SIM 2's subscription as UIM card status reported it at init. */
     val sim2Status: dev.qcom.bandmenu.network.SimSlotStatus = dev.qcom.bandmenu.network.SimSlotStatus.UNKNOWN,
-    /** SIM 1's card status (init, resume, refresh). SIM 1 stays bound when it's
-     *  off (the modem keeps subscription 1); only the tab label and the
-     *  Network page say so. */
+    /** SIM 1's card status (init, resume, refresh). */
     val sim1Status: dev.qcom.bandmenu.network.SimSlotStatus = dev.qcom.bandmenu.network.SimSlotStatus.UNKNOWN
-)
+) {
+    /** False when SIM 1's card status says it's off or absent. The modem still
+     *  binds subscription 1 then; its pages are hidden as SIM 2's are. */
+    val sim1Available: Boolean
+        get() = sim1Status != dev.qcom.bandmenu.network.SimSlotStatus.DISABLED &&
+            sim1Status != dev.qcom.bandmenu.network.SimSlotStatus.NO_SIM
+
+    /** SIM pagers: page p shows slot p + [simOffset]. 1 when only SIM 2 is
+     *  usable; with neither usable, SIM 1's page stays (with its note). */
+    val simOffset: Int get() = if (!sim1Available && sim2Available) 1 else 0
+
+    val simPageCount: Int get() = if (simOffset == 1 || !sim2Available) 1 else 2
+}
 
 object BandConstants {
     val GSM_BANDS = setOf(850, 900, 1800, 1900)

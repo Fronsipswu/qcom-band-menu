@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -175,10 +176,13 @@ fun BandLockScreen(
     // animateScrollToPage cancel the release fling (both run at
     // MutatePriority.Default), and when that effect was itself cancelled by its
     // key changing, the pager stayed stuck between pages.
-    // One page without a usable SIM 2: a swipe goes straight to the next screen.
-    val pagerState = rememberPagerState(pageCount = { if (modemState?.sim2Available == false) 1 else 2 })
+    // One page when a SIM isn't usable: a swipe goes straight to the next
+    // screen. Page p is slot p + simOffset (1 when only SIM 2 is usable).
+    val simOffset = modemState?.simOffset ?: 0
+    val pagerState = rememberPagerState(pageCount = { modemState?.simPageCount ?: 2 })
     val pagerScope = rememberCoroutineScope()
-    val selectedSim by remember { derivedStateOf { pagerState.targetPage } }
+    val currentOffset by rememberUpdatedState(simOffset)
+    val selectedSim by remember { derivedStateOf { pagerState.targetPage + currentOffset } }
     val slotStates = remember { arrayOf(SlotBandState(), SlotBandState()) }
 
     // HorizontalPager is as tall as its tallest page, which keeps scrollable
@@ -218,10 +222,11 @@ fun BandLockScreen(
                             tabs = simLabels,
                             selectedTabIndex = selectedSim,
                             onTabSelected = {
-                                if (it >= pagerState.pageCount) return@TabRowWithContour
+                                val target = it - simOffset
+                                if (target !in 0 until pagerState.pageCount) return@TabRowWithContour
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                if (pagerState.targetPage != it) {
-                                    pagerScope.launch { pagerState.animateScrollToPage(it) }
+                                if (pagerState.targetPage != target) {
+                                    pagerScope.launch { pagerState.animateScrollToPage(target) }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -244,8 +249,9 @@ fun BandLockScreen(
                                     }
                                 )
                         ) { page ->
-                            val simState = if (page == 0) modemState!!.sim1 else modemState!!.sim2
-                            val refreshKey = if (page == 0) refreshKey0 else refreshKey1
+                            val slot = page + simOffset
+                            val simState = if (slot == 0) modemState!!.sim1 else modemState!!.sim2
+                            val refreshKey = if (slot == 0) refreshKey0 else refreshKey1
                             Column(
                                 modifier = Modifier
                                     // Measure the page content without the pager's height
@@ -254,14 +260,14 @@ fun BandLockScreen(
                                     .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                     .onSizeChanged { size -> pageHeights[page] = size.height }
                             ) {
-                                if (page == 1 && modemState?.sim2Available == false) {
+                                if (slot == 1 && modemState?.sim2Available == false) {
                                     Sim2UnavailableNote()
                                 } else SimBandLockPage(
-                                    state = slotStates[page],
+                                    state = slotStates[slot],
                                     simState = simState,
                                     hardware = hardware,
                                     useIndependentLock = useIndependentLock,
-                                    filter = SimBandFilter.effectiveFilter(bandFilter, hardware, page),
+                                    filter = SimBandFilter.effectiveFilter(bandFilter, hardware, slot),
                                     refreshKey = refreshKey,
                                     showQuickSelect = !quickSelectHidden,
                                     showUsageSetting = !usageSettingHidden,
