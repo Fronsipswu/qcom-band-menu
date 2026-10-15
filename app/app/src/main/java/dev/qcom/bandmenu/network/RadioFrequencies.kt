@@ -193,3 +193,31 @@ fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
     if (supported.isNotEmpty()) candidates.firstOrNull { it in supported }?.let { return it }
     return candidates.first()
 }
+
+/** Maximum DL resource blocks per (frequency range, SCS kHz, bandwidth MHz):
+ * TS 38.104 tables 5.3.2-1/2/3. 60 kHz appears in both ranges with different
+ * values (50 MHz -> 65 in FR1 vs 66 in FR2; 100 MHz -> 135 vs 132). */
+private val NR_MAX_RB = mapOf(
+    // FR1
+    Triple(1, 15, 5) to 25, Triple(1, 15, 10) to 52, Triple(1, 15, 15) to 79, Triple(1, 15, 20) to 106,
+    Triple(1, 15, 25) to 133, Triple(1, 15, 30) to 160, Triple(1, 15, 40) to 216, Triple(1, 15, 50) to 270,
+    Triple(1, 30, 5) to 11, Triple(1, 30, 10) to 24, Triple(1, 30, 15) to 38, Triple(1, 30, 20) to 51,
+    Triple(1, 30, 25) to 65, Triple(1, 30, 30) to 78, Triple(1, 30, 40) to 106, Triple(1, 30, 50) to 133,
+    Triple(1, 30, 60) to 162, Triple(1, 30, 70) to 189, Triple(1, 30, 80) to 217, Triple(1, 30, 90) to 245,
+    Triple(1, 30, 100) to 273,
+    Triple(1, 60, 10) to 11, Triple(1, 60, 15) to 18, Triple(1, 60, 20) to 24, Triple(1, 60, 25) to 31,
+    Triple(1, 60, 30) to 38, Triple(1, 60, 40) to 51, Triple(1, 60, 50) to 65, Triple(1, 60, 60) to 79,
+    Triple(1, 60, 70) to 93, Triple(1, 60, 80) to 107, Triple(1, 60, 90) to 121, Triple(1, 60, 100) to 135,
+    // FR2
+    Triple(2, 60, 50) to 66, Triple(2, 60, 100) to 132, Triple(2, 60, 200) to 264,
+    Triple(2, 120, 50) to 32, Triple(2, 120, 100) to 66, Triple(2, 120, 200) to 132, Triple(2, 120, 400) to 264
+)
+
+/** The maximum DL resource blocks of a channel, or null for a combination the
+ * tables don't cover (e.g. an SCS the band never carries). */
+fun nrMaxResourceBlocks(fr: Int, scsKhz: Int, bwMhz: Int): Int? = NR_MAX_RB[Triple(fr, scsKhz, bwMhz)]
+
+/** Frequency range 1 or 2: the configured band decides when known (n257-n261
+ * are FR2), otherwise the SSB ARFCN's raster (2_016_667 is its first). */
+fun nrFrequencyRange(band: Int?, ssbArfcn: Long): Int =
+    if ((band != null && band >= 257) || ssbArfcn >= 2_016_667) 2 else 1

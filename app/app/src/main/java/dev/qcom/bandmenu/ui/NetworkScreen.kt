@@ -58,6 +58,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -80,12 +81,15 @@ import dev.qcom.bandmenu.network.AntennaGroup
 import dev.qcom.bandmenu.network.Carrier
 import dev.qcom.bandmenu.network.CarrierGroup
 import dev.qcom.bandmenu.network.CellCard
+import dev.qcom.bandmenu.network.DiagNrCarrier
 import dev.qcom.bandmenu.network.Field
 import dev.qcom.bandmenu.network.Metric
 import dev.qcom.bandmenu.network.MetricKind
 import dev.qcom.bandmenu.network.Neighbor
 import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
+import dev.qcom.bandmenu.network.nrFrequencyRange
+import dev.qcom.bandmenu.network.nrMaxResourceBlocks
 import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ReplaySession
 import dev.qcom.bandmenu.network.ThputPoint
@@ -761,8 +765,14 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
         // No TxMode row in ENDC (NR has none).
         if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
         row("Rank") { text(it.diag?.rank?.toString() ?: it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
-        row("MCS") { text((it.diag?.mcs ?: it.nr?.mcs)?.let { m -> Math.round(m).toString() }) }
-        row("RBs") { text((it.diag?.rbs ?: it.nr?.rbs)?.let { r -> Math.round(r).toString() }) }
+        row("MCS") {
+            val (value, fill) = mcsCell(it)
+            CellGradientBar(value, fill, barMax, cellStyle)
+        }
+        row("RBs") {
+            val (value, fill) = rbCell(it)
+            CellGradientBar(value, fill, barMax, cellStyle)
+        }
         row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
         row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
@@ -799,8 +809,14 @@ private fun NrRows(
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
-    r("MCS") { t(it.nr?.mcs?.let { m -> Math.round(m).toString() }) }
-    r("RBs") { t(it.nr?.rbs?.let { b -> Math.round(b).toString() }) }
+    r("MCS") {
+        val (value, fill) = mcsCell(it)
+        CellGradientBar(value, fill, barMax, cellStyle)
+    }
+    r("RBs") {
+        val (value, fill) = rbCell(it)
+        CellGradientBar(value, fill, barMax, cellStyle)
+    }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
     // Values coloured as the chart's lines.
@@ -850,6 +866,59 @@ private fun CellValueBar(
             maxLines = 1, softWrap = false)
     }
 }
+
+/** A value with a fading blue bar behind it (the MCS/RBs rows): solid
+ * primary at the fill's right end, fading out toward the left edge, over
+ * [fraction] of the cell's width. A null [fraction] shows the plain value,
+ * like a cell with no bar. */
+@Composable
+private fun CellGradientBar(text: String?, fraction: Float?, maxWidth: Dp, style: TextStyle) {
+    if (text == null || fraction == null) {
+        Text(text ?: "–", style = style,
+            color = if (text == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onBackground,
+            maxLines = 1, softWrap = false)
+        return
+    }
+    val blue = MiuixTheme.colorScheme.primary
+    Box(
+        Modifier.widthIn(max = maxWidth).fillMaxWidth().clip(RoundedCornerShape(4.dp))
+            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
+            .drawBehind {
+                val w = size.width * fraction
+                drawRect(Brush.horizontalGradient(listOf(blue.copy(alpha = 0.12f), blue), endX = w),
+                    size = Size(w, size.height))
+            }
+            .padding(vertical = 1.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text, style = style, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+            maxLines = 1, softWrap = false)
+    }
+}
+
+/** The MCS cell of [c]: the rounded mean, and its share of the 0..31 range. */
+internal fun mcsCell(c: Carrier): Pair<String?, Float?> {
+    val v = c.diag?.mcs ?: c.nr?.mcs ?: return null to null
+    return Math.round(v).toString() to fillFraction(v, 31.0)
+}
+
+/** The RBs cell of [c]: the rounded mean, and its share of the cell's maximum
+ * RBs — the NR tables from the cell's FR/SCS/bandwidth (and no bar until those
+ * are reported), an LTE cell always over the fixed 100. */
+internal fun rbCell(c: Carrier): Pair<String?, Float?> {
+    val v = c.diag?.rbs ?: c.nr?.rbs ?: return null to null
+    return Math.round(v).toString() to rbFraction(c.nr, v)
+}
+
+private fun rbFraction(nr: DiagNrCarrier?, rbs: Double): Float? {
+    if (nr == null) return fillFraction(rbs, 100.0)
+    val scsKhz = nr.scsKhz ?: return null
+    val bwMhz = nr.bandwidthMhz ?: return null
+    val max = nrMaxResourceBlocks(nrFrequencyRange(nr.band, nr.arfcn), scsKhz, bwMhz) ?: return null
+    return fillFraction(rbs, max.toDouble())
+}
+
+private fun fillFraction(v: Double, max: Double): Float = (v / max).coerceIn(0.0, 1.0).toFloat()
 
 @Composable
 private fun Expandable(title: String, content: @Composable () -> Unit) {
