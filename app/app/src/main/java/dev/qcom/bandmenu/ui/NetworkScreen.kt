@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -167,7 +168,17 @@ fun NetworkScreen(
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
     val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top).asPaddingValues(density).calculateTopPadding()
-    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight
+    // The bar always reserves the status line below the title (empty while no
+    // test runs), so its height — and with it the page's top ceiling — never
+    // changes: the tab row and the refresh indicator are never covered, and
+    // nothing repositions when a test starts or stops. The line is one line of
+    // the subtitle style, so a longer status is cut off, never taller.
+    val statusMeasurer = rememberTextMeasurer()
+    val body2 = MiuixTheme.textStyles.body2
+    val statusLineHeight = with(density) {
+        remember(statusMeasurer, body2) { statusMeasurer.measure("0", body2).size.height.toDp() } + 4.dp
+    }
+    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight + statusLineHeight
     val haptic = LocalHapticFeedback.current
     val test = remember { TrafficTest.get(context) }
     val testConfig by test.config.collectAsState()
@@ -364,6 +375,13 @@ fun NetworkScreen(
 
         // The test script's status line is blue while it runs.
         val testColor = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
+        val status = testStatus(testRun)
+        val statusContent: @Composable () -> Unit = {
+            Box(Modifier.fillMaxWidth().height(statusLineHeight), contentAlignment = Alignment.Center) {
+                if (status.isNotEmpty()) Text(status, Modifier.padding(horizontal = 16.dp),
+                    style = MiuixTheme.textStyles.body2, color = testColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
         if (backdrop != null) {
             Box(
                 modifier = Modifier.fillMaxWidth().drawPlainBackdrop(
@@ -372,9 +390,9 @@ fun NetworkScreen(
                     effects = { blur(8f.dp.toPx()) },
                     onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                 )
-            ) { SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor, color = Color.Transparent) }
+            ) { SmallTopAppBar(title = "Network", color = Color.Transparent, bottomContent = statusContent) }
         } else {
-            SmallTopAppBar(title = "Network", subtitle = testStatus(testRun), subtitleColor = testColor)
+            SmallTopAppBar(title = "Network", bottomContent = statusContent)
         }
         if (replayBar) {
             val r = replay!!
