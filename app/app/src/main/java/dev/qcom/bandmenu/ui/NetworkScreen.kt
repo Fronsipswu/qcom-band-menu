@@ -809,9 +809,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     // ENDC: EARFCN and NR-ARFCN share the row.
     row(if (endc) "ARFCN" else "EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle) }
-    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle) }
-    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, style = cellStyle) }
+    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle, trackWhenEmpty = true) }
+    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle, trackWhenEmpty = true) }
+    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, style = cellStyle, trackWhenEmpty = true) }
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
     // with no grants this round has "–" for the per-grant values and 0.0 Mbps
     // PHY DL; PHY UL is "–" when the carrier sent nothing.
@@ -830,11 +830,11 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
         }
         row("RBs") {
             val (value, fill) = rbCell(it)
-            CellGradientBar(value, fill, barMax, cellStyle)
+            CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
         }
         row("MCS") {
             val (value, fill) = mcsCell(it)
-            CellGradientBar(value, fill, barMax, cellStyle)
+            CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
         }
         row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
@@ -865,20 +865,20 @@ private fun NrRows(
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
     r("SCS") { t(it.nr?.scsKhz?.toString()) }
-    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle) }
-    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle) }
-    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
-    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
+    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
+    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
+    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
+    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
     r("RBs") {
         val (value, fill) = rbCell(it)
-        CellGradientBar(value, fill, barMax, cellStyle)
+        CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
     r("MCS") {
         val (value, fill) = mcsCell(it)
-        CellGradientBar(value, fill, barMax, cellStyle)
+        CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
@@ -945,11 +945,16 @@ private val TableEmphasis = FontWeight.Normal
 @Composable
 private fun CellValueBar(
     v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
-    style: TextStyle = MiuixTheme.textStyles.body2
+    style: TextStyle = MiuixTheme.textStyles.body2, trackWhenEmpty: Boolean = false
 ) {
     if (v == null) {
-        // Same vertical padding as the bar below, so a row keeps its height
-        // when a value (and with it the bar) appears or disappears.
+        // With [trackWhenEmpty] the empty track stays visible, so a bar cell
+        // looks the same whether or not the value is there. Either way the
+        // same vertical padding as the filled bar, so the row keeps its height.
+        if (trackWhenEmpty) {
+            EmptyTrack(maxWidth, style)
+            return
+        }
         Box(Modifier.padding(vertical = 1.dp)) {
             Text("–", style = style, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 1, softWrap = false)
@@ -971,13 +976,35 @@ private fun CellValueBar(
     }
 }
 
+/** The empty track pill with a grey dash: a bar cell with no value, kept at
+ *  the filled bar's size. */
+@Composable
+private fun EmptyTrack(maxWidth: Dp, style: TextStyle) {
+    Box(
+        Modifier.widthIn(max = maxWidth).fillMaxWidth().clip(RoundedCornerShape(4.dp))
+            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
+            .padding(vertical = 1.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text("–", style = style, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            maxLines = 1, softWrap = false)
+    }
+}
+
 /** A value with a fading blue bar behind it (the MCS/RBs rows): solid
  * primary at the fill's right end, fading out toward the left edge, over
  * [fraction] of the cell's width. A null [fraction] shows the plain value,
- * like a cell with no bar. */
+ * like a cell with no bar; a null [text] with [trackWhenEmpty] shows the
+ * empty track. */
 @Composable
-private fun CellGradientBar(text: String?, fraction: Float?, maxWidth: Dp, style: TextStyle) {
+private fun CellGradientBar(
+    text: String?, fraction: Float?, maxWidth: Dp, style: TextStyle, trackWhenEmpty: Boolean = false
+) {
     if (text == null || fraction == null) {
+        if (trackWhenEmpty && text == null) {
+            EmptyTrack(maxWidth, style)
+            return
+        }
         // Same vertical padding as the bar below, so a row keeps its height
         // when a value (and with it the bar) appears or disappears.
         Box(Modifier.padding(vertical = 1.dp)) {
