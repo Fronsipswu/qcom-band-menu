@@ -295,23 +295,23 @@ class SnapshotBuilder(
         val band = rfFor(NasRadioIf.LTE)
         // DIAG's bandwidth (the RRC configuration) first when DIAG has this cell.
         val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
-        // Rows of three (after the operator row): Band, Bandwidth, EARFCN / PCI,
-        // TAC, Timing Advance / eNB/Sector, DL / UL. The first two rows
+        // Rows of three (after the operator row): PCI, TAC, Timing Advance /
+        // Band, Bandwidth, EARFCN / eNB/Cell, DL / UL. The first two rows
         // show "–" for a missing value so each field keeps its row.
         val fields = buildList {
             fun row(label: String, v: String?) = add(Field(label, v ?: "–"))
-            row("Band", (band?.bandEnum ?: pcell?.bandEnum)?.let { NasBands.label(it) })
-            row("Bandwidth", (d?.bandwidthMhz ?: pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let(::mhz))
-            row("EARFCN", earfcn?.toString())
             row("PCI", pci?.toString())
             row("TAC", (l?.tac ?: sys?.common?.get(Rat.LTE)?.tac)?.toString())
             row("TA", diag?.lteTimingAdvance?.toString())
-            // eNB/sector only (not the full ECI): fits a slot, so DL / UL shares the row.
+            row("Band", (band?.bandEnum ?: pcell?.bandEnum)?.let { NasBands.label(it) })
+            row("Bandwidth", (d?.bandwidthMhz ?: pcell?.bandwidthMhz ?: band?.bandwidthMhz)?.let(::mhz))
+            row("EARFCN", earfcn?.toString())
+            // eNB/cell only (not the full ECI): fits a slot, so DL / UL shares the row.
             // An ECI is 28 bits (36.331); larger is the modem's "unknown" filler,
             // which would also be too wide for the slot.
             fun eciOf(v: Long?) = v?.takeIf { it in 0..0x0FFFFFFF }
             (eciOf(l?.eci) ?: eciOf(sys?.common?.get(Rat.LTE)?.cellId))?.let { eci ->
-                add(Field("eNB/Sector", "${eci shr 8}/${eci and 0xFF}"))
+                add(Field("eNB/Cell", "${eci shr 8}/${eci and 0xFF}"))
             }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->
                 add(Field("DL / UL", "${fmt(f.downlinkMhz)} / ${f.uplinkMhz?.let(::fmt) ?: "—"} MHz"))
