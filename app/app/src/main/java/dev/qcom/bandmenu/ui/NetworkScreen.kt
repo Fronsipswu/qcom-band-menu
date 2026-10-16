@@ -641,7 +641,7 @@ private fun CellSection(cell: CellCard) {
  * value length (ECI, DL/UL and WCDMA Cell ID need more), packed in order.
  */
 @Composable
-private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1, serving: Boolean = false) {
+private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1, serving: Boolean = false) = BoxWithConstraints {
     fun span(f: Field) = when {
         f.value.length <= 11 -> 1
         f.value.length <= 24 -> 2
@@ -660,25 +660,32 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
     val main = pack(fields)
     val rows = main.take(extraRowAfter) + pack(extraRow) + main.drop(extraRowAfter)
     // Column widths. The serving card's third column is narrower, which moves
-    // the second and third columns right so the right side looks less empty
-    // (the widest third-column value, an 11-digit NCI, still fits).
+    // the second and third columns right so the right side looks less empty.
     val columns = if (serving) listOf(1.08f, 1.08f, 0.84f) else listOf(1f, 1f, 1f)
-    rows.forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-            var col = 0
-            row.forEach { f ->
-                val weight = columns.subList(col, col + span(f)).sum()
-                col += span(f)
-                Column(Modifier.weight(weight)) {
-                    // The serving card runs its fields slightly smaller than the other cards.
-                    val label = MiuixTheme.textStyles.footnote2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
-                    val value = MiuixTheme.textStyles.body2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
-                    Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    Text(f.value, style = value)
+    val totalWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
+    val measurer = rememberTextMeasurer()
+    // The serving card runs its fields slightly smaller than the other cards.
+    val label = MiuixTheme.textStyles.footnote2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
+    val baseValue = MiuixTheme.textStyles.body2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
+    Column {
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                var col = 0
+                row.forEach { f ->
+                    val weight = columns.subList(col, col + span(f)).sum()
+                    col += span(f)
+                    val colWidthPx = totalWidthPx * (weight / 3f)
+                    val textWidth = remember(f.value, baseValue) { measurer.measure(f.value, baseValue).size.width }
+                    val fit = if (textWidth > 0 && colWidthPx > 0f) (colWidthPx - 1f) / textWidth else 1f
+                    val value = if (fit >= 1f) baseValue else baseValue.copy(fontSize = baseValue.fontSize * fit)
+                    Column(Modifier.weight(weight)) {
+                        Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text(f.value, style = value, maxLines = 1, softWrap = false)
+                    }
                 }
+                val free = columns.drop(col).sum()
+                if (free > 0f) Spacer(Modifier.weight(free))
             }
-            val free = columns.drop(col).sum()
-            if (free > 0f) Spacer(Modifier.weight(free))
         }
     }
 }
