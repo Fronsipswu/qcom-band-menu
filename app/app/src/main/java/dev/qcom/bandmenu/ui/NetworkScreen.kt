@@ -977,7 +977,7 @@ private fun CellValueBar(
                 val w = size.width * fraction
                 if (gradientFill)
                     drawRect(Brush.horizontalGradient(
-                        listOf(color, color.copy(alpha = 0.4f)), endX = w),
+                        listOf(color, color.copy(alpha = 0.65f)), endX = w),
                         size = Size(w, size.height))
                 else
                     drawRect(color, size = Size(w, size.height))
@@ -1035,7 +1035,7 @@ private fun CellGradientBar(
             .drawBehind {
                 val w = size.width * fraction
                 drawRect(Brush.horizontalGradient(
-                    listOf(blue.copy(alpha = 0.8f), blue.copy(alpha = 0.12f)), endX = w),
+                    listOf(blue.copy(alpha = 0.8f), blue.copy(alpha = 0.45f)), endX = w),
                     size = Size(w, size.height))
             }
             .padding(vertical = 1.dp),
