@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.14"
+#define HELPER_VERSION "1.22.15"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -616,12 +616,12 @@ static void b88a(const uint8_t *p, int n) {
 /* Connected-mode intra-frequency measurements: one record per serving
  * carrier with the modem's filtered RSRP/RSRQ (no SINR). A deactivated SCell
  * isn't in B193 but is still measured here, about once a second, so idle
- * SCells keep their values. The carrier index matches B193's slot. Version
- * 56 (X65, X70, X80, X85). */
+ * SCells keep their values. The carrier index matches B193's slot: v4 uses
+ * the serving index; v56 uses the firmware serving index. */
 static void b179(const uint8_t *p, int n) {
-    if (n < 22 || p[0] != 56) return;
+    if (n < 22 || (p[0] != 4 && p[0] != 56)) return;
     const uint8_t *b = p + 1;
-    int slot = (int)bits(b, 27, 3);                      /* firmware serving cell index */
+    int slot = (int)bits(b, p[0] == 4 ? 24 : 27, 3);
     if (slot >= SLOTS) return;
     uint32_t earfcn = bits(b, 56, 32);
     int pci = (int)bits(b, 88, 16);
