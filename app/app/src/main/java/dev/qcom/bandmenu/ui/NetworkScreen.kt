@@ -810,12 +810,12 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
         row("Rank") {
             text((it.diag?.let { d -> d.layers ?: d.rank?.toDouble() } ?: it.nr?.layers)?.let { l -> String.format(Locale.US, "%.1f", l) })
         }
-        row("MCS") {
-            val (value, fill) = mcsCell(it)
-            CellGradientBar(value, fill, barMax, cellStyle)
-        }
         row("RBs") {
             val (value, fill) = rbCell(it)
+            CellGradientBar(value, fill, barMax, cellStyle)
+        }
+        row("MCS") {
+            val (value, fill) = mcsCell(it)
             CellGradientBar(value, fill, barMax, cellStyle)
         }
         row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
@@ -854,12 +854,12 @@ private fun NrRows(
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
-    r("MCS") {
-        val (value, fill) = mcsCell(it)
-        CellGradientBar(value, fill, barMax, cellStyle)
-    }
     r("RBs") {
         val (value, fill) = rbCell(it)
+        CellGradientBar(value, fill, barMax, cellStyle)
+    }
+    r("MCS") {
+        val (value, fill) = mcsCell(it)
         CellGradientBar(value, fill, barMax, cellStyle)
     }
     // QAM order only ("256"); QPSK as is.
