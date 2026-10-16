@@ -61,6 +61,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -102,6 +103,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import dev.qcom.bandmenu.network.TrafficTest
 import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -461,8 +463,10 @@ private fun ReplayBar(
     size: Int, pos: Int, elapsedMs: Long, playing: Boolean,
     onPos: (Int) -> Unit, onPlay: () -> Unit, onDragStart: () -> Unit, modifier: Modifier = Modifier
 ) {
+    // Same shade as the signal-bar track on a card, so the bar stands out over cards behind it.
+    val bg = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.defaultColors(color = bg)) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
                 Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play,
