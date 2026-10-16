@@ -3,6 +3,7 @@ package dev.qcom.bandmenu
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 var nrModeHidden by remember { mutableStateOf(false) }
                 var servingHidden by remember { mutableStateOf(false) }
                 var thputHidden by remember { mutableStateOf(false) }
+                var keepScreenOn by remember { mutableStateOf(false) }
                 var endcSeparate by remember { mutableStateOf(true) }
                 var gnbBitsSim1 by remember { mutableIntStateOf(22) }
                 var gnbBitsSim2 by remember { mutableIntStateOf(22) }
@@ -166,6 +168,15 @@ class MainActivity : ComponentActivity() {
                     BandPreferences.getThputHidden(bandDataStore).collectLatest { hidden ->
                         thputHidden = hidden
                     }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getKeepScreenOn(bandDataStore).collectLatest { keepScreenOn = it }
+                }
+                // The window flag only holds while the app is visible.
+                LaunchedEffect(keepScreenOn) {
+                    if (keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
 
                 LaunchedEffect(Unit) {
@@ -430,6 +441,11 @@ class MainActivity : ComponentActivity() {
                     onThputHiddenToggle = { hidden ->
                         thputHidden = hidden
                         scope.launch { BandPreferences.setThputHidden(bandDataStore, hidden) }
+                    },
+                    keepScreenOn = keepScreenOn,
+                    onKeepScreenOnToggle = { on ->
+                        keepScreenOn = on
+                        scope.launch { BandPreferences.setKeepScreenOn(bandDataStore, on) }
                     },
                     onServingHiddenToggle = { hidden ->
                         servingHidden = hidden

@@ -151,6 +151,8 @@ fun NetworkScreen(
     /** Throughput chart hidden (menu; persisted by the caller). */
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
+    keepScreenOn: Boolean = false,
+    onKeepScreenOnToggle: (Boolean) -> Unit = {},
     /** NSA: separate LTE and NR tables instead of one ENDC table (menu; persisted by the caller). */
     endcSeparate: Boolean = true,
     onEndcSeparateToggle: (Boolean) -> Unit = {},
@@ -433,26 +435,30 @@ fun NetworkScreen(
                 entries = listOf(
                     DropdownEntry(items = listOf(
                         DropdownItem(
-                            text = if (state.diagEnabled) "Disable DIAG" else "Enable DIAG",
+                            text = "Enable DIAG", selected = state.diagEnabled,
                             onClick = { onDiagToggle(!state.diagEnabled) }
                         ),
                         DropdownItem(
-                            text = if (state.replayEnabled) "Disable replay" else "Enable replay",
+                            text = "Enable replay", selected = state.replayEnabled,
                             onClick = { onReplayToggle(!state.replayEnabled) }
                         ),
-                        DropdownItem(text = "Test script", onClick = { showTestSetup = true })
+                        DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
+                        DropdownItem(
+                            text = "Keep screen on", selected = keepScreenOn,
+                            onClick = { onKeepScreenOnToggle(!keepScreenOn) }
+                        )
                     )),
                     DropdownEntry(items = listOf(
                         DropdownItem(
-                            text = if (servingHidden) "Show serving cell" else "Hide serving cell",
+                            text = "Hide serving cell", selected = servingHidden,
                             onClick = { onServingHiddenToggle(!servingHidden) }
                         ),
                         DropdownItem(
-                            text = if (thputHidden) "Show throughput" else "Hide throughput",
+                            text = "Hide throughput", selected = thputHidden,
                             onClick = { onThputHiddenToggle(!thputHidden) }
                         ),
                         DropdownItem(
-                            text = if (endcSeparate) "Combine ENDC" else "Separate ENDC",
+                            text = "Separate ENDC", selected = endcSeparate,
                             onClick = { onEndcSeparateToggle(!endcSeparate) }
                         ),
                         DropdownItem(
@@ -771,7 +777,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     }
     @Composable
     fun text(v: String?, bold: Boolean = false, color: Color = MiuixTheme.colorScheme.onBackground) =
-        Text(v ?: "–", style = cellStyle, fontWeight = if (bold) FontWeight.SemiBold else null,
+        Text(v ?: "–", style = cellStyle, fontWeight = if (bold) TableEmphasis else null,
             color = if (v == null || v == "–") MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1, softWrap = false)
 
     // The primary cells' roles (P; MCG and SCG in ENDC) are blue; the secondaries stay grey.
@@ -912,6 +918,11 @@ private val BAND_COLORS = mapOf(
     263 to 0xFF9FAE7B
 )
 
+/** CA / NR table values: the bar values, and the emphasised rows (Band,
+ *  PHY DL / UL). Both normal weight; were Medium and SemiBold. */
+private val TableValueWeight = FontWeight.Normal
+private val TableEmphasis = FontWeight.Normal
+
 /** A value with a level-coloured bar behind it. */
 @Composable
 private fun CellValueBar(
@@ -937,7 +948,7 @@ private fun CellValueBar(
             .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(formatMetric(v), style = style, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+        Text(formatMetric(v), style = style, fontWeight = TableValueWeight, color = MiuixTheme.colorScheme.onBackground,
             maxLines = 1, softWrap = false)
     }
 }
@@ -970,7 +981,7 @@ private fun CellGradientBar(text: String?, fraction: Float?, maxWidth: Dp, style
             .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, style = style, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+        Text(text, style = style, fontWeight = TableValueWeight, color = MiuixTheme.colorScheme.onBackground,
             maxLines = 1, softWrap = false)
     }
 }

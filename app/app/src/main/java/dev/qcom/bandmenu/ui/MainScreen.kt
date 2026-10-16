@@ -68,6 +68,9 @@ fun MainScreen(
     /** Network page menu: throughput chart hidden (persisted by the caller). */
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
+    /** Network page menu: keep the screen on (persisted by the caller). */
+    keepScreenOn: Boolean = false,
+    onKeepScreenOnToggle: (Boolean) -> Unit = {},
     /** Network page menu: NSA LTE and NR tables separate, not one ENDC table (persisted by the caller). */
     endcSeparate: Boolean = true,
     onEndcSeparateToggle: (Boolean) -> Unit = {},
@@ -212,6 +215,8 @@ fun MainScreen(
                             onServingHiddenToggle = onServingHiddenToggle,
                             thputHidden = thputHidden,
                             onThputHiddenToggle = onThputHiddenToggle,
+                            keepScreenOn = keepScreenOn,
+                            onKeepScreenOnToggle = onKeepScreenOnToggle,
                             endcSeparate = endcSeparate,
                             onEndcSeparateToggle = onEndcSeparateToggle,
                             gnbBitsSim1 = gnbBitsSim1,

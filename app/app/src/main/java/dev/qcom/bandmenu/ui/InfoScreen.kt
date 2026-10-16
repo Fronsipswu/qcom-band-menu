@@ -122,7 +122,7 @@ fun InfoScreen(
                 DropdownEntry(
                     items = listOf(
                         DropdownItem(
-                            text = if (navbarHidden) "Show navigation bar" else "Hide navigation bar",
+                            text = "Hide navigation bar", selected = navbarHidden,
                             onClick = { onNavbarHiddenToggle(!navbarHidden) }
                         )
                     )

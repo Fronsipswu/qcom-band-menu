@@ -331,16 +331,16 @@ fun BandLockScreen(
                     add(DropdownEntry(items = buildList {
                         if (hardware.nr.isNotEmpty()) {
                             add(DropdownItem(
-                                text = if (nrModeHidden) "Show NR mode" else "Hide NR mode",
+                                text = "Hide NR mode", selected = nrModeHidden,
                                 onClick = onToggleNrMode
                             ))
                         }
                         add(DropdownItem(
-                            text = if (usageSettingHidden) "Show usage setting" else "Hide usage setting",
+                            text = "Hide usage setting", selected = usageSettingHidden,
                             onClick = onToggleUsageSetting
                         ))
                         add(DropdownItem(
-                            text = if (quickSelectHidden) "Show quick select" else "Hide quick select",
+                            text = "Hide quick select", selected = quickSelectHidden,
                             onClick = onToggleQuickSelect
                         ))
                     }))

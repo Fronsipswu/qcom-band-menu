@@ -35,6 +35,7 @@ object BandPreferences {
     private val DIAG_ENABLED = booleanPreferencesKey("diag_enabled")
     private val SERVING_HIDDEN = booleanPreferencesKey("serving_hidden")
     private val THPUT_HIDDEN = booleanPreferencesKey("thput_hidden")
+    private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
     private val ENDC_SEPARATE = booleanPreferencesKey("endc_separate")
     private val GNB_BITS_SIM1 = intPreferencesKey("gnb_bits_sim1")
     private val GNB_BITS_SIM2 = intPreferencesKey("gnb_bits_sim2")
@@ -207,6 +208,15 @@ object BandPreferences {
 
     suspend fun setThputHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
         dataStore.edit { it[THPUT_HIDDEN] = hidden }
+    }
+
+    /** Network page menu: keep the screen on while the app is shown. */
+    fun getKeepScreenOn(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[KEEP_SCREEN_ON] ?: false }
+    }
+
+    suspend fun setKeepScreenOn(dataStore: DataStore<Preferences>, on: Boolean) {
+        dataStore.edit { it[KEEP_SCREEN_ON] = on }
     }
 
     fun getNavbarHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
