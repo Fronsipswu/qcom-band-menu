@@ -603,7 +603,7 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             val fields = serving?.fields.orEmpty()
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.GSM) 1 else 0)
+                FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.GSM) 1 else 0, serving = true)
             }
         }
     }
@@ -641,7 +641,7 @@ private fun CellSection(cell: CellCard) {
  * value length (ECI, DL/UL and WCDMA Cell ID need more), packed in order.
  */
 @Composable
-private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1) {
+private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1, serving: Boolean = false) {
     fun span(f: Field) = when {
         f.value.length <= 11 -> 1
         f.value.length <= 24 -> 2
@@ -663,8 +663,11 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
             row.forEach { f ->
                 Column(Modifier.weight(span(f).toFloat())) {
-                    Text(f.label, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    Text(f.value, style = MiuixTheme.textStyles.body2)
+                    // The serving card runs its fields slightly smaller than the other cards.
+                    val label = MiuixTheme.textStyles.footnote2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
+                    val value = MiuixTheme.textStyles.body2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
+                    Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Text(f.value, style = value)
                 }
             }
             val free = 3 - row.sumOf(::span)

@@ -292,7 +292,7 @@ class SnapshotBuilder(
             row("EARFCN", earfcn?.toString())
             row("PCI", pci?.toString())
             row("TAC", (l?.tac ?: sys?.common?.get(Rat.LTE)?.tac)?.toString())
-            row("Timing Advance", diag?.lteTimingAdvance?.toString())
+            row("TA", diag?.lteTimingAdvance?.toString())
             // eNB/sector only (not the full ECI): fits a slot, so DL / UL shares the row.
             (l?.eci ?: sys?.common?.get(Rat.LTE)?.cellId)?.let { eci ->
                 add(Field("eNB/Sector", "${eci shr 8}/${eci and 0xFF}"))
@@ -347,7 +347,7 @@ class SnapshotBuilder(
                 row("NARFCN", ch?.toString())
                 row("SCS", s?.nrScsKhz?.let { "$it kHz" })
                 row("Frequency", frequency)
-                row("Timing Advance", diag?.nrTimingAdvance?.toString())
+                row("TA", diag?.nrTimingAdvance?.toString())
                 row("PCI", pci?.toString())
                 row("TAC", (s?.nrTac ?: n?.tac)?.toString())
                 // NCI is never split into gNB/sector: the gNB ID length isn't reported.
