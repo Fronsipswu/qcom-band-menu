@@ -887,18 +887,21 @@ private fun NrRows(
 }
 
 /**
- * The CA table's cell text style: body2, scaled down when a column (minus its
- * padding) is narrower than the widest value would be at body2. The widest
- * candidates are a signal value, a rate and each carrier's channel, bold.
+ * The CA table's cell text style: body2 with equal-width digits, scaled down
+ * when a column (minus its padding) is narrower than the widest value would be
+ * at body2. The widest candidates are a signal value, a rate and a channel of
+ * the longest channel's length, bold; the channel is measured as a template,
+ * so the size doesn't change with the channel's digits (a band change).
  */
 @Composable
 private fun fittedCellStyle(carriers: List<Carrier>, columnWidth: Dp): TextStyle {
-    val base = MiuixTheme.textStyles.body2
+    val base = MiuixTheme.textStyles.body2.copy(fontFeatureSettings = "tnum")
     val measurer = rememberTextMeasurer()
     val available = with(LocalDensity.current) { (columnWidth - 8.dp).toPx() }
-    val widest = remember(carriers.map { it.channel }, base) {
+    val digits = maxOf(6, carriers.maxOfOrNull { it.channel.length } ?: 0)
+    val widest = remember(digits, base) {
         val bold = base.copy(fontWeight = FontWeight.SemiBold)
-        (listOf("-140.0", "1000.0") + carriers.map { it.channel }).maxOf { measurer.measure(it, bold).size.width }
+        listOf("-140.0", "1000.0", "8".repeat(digits)).maxOf { measurer.measure(it, bold).size.width }
     }
     val fit = if (widest > 0) available / widest else 1f
     return if (fit >= 1f) base else base.copy(fontSize = base.fontSize * fit)
