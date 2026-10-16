@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.13"
+#define HELPER_VERSION "1.22.14"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -1007,8 +1007,13 @@ static void b97f(const uint8_t *p, int n) {
             if (cc >= 0 && cc < SLOTS && spci != 0xFFFF && pci == spci) {
                 double rsrp = q7((int32_t)at(C, Lay->rsrp)), rsrq = q7((int32_t)at(C, Lay->rsrq));
                 struct nr_slot *s = &nrwin[cc];
-                if (rsrp > -160 && rsrp < -20) { s->rsrp_sum += rsrp; s->n_rsrp++; }
-                if (rsrq > -40 && rsrq < 10) { s->rsrq_sum += rsrq; s->n_rsrq++; }
+                /* A deactivated SCell's entry is often zeros, not a measurement
+                 * (RSRQ 0 dB would pass its range): RSRQ counts only with a
+                 * valid RSRP from the same entry. The carrier stays live. */
+                if (rsrp > -160 && rsrp < -20) {
+                    s->rsrp_sum += rsrp; s->n_rsrp++;
+                    if (rsrq > -40 && rsrq < 10) { s->rsrq_sum += rsrq; s->n_rsrq++; }
+                }
                 nrlive[cc].earfcn = arfcn;
                 nrlive[cc].pci = pci;
                 nrlive[cc].at_ms = now_ms();

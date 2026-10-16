@@ -794,7 +794,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     if (diag) {
         row("Tx/Rx") {
             text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }
-                ?: it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" })
+                ?: it.nr?.let { n -> if (n.csiPorts != null && n.rxAntennas != null) "${n.csiPorts}×${n.rxAntennas}" else null })
         }
         // No TxMode row in ENDC (NR has none).
         if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
@@ -844,7 +844,8 @@ private fun NrRows(
     r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
     r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
-    r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
+    // Both or "–": an idle or deactivated carrier has no RX count (no PDSCH).
+    r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts != null && n.rxAntennas != null) "${n.csiPorts}×${n.rxAntennas}" else null }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
     r("MCS") {
         val (value, fill) = mcsCell(it)

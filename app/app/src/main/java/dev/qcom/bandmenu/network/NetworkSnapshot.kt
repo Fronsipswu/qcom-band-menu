@@ -366,9 +366,12 @@ class SnapshotBuilder(
                 put("NARFCN", ch?.toString())
                 put("Frequency", frequency)
                 put("PCI", pci?.toString())
-                put("SCS", (s?.nrScsKhz ?: d?.scsKhz)?.let { "$it kHz" })
+                // With DIAG on, the SCG's Timing Advance (the same NR random-access
+                // TA as in SA) takes SCS's place; QMI has no TA, so it keeps SCS.
+                if (diag != null) put("TA", diag.nrTimingAdvance?.toString())
+                else put("SCS", (s?.nrScsKhz ?: d?.scsKhz)?.let { "$it kHz" })
                 // QMI has no SCG bandwidth; DIAG does (B825/B887), so with DIAG
-                // on the second row is always PCI, SCS, Bandwidth.
+                // on the second row is always PCI, TA, Bandwidth.
                 val bw = d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz
                 if (diag != null) put("Bandwidth", bw?.let(::mhz)) else bw?.let { add(Field("Bandwidth", mhz(it))) }
             }
