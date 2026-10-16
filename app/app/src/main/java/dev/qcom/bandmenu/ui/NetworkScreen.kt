@@ -864,7 +864,6 @@ private fun NrRows(
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
-    r("SCS") { t(it.nr?.scsKhz?.toString()) }
     r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
     r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
     r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
