@@ -809,9 +809,9 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     // ENDC: EARFCN and NR-ARFCN share the row.
     row(if (endc) "ARFCN" else "EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
-    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle, trackWhenEmpty = true) }
-    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle, trackWhenEmpty = true) }
-    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, style = cellStyle, trackWhenEmpty = true) }
+    row("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, style = cellStyle, trackWhenEmpty = true, gradientFill = true) }
+    row("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, style = cellStyle, trackWhenEmpty = true, gradientFill = true) }
+    row("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, style = cellStyle, trackWhenEmpty = true, gradientFill = true) }
     // PDSCH rows from DIAG, over the last round (about a second). A carrier
     // with no grants this round has "–" for the per-grant values and 0.0 Mbps
     // PHY DL; PHY UL is "–" when the carrier sent nothing.
@@ -865,10 +865,10 @@ private fun NrRows(
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
     r("SCS") { t(it.nr?.scsKhz?.toString()) }
-    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
-    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
-    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
-    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true) }
+    r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
+    r("RSRQ") { CellValueBar(it.rsrq, MetricKind.RSRQ, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
+    r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
+    r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
     r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
@@ -941,11 +941,13 @@ private val BAND_COLORS = mapOf(
 private val TableValueWeight = FontWeight.Normal
 private val TableEmphasis = FontWeight.Normal
 
-/** A value with a level-coloured bar behind it. */
+/** A value with a level-coloured bar behind it. With [gradientFill] the fill
+ *  fades like the MCS/RBs bars'; the neighbour table's stays solid. */
 @Composable
 private fun CellValueBar(
     v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
-    style: TextStyle = MiuixTheme.textStyles.body2, trackWhenEmpty: Boolean = false
+    style: TextStyle = MiuixTheme.textStyles.body2, trackWhenEmpty: Boolean = false,
+    gradientFill: Boolean = false
 ) {
     if (v == null) {
         // With [trackWhenEmpty] the empty track stays visible, so a bar cell
@@ -967,7 +969,15 @@ private fun CellValueBar(
     Box(
         Modifier.widthIn(max = maxWidth).fillMaxWidth().clip(RoundedCornerShape(4.dp))
             .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
-            .drawBehind { drawRect(color, size = Size(size.width * fraction, size.height)) }
+            .drawBehind {
+                val w = size.width * fraction
+                if (gradientFill)
+                    drawRect(Brush.horizontalGradient(
+                        listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.12f)), endX = w),
+                        size = Size(w, size.height))
+                else
+                    drawRect(color, size = Size(w, size.height))
+            }
             .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -991,11 +1001,11 @@ private fun EmptyTrack(maxWidth: Dp, style: TextStyle) {
     }
 }
 
-/** A value with a fading blue bar behind it (the MCS/RBs rows): solid
- * primary at the fill's right end, fading out toward the left edge, over
- * [fraction] of the cell's width. A null [fraction] shows the plain value,
- * like a cell with no bar; a null [text] with [trackWhenEmpty] shows the
- * empty track. */
+/** A value with a fading blue bar behind it (the MCS/RBs rows): primary at
+ * the fill's left end — a little softened, full primary read as too dark —
+ * fading out toward the fill's right edge, over [fraction] of the cell's
+ * width. A null [fraction] shows the plain value, like a cell with no bar;
+ * a null [text] with [trackWhenEmpty] shows the empty track. */
 @Composable
 private fun CellGradientBar(
     text: String?, fraction: Float?, maxWidth: Dp, style: TextStyle, trackWhenEmpty: Boolean = false
@@ -1020,7 +1030,8 @@ private fun CellGradientBar(
             .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
             .drawBehind {
                 val w = size.width * fraction
-                drawRect(Brush.horizontalGradient(listOf(blue.copy(alpha = 0.12f), blue), endX = w),
+                drawRect(Brush.horizontalGradient(
+                    listOf(blue.copy(alpha = 0.8f), blue.copy(alpha = 0.12f)), endX = w),
                     size = Size(w, size.height))
             }
             .padding(vertical = 1.dp),
