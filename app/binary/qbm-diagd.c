@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.11"
+#define HELPER_VERSION "1.22.12"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -588,6 +588,7 @@ static const struct { uint32_t ver; int mask, off, bytes; } B88A_TA[] = {
                                      * Msg4's C-RNTI in every contention-based
                                      * access, and RA-RNTI fits Msg1 (38.321) */
     { 0x0003000A, 19, 120, 180 },   /* 3.10, X70: msg2 block at 112, TA 8 bytes in */
+    { 0x0003000E, 19, 140, 196 },   /* 3.14, X75 (Quectel module): same checks as 3.8 */
     { 0x00030012, 19, 176, 232 },   /* 3.18, X80 */
     { 0x00030013, 19, 184, 240 },   /* 3.19, X85 */
 };
