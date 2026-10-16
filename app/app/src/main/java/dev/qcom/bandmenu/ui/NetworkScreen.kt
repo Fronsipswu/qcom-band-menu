@@ -523,8 +523,8 @@ private fun NetworkContent(
     // With the serving cell hidden, the tables go without their headings too.
     groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g, title = !servingHidden) } }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
-    // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise.
-    if (state.diagEnabled && thput.isNotEmpty()) {
+    // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise (hidden on WCDMA).
+    if (state.diagEnabled && thput.isNotEmpty() && snap.mode != ServiceMode.WCDMA) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
         Column(Modifier.scrollAnchor(anchor, "thput")) {
             ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
