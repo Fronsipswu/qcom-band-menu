@@ -476,7 +476,7 @@ fun NetworkScreen(
                             onClick = { onThputHiddenToggle(!thputHidden) }
                         ),
                         DropdownItem(
-                            text = "Separate ENDC", selected = endcSeparate,
+                            text = "Combine ENDC", selected = !endcSeparate,
                             onClick = { onEndcSeparateToggle(!endcSeparate) }
                         ),
                         DropdownItem(
