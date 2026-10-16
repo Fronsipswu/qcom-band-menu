@@ -698,7 +698,9 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
                     val value = if (fit >= 1f) baseValue else baseValue.copy(fontSize = baseValue.fontSize * fit)
                     Column(Modifier.weight(weight)) {
                         Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, softWrap = false)
-                        Text(f.value, style = value, maxLines = 1, softWrap = false)
+                        // The Band value takes its band's display colour, as in the CA tables.
+                        val tint = if (f.label == "Band") bandColor(f.value) else null
+                        Text(f.value, style = value, color = tint ?: Color.Unspecified, maxLines = 1, softWrap = false)
                     }
                 }
                 val free = columns.drop(col).sum()
