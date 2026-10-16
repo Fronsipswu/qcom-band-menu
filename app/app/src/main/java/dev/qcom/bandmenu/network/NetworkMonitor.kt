@@ -77,6 +77,8 @@ class NetworkMonitor(
      *  "TRUE-H" on LTE but "TRUE5GX" on 5G), so a mode change re-reads it. */
     private val namedPlmn = arrayOfNulls<String>(2)
     private val cachedName = arrayOfNulls<String>(2)
+    /** Per SIM: NR columns' CSI-RS port counts held while idle. */
+    private val portHold = Array(2) { CsiPortHold() }
 
     fun setVisible(v: Boolean) { visible = v; reschedule() }
     fun setResumed(v: Boolean) { resumed = v; reschedule() }
@@ -192,8 +194,8 @@ class NetworkMonitor(
                 null
             }
         } else null
-        val snap = SnapshotBuilder(reads, nrHardwareBands, diagStats, diagMode = withDiag)
-            .build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())
+        val snap = portHold[sim - 1].apply(SnapshotBuilder(reads, nrHardwareBands, diagStats, diagMode = withDiag)
+            .build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt()))
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
         val key = plmn?.let { "$it/${snap.mode}" }
