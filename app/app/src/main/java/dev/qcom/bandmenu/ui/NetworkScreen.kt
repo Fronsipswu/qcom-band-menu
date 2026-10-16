@@ -702,7 +702,7 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
             if (group.table) CaTable(group.carriers, group.diag, group.nrTable, group.endc) else group.carriers.forEach { c ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
-                    c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold) }
+                    c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold, color = bandColor(it) ?: MiuixTheme.colorScheme.onBackground) }
                     Column(Modifier.weight(1f)) {
                         Text(c.channel, style = MiuixTheme.textStyles.body2)
                         val sub = listOfNotNull(c.pci?.let { "PCI $it" }, c.bandwidthMhz?.let { "${formatPlain(it)} MHz" }).joinToString(" · ")
@@ -752,7 +752,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     @Composable
     fun text(v: String?, bold: Boolean = false, color: Color = MiuixTheme.colorScheme.onBackground) =
         Text(v ?: "–", style = cellStyle, fontWeight = if (bold) FontWeight.SemiBold else null,
-            color = if (v == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1, softWrap = false)
+            color = if (v == null || v == "–") MiuixTheme.colorScheme.onSurfaceVariantSummary else color, maxLines = 1, softWrap = false)
 
     // The primary cells' roles (P; MCG and SCG in ENDC) are blue; the secondaries stay grey.
     row("", header = true) {
@@ -760,7 +760,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
             else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
     if (nr) { NrRows(::row, ::text, barMax, cellStyle); return@Column }
-    row("Band") { text(it.band, bold = true) }
+    row("Band") { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     // ENDC: EARFCN and NR-ARFCN share the row.
     row(if (endc) "ARFCN" else "EARFCN") { text(it.channel) }
@@ -816,7 +816,7 @@ private fun NrRows(
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
     @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
-    r("Band") { t(it.band, bold = true) }
+    r("Band") { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
@@ -860,6 +860,37 @@ private fun fittedCellStyle(carriers: List<Carrier>, columnWidth: Dp): TextStyle
     val fit = if (widest > 0) available / widest else 1f
     return if (fit >= 1f) base else base.copy(fontSize = base.fontSize * fit)
 }
+
+/** Per-band display colour for a single LTE ("B3") or NR ("n41") band label. */
+private fun bandColor(band: String?): Color? {
+    val n = band?.trimStart('B', 'n')?.toIntOrNull() ?: return null
+    return BAND_COLORS[n]?.let(::Color)
+}
+
+private val BAND_COLORS = mapOf(
+    1 to 0xFFEE8700, 2 to 0xFF3F70EE, 3 to 0xFF81A83D, 4 to 0xFFFF01FC, 5 to 0xFFDFCA02, 6 to 0xFFBF9309,
+    7 to 0xFFCB0481, 8 to 0xFFA96B2F, 9 to 0xFF5FEE1D, 10 to 0xFF077E1E, 11 to 0xFF49CDF0, 12 to 0xFF8B1CC3,
+    13 to 0xFFCD6B95, 14 to 0xFF0FBB67, 15 to 0xFF510A3A, 16 to 0xFF93590C, 17 to 0xFFD5A8DE, 18 to 0xFF17F8B0,
+    19 to 0xFF594783, 20 to 0xFF3DF7F0, 21 to 0xFF476668, 22 to 0xFF89B53A, 23 to 0xFFCB040D, 24 to 0xFF0D54DF,
+    25 to 0xFF4FA3B1, 26 to 0xFF91F283, 27 to 0xFFD34156, 28 to 0xFF1CAF8C, 29 to 0xFF57E0FA, 30 to 0xFF03B00D,
+    31 to 0xFF45FFDF, 32 to 0xFF9400BF, 33 to 0xFFC99D84, 34 to 0xFF0BED56, 35 to 0xFF4D3C29, 36 to 0xFF8F8BFB,
+    37 to 0xFFD1DACD, 38 to 0xFF798CED, 39 to 0xFF557972, 40 to 0xFF117FDC, 41 to 0xFF439857, 42 to 0xFF85E729,
+    43 to 0xFFC736FC, 44 to 0xFF0986CE, 45 to 0xFF4BD5A0, 46 to 0xFF0C00F2, 47 to 0xFFCF7345, 48 to 0xFF11C317,
+    49 to 0xFF5312EA, 50 to 0xFFFFE1FC, 51 to 0xFF4131CF, 52 to 0xFF8380A1, 53 to 0xFFC5CF73, 54 to 0xFF071F46,
+    55 to 0xFF496E18, 56 to 0xFF8BBDEA, 57 to 0xFFCD0CBD, 58 to 0xFF0F5C8F, 59 to 0xFF51AB61, 60 to 0xFFFD7A74,
+    61 to 0xFF3FCA46, 62 to 0xFF811919, 63 to 0xFFC368EB, 64 to 0xFF05B8BD, 65 to 0xFF470790, 66 to 0xFFD18799,
+    67 to 0xFFCBA534, 68 to 0xFF0DF506, 69 to 0xFF4F44D9, 70 to 0xFFFB13EC, 71 to 0xFF3D63BE, 72 to 0xFF7FB290,
+    73 to 0xFFC10163, 74 to 0xFF035135, 75 to 0xFF45A007, 76 to 0xFF87EFD9, 77 to 0xFFC93EAC, 78 to 0xFFDD0000,
+    79 to 0xFF4DDD50, 80 to 0xFFF9AC63, 81 to 0xFF3BFC35, 82 to 0xFF7D4B08, 83 to 0xFFBF9ADA, 84 to 0xFF01EAAC,
+    85 to 0xFF43397F, 86 to 0xFF858851, 87 to 0xFFC7D723, 88 to 0xFF0927F6, 89 to 0xFF4B76C8, 90 to 0xFFF745DB,
+    91 to 0xFF3995AD, 92 to 0xFF7BE47F, 93 to 0xFFBD3352, 94 to 0xFFFF8224, 95 to 0xFF41D2F6, 96 to 0xFF8321C9,
+    97 to 0xFFC5709B, 98 to 0xFF07C06D, 99 to 0xFF490F40, 100 to 0xFFDFC84B, 101 to 0xFFFF5DC3, 102 to 0xFF1FF33A,
+    103 to 0xFF3F88B2, 104 to 0xFF5F1D2A, 105 to 0xFF7FB2A1, 106 to 0xFF9F4719, 107 to 0xFFBFDC90, 108 to 0xFFDF7108,
+    109 to 0xFFFF0680, 110 to 0xFFBFD7C6, 125 to 0xFF3FD097, 126 to 0xFF5F650F, 127 to 0xFF7FFA86, 250 to 0xFF5FE099,
+    251 to 0xFF7F7511, 252 to 0xFF9F0A89, 253 to 0xFFBF9F00, 254 to 0xFFDF3478, 255 to 0xFFFFC9EF, 256 to 0xFF1F5F67,
+    257 to 0xFFFF8B66, 258 to 0xFFFF8B66, 259 to 0xFF7F1ECE, 260 to 0xFF3FEF14, 261 to 0xFF5F848C, 262 to 0xFF7F1904,
+    263 to 0xFF9FAE7B
+)
 
 /** A value with a level-coloured bar behind it. */
 @Composable
