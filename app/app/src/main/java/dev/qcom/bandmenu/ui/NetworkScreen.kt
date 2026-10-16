@@ -848,7 +848,12 @@ private fun CellValueBar(
     style: TextStyle = MiuixTheme.textStyles.body2
 ) {
     if (v == null) {
-        Text("–", style = style, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        // Same vertical padding as the bar below, so a row keeps its height
+        // when a value (and with it the bar) appears or disappears.
+        Box(Modifier.padding(vertical = 1.dp)) {
+            Text("–", style = style, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1, softWrap = false)
+        }
         return
     }
     val scale = signalScale(kind, rat)
@@ -873,9 +878,13 @@ private fun CellValueBar(
 @Composable
 private fun CellGradientBar(text: String?, fraction: Float?, maxWidth: Dp, style: TextStyle) {
     if (text == null || fraction == null) {
-        Text(text ?: "–", style = style,
-            color = if (text == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onBackground,
-            maxLines = 1, softWrap = false)
+        // Same vertical padding as the bar below, so a row keeps its height
+        // when a value (and with it the bar) appears or disappears.
+        Box(Modifier.padding(vertical = 1.dp)) {
+            Text(text ?: "–", style = style,
+                color = if (text == null) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onBackground,
+                maxLines = 1, softWrap = false)
+        }
         return
     }
     val blue = MiuixTheme.colorScheme.primary
