@@ -320,7 +320,7 @@ fun CellLockScreen(
                     entries = menuEntries,
                     modifier = Modifier.align(Alignment.TopEnd)
                         .padding(top = topBarInset + 8.dp, end = 8.dp),
-                    collapseOnSelection = true
+                    collapseOnSelection = false
                 ) {
                     Icon(
                         imageVector = MiuixIcons.More,

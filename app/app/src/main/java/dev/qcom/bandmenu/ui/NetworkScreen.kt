@@ -84,6 +84,7 @@ import dev.qcom.bandmenu.network.CarrierGroup
 import dev.qcom.bandmenu.network.CellCard
 import dev.qcom.bandmenu.network.DiagNrCarrier
 import dev.qcom.bandmenu.network.Field
+import dev.qcom.bandmenu.network.formatNrNci
 import dev.qcom.bandmenu.network.Metric
 import dev.qcom.bandmenu.network.MetricKind
 import dev.qcom.bandmenu.network.Neighbor
@@ -153,6 +154,10 @@ fun NetworkScreen(
     /** NSA: separate LTE and NR tables instead of one ENDC table (menu; persisted by the caller). */
     endcSeparate: Boolean = true,
     onEndcSeparateToggle: (Boolean) -> Unit = {},
+    /** NR SA gNB ID bit length per SIM (22..32 even; Cell ID is 36 - gnbBits). */
+    gnbBitsSim1: Int = 22,
+    gnbBitsSim2: Int = 22,
+    onGnbBitsCycle: (Int) -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -343,8 +348,9 @@ fun NetworkScreen(
                                 val points = if (sim == state.sim && replayRound != null && r != null)
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else state.thputBySim[sim].orEmpty()
+                                val pageGnbBits = if (sim == 2) gnbBitsSim2 else gnbBitsSim1
                                 NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
-                                    endcSeparate, anchor.takeIf { page == pagerState.currentPage })
+                                    endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
                             }
                         }
                     }
@@ -420,6 +426,8 @@ fun NetworkScreen(
                     tint = if (state.frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
                 )
             }
+            val activeSim = (pagerState.targetPage + simOffset + 1).coerceIn(1, 2)
+            val activeGnbBits = if (activeSim == 2) gnbBitsSim2 else gnbBitsSim1
             WindowIconDropdownMenu(
                 // Features, then what the page shows (a divider between).
                 entries = listOf(
@@ -446,10 +454,14 @@ fun NetworkScreen(
                         DropdownItem(
                             text = if (endcSeparate) "Combine ENDC" else "Separate ENDC",
                             onClick = { onEndcSeparateToggle(!endcSeparate) }
+                        ),
+                        DropdownItem(
+                            text = "gNB $activeGnbBits / Cell ${36 - activeGnbBits}",
+                            onClick = { onGnbBitsCycle(activeSim) }
                         )
                     ))
                 ),
-                collapseOnSelection = true
+                collapseOnSelection = false
             ) {
                 Icon(imageVector = MiuixIcons.More, contentDescription = "Menu", tint = MiuixTheme.colorScheme.onBackground)
             }
@@ -501,13 +513,13 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 @Composable
 private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
-    endcSeparate: Boolean = true, anchor: ScrollAnchor? = null
+    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null
 ) {
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
-        Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull()) }
+        Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull(), gnbBits) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
@@ -563,7 +575,7 @@ private fun NetworkContent(
 }
 
 @Composable
-private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serving: CellCard?) {
+private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serving: CellCard?, gnbBits: Int = 22) {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             // The mode itself is the pill (blue when in service, grey otherwise),
@@ -604,7 +616,9 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                 Spacer(Modifier.height(6.dp))
                 serving.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 3.dp)) }
             }
-            val fields = serving?.fields.orEmpty()
+            val fields = serving?.fields.orEmpty().map { f ->
+                if (f.label == "gNB / Cell" && serving?.nci != null) Field(f.label, formatNrNci(serving.nci, gnbBits)) else f
+            }
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.GSM) 1 else 0, serving = true)
@@ -635,7 +649,7 @@ private fun CellSection(cell: CellCard) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             cell.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 3.dp)) }
             if (cell.metrics.isNotEmpty() && cell.fields.isNotEmpty()) Spacer(Modifier.height(12.dp))
-            FieldGrid(cell.fields)
+            FieldGrid(cell.fields, serving = true)
         }
     }
 }
@@ -645,9 +659,9 @@ private fun CellSection(cell: CellCard) {
  * value length (ECI, DL/UL and WCDMA Cell ID need more), packed in order.
  */
 @Composable
-private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1, serving: Boolean = false) = BoxWithConstraints {
+private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), extraRowAfter: Int = 1, serving: Boolean = true) = BoxWithConstraints {
     fun span(f: Field) = when {
-        f.value.length <= 11 -> 1
+        f.label == "gNB / Cell" || f.value.length <= 11 -> 1
         f.value.length <= 24 -> 2
         else -> 3
     }
@@ -683,7 +697,7 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
                     val fit = if (textWidth > 0 && colWidthPx > 0f) (colWidthPx - 1f) / textWidth else 1f
                     val value = if (fit >= 1f) baseValue else baseValue.copy(fontSize = baseValue.fontSize * fit)
                     Column(Modifier.weight(weight)) {
-                        Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, softWrap = false)
                         Text(f.value, style = value, maxLines = 1, softWrap = false)
                     }
                 }

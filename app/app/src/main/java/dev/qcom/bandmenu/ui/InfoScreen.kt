@@ -128,7 +128,7 @@ fun InfoScreen(
                     )
                 )
             ),
-            collapseOnSelection = true,
+            collapseOnSelection = false,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = statusBarInset + 8.dp, end = 8.dp)
         ) {
             Icon(

@@ -71,6 +71,9 @@ fun MainScreen(
     /** Network page menu: NSA LTE and NR tables separate, not one ENDC table (persisted by the caller). */
     endcSeparate: Boolean = true,
     onEndcSeparateToggle: (Boolean) -> Unit = {},
+    gnbBitsSim1: Int = 22,
+    gnbBitsSim2: Int = 22,
+    onGnbBitsCycle: (Int) -> Unit = {},
     onApply: (Int, dev.qcom.bandmenu.SimState) -> Unit,
     onReset: (Int) -> Unit,
     onDetach: () -> Unit,
@@ -211,6 +214,9 @@ fun MainScreen(
                             onThputHiddenToggle = onThputHiddenToggle,
                             endcSeparate = endcSeparate,
                             onEndcSeparateToggle = onEndcSeparateToggle,
+                            gnbBitsSim1 = gnbBitsSim1,
+                            gnbBitsSim2 = gnbBitsSim2,
+                            onGnbBitsCycle = onGnbBitsCycle,
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(

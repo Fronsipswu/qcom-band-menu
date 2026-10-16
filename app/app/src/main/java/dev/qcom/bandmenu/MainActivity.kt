@@ -109,6 +109,8 @@ class MainActivity : ComponentActivity() {
                 var servingHidden by remember { mutableStateOf(false) }
                 var thputHidden by remember { mutableStateOf(false) }
                 var endcSeparate by remember { mutableStateOf(true) }
+                var gnbBitsSim1 by remember { mutableIntStateOf(22) }
+                var gnbBitsSim2 by remember { mutableIntStateOf(22) }
                 var navbarHidden by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
@@ -169,6 +171,18 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getEndcSeparate(bandDataStore).collectLatest { separate ->
                         endcSeparate = separate
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getGnbBits(bandDataStore, 1).collectLatest { bits ->
+                        gnbBitsSim1 = bits
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getGnbBits(bandDataStore, 2).collectLatest { bits ->
+                        gnbBitsSim2 = bits
                     }
                 }
 
@@ -425,6 +439,14 @@ class MainActivity : ComponentActivity() {
                     onEndcSeparateToggle = { separate ->
                         endcSeparate = separate
                         scope.launch { BandPreferences.setEndcSeparate(bandDataStore, separate) }
+                    },
+                    gnbBitsSim1 = gnbBitsSim1,
+                    gnbBitsSim2 = gnbBitsSim2,
+                    onGnbBitsCycle = { sim ->
+                        val cur = if (sim == 2) gnbBitsSim2 else gnbBitsSim1
+                        val next = if (cur >= 32) 22 else cur + 2
+                        if (sim == 2) gnbBitsSim2 = next else gnbBitsSim1 = next
+                        scope.launch { BandPreferences.setGnbBits(bandDataStore, sim, next) }
                     },
                     onDiagToggle = { on ->
                         daemonHolder.networkMonitor.setDiagEnabled(on)

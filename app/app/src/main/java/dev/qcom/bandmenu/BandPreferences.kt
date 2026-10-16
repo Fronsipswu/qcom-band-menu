@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +36,8 @@ object BandPreferences {
     private val SERVING_HIDDEN = booleanPreferencesKey("serving_hidden")
     private val THPUT_HIDDEN = booleanPreferencesKey("thput_hidden")
     private val ENDC_SEPARATE = booleanPreferencesKey("endc_separate")
+    private val GNB_BITS_SIM1 = intPreferencesKey("gnb_bits_sim1")
+    private val GNB_BITS_SIM2 = intPreferencesKey("gnb_bits_sim2")
     private val NAVBAR_HIDDEN = booleanPreferencesKey("navbar_hidden")
 
     internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
@@ -220,6 +223,19 @@ object BandPreferences {
 
     suspend fun setEndcSeparate(dataStore: DataStore<Preferences>, separate: Boolean) {
         dataStore.edit { it[ENDC_SEPARATE] = separate }
+    }
+
+    fun getGnbBits(dataStore: DataStore<Preferences>, sim: Int): Flow<Int> {
+        val key = if (sim == 2) GNB_BITS_SIM2 else GNB_BITS_SIM1
+        return dataStore.data.map { prefs ->
+            val b = prefs[key] ?: 22
+            if (b in 22..32 && b % 2 == 0) b else 22
+        }
+    }
+
+    suspend fun setGnbBits(dataStore: DataStore<Preferences>, sim: Int, bits: Int) {
+        val key = if (sim == 2) GNB_BITS_SIM2 else GNB_BITS_SIM1
+        dataStore.edit { it[key] = bits }
     }
 
     fun getServingHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {

@@ -56,7 +56,9 @@ class SnapshotCaptureTest {
         val saCell = sa.first().cells.single()
         assertEquals("807", saCell.fields.first { it.label == "PCI" }.value)
         assertEquals("n28", saCell.fields.first { it.label == "Band" }.value)
-        assertEquals("8957641705", saCell.fields.first { it.label == "NCI" }.value)
+        assertEquals(8957641705L, saCell.nci)
+        assertEquals("546731 / 4073", saCell.fields.first { it.label == "gNB / Cell" }.value)
+        assertEquals("559852606 / 9", formatNrNci(saCell.nci!!, 32))
         val saNr = sa.first().carrierGroups.single()
         assertEquals("529950", saNr.carriers.single().channel.substringBefore(" "))
 
@@ -65,7 +67,7 @@ class SnapshotCaptureTest {
         assertTrue(nsa.all { it.mode == ServiceMode.NR_NSA })
         assertEquals(listOf("LTE MCG", "NR SCG"), nsa.first().cells.map { it.title })
         // NSA reads carry no NR TAC/NCI.
-        assertTrue(nsa.first().cells[1].fields.none { it.label == "NCI" || it.label == "TAC" })
+        assertTrue(nsa.first().cells[1].fields.none { it.label == "gNB / Cell" || it.label == "TAC" })
 
         // ENDC table: the MCG is the LTE table's PCell, the SCG the NR serving cell.
         nsa.forEach { s ->

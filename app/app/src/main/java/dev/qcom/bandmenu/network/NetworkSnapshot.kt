@@ -36,7 +36,13 @@ data class Metric(
 
 data class Field(val label: String, val value: String)
 
-data class CellCard(val title: String, val rat: Rat, val fields: List<Field>, val metrics: List<Metric>)
+data class CellCard(val title: String, val rat: Rat, val fields: List<Field>, val metrics: List<Metric>, val nci: Long? = null)
+
+/** Splits a 36-bit NR Cell Identity into gNB ID ([gnbBits] = 22..32) and Cell ID (36 - [gnbBits]). */
+fun formatNrNci(nci: Long, gnbBits: Int = 22): String {
+    val cellBits = (36 - gnbBits).coerceIn(4, 14)
+    return "${nci ushr cellBits} / ${nci and ((1L shl cellBits) - 1)}"
+}
 
 data class Carrier(
     val role: String,
@@ -337,10 +343,11 @@ class SnapshotBuilder(
             ?: d?.band?.takeIf { it > 0 && nrBandFitsArfcn(it, d.arfcn) }?.let { "n$it" }
             ?: ch?.let(::nrBandFromArfcn)
         val frequency = ch?.let { nrFrequencyForArfcn(it.toInt()) }?.let(::mhz)
+        val nci = (s?.nrNci ?: n?.nci)?.takeIf { it in 0..0xFFFFFFFFFL }
         val fields = buildList {
             if (sa) {
                 // Rows of three (after the operator row): Band, Bandwidth, NR-ARFCN /
-                // SCS, Frequency, Timing Advance / PCI, TAC, NCI. A missing value is
+                // SCS, Frequency, Timing Advance / PCI, TAC, gNB / Cell. A missing value is
                 // "–" so each field keeps its row.
                 fun row(label: String, v: String?) = add(Field(label, v ?: "–"))
                 row("Band", bandLabel)
@@ -353,8 +360,7 @@ class SnapshotBuilder(
                 row("TA", diag?.nrTimingAdvance?.toString())
                 row("PCI", pci?.toString())
                 row("TAC", (s?.nrTac ?: n?.tac)?.toString())
-                // NCI is never split into gNB/sector: the gNB ID length isn't reported.
-                row("NCI", (s?.nrNci ?: n?.nci)?.toString())
+                row("gNB / Cell", nci?.let(::formatNrNci))
             } else {
                 put("Band", bandLabel)
                 put("NARFCN", ch?.toString())
@@ -373,7 +379,7 @@ class SnapshotBuilder(
             Metric("SS-SINR", MetricKind.SINR, Rat.NR, d?.sinr ?: sig?.nrSnr, "dB")
         )
         if (sa && fields.isEmpty() && metrics.all { it.value == null }) return null
-        return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics)
+        return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics, nci = if (sa) nci else null)
     }
 
     private fun wcdmaCell(): CellCard? {
