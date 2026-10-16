@@ -942,7 +942,9 @@ private val TableValueWeight = FontWeight.Normal
 private val TableEmphasis = FontWeight.Normal
 
 /** A value with a level-coloured bar behind it. With [gradientFill] the fill
- *  fades like the MCS/RBs bars'; the neighbour table's stays solid. */
+ *  fades from the full level colour toward a lighter tip — brighter than the
+ *  MCS/RBs bars', whose colours read muted at their strength; the neighbour
+ *  table's stays solid. */
 @Composable
 private fun CellValueBar(
     v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
@@ -973,7 +975,7 @@ private fun CellValueBar(
                 val w = size.width * fraction
                 if (gradientFill)
                     drawRect(Brush.horizontalGradient(
-                        listOf(color.copy(alpha = 0.8f), color.copy(alpha = 0.12f)), endX = w),
+                        listOf(color, color.copy(alpha = 0.4f)), endX = w),
                         size = Size(w, size.height))
                 else
                     drawRect(color, size = Size(w, size.height))
