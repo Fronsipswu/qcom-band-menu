@@ -188,8 +188,15 @@ class SnapshotBuilder(
         // the PCI can stay after NR is gone (OnePlus 11 set to LTE only kept
         // reporting one, with NR RSRP invalid, and the page stuck on NR NSA);
         // every NSA capture has a valid NR RSRP.
-        val nrLeg = if (arfcn != null) !arfcn.nrServing.isNullOrEmpty() || arfcn.nrRrc != null
-            else s.nrPci != null && sig?.nrRsrp != null
+        // Either way the NR carrier must have a valid RSRP/RSRQ (SIG_INFO, or
+        // DIAG's NR carriers): after the SCG is released while idle, the ARFCN
+        // list keeps an NR RRC state and sometimes a stale NR channel, with no NR
+        // measurement anywhere (OnePlus 11 recording), and the page sat on NR
+        // NSA with an empty SCG.
+        val nrMeasured = sig?.nrRsrp != null || sig?.nrRsrq != null ||
+            diag?.nr?.any { it.rsrp != null || it.rsrq != null } == true
+        val nrLeg = nrMeasured && (if (arfcn != null) !arfcn.nrServing.isNullOrEmpty() || arfcn.nrRrc != null
+            else s.nrPci != null)
         // NSA only while an NR leg is actually up; when the SCG drops the page
         // falls back to the LTE layout (EN-DC availability is not used).
         when {
@@ -585,8 +592,9 @@ class SnapshotBuilder(
     /**
      * NSA's LTE and NR carriers in one table with the LTE table's rows (NR
      * fitted in: ARFCN for both channels; no NR-only rows such as SCS or
-     * CSI-SINR). Columns: MCG (the LTE PCell), SCG (the NR PSCell), the NR
-     * SCells, then the LTE SCells; the SCells numbered S1, S2... across both.
+     * CSI-SINR). Columns: MCG (the LTE PCell), the LTE SCells, SCG (the NR
+     * PSCell), then the NR SCells; the SCells numbered S1, S2... across both
+     * (LTE first).
      * NR carriers come from DIAG, else from QMI (the SCG's serving cell and
      * the NR SCells' frequencies).
      */
@@ -594,15 +602,18 @@ class SnapshotBuilder(
         val mcg = lte?.carriers?.firstOrNull() ?: return null
         val diagNr = diagNrCarriers()?.carriers
         val nr = diagNr ?: qmiNrCarriers()
-        val scells = nr.drop(1) + lte.carriers.drop(1)
+        val lteS = lte.carriers.drop(1)
+        val nrS = nr.drop(1)
         return CarrierGroup(
             title = "ENDC",
             summary = "",
             table = true,
             diag = diag != null,
             endc = true,
-            carriers = listOf(mcg.copy(role = "MCG")) + nr.take(1).map { it.copy(role = "SCG") } +
-                scells.mapIndexed { i, c -> c.copy(role = "S${i + 1}") },
+            carriers = listOf(mcg.copy(role = "MCG")) +
+                lteS.mapIndexed { i, c -> c.copy(role = "S${i + 1}") } +
+                nr.take(1).map { it.copy(role = "SCG") } +
+                nrS.mapIndexed { i, c -> c.copy(role = "S${lteS.size + i + 1}") },
             note = if (diagNr == null && nr.size > 1) "QMI only reports frequency data for NR Scells" else null
         )
     }

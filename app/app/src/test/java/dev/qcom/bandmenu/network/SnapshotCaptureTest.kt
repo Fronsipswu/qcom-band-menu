@@ -75,9 +75,14 @@ class SnapshotCaptureTest {
             println("  {${endc.title}} " + endc.carriers.joinToString { "${it.role} ${it.band} ${it.channel} pci=${it.pci} rsrp=${it.rsrp}" })
             assertEquals("MCG", endc.carriers[0].role)
             assertEquals(s.carrierGroups.first().carriers.first().channel, endc.carriers[0].channel)
-            assertEquals("SCG", endc.carriers[1].role)
-            assertTrue(endc.carriers[1].band!!.startsWith("n"))
-            assertEquals(endc.carriers.drop(2).mapIndexed { i, _ -> "S${i + 1}" }, endc.carriers.drop(2).map { it.role })
+            // MCG, the LTE SCells, SCG, the NR SCells; SCells numbered across both.
+            val lteScells = s.carrierGroups.first().carriers.size - 1
+            val scg = endc.carriers[1 + lteScells]
+            assertEquals("SCG", scg.role)
+            assertTrue(scg.band!!.startsWith("n"))
+            assertTrue(endc.carriers.drop(1).take(lteScells).none { it.band!!.startsWith("n") })
+            val scells = endc.carriers.drop(1).filter { it.role != "SCG" }
+            assertEquals(scells.mapIndexed { i, _ -> "S${i + 1}" }, scells.map { it.role })
         }
         assertTrue(sa.all { it.endc == null })
 
