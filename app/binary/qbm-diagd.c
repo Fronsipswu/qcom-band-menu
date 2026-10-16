@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.12"
+#define HELPER_VERSION "1.22.13"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -79,11 +79,11 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
-static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, /* LTE */
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, /* LTE */
                             0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
                             0xB821 };                                   /* NR RRC */
-#define NCODES 17
+#define NCODES 18
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -101,6 +101,12 @@ struct slot {
     /* B193, means over the window */
     double rsrp_sum, rsrq_sum, sinr_sum;
     long n_rsrp, n_rsrq, n_sinr;
+    /* B179's filtered RSRP/RSRQ and the cell they were for: used only when
+     * B193 has none (a deactivated SCell) */
+    double frsrp_sum, frsrq_sum;
+    long n_frsrp, n_frsrq;
+    uint32_t f_earfcn;
+    int f_pci;
 };
 
 /* B184: the latest carrier list. */
@@ -605,6 +611,43 @@ static void b88a(const uint8_t *p, int n) {
         ta_store(&nr_ta, (int)ta);
         return;
     }
+}
+
+/* Connected-mode intra-frequency measurements: one record per serving
+ * carrier with the modem's filtered RSRP/RSRQ (no SINR). A deactivated SCell
+ * isn't in B193 but is still measured here, about once a second, so idle
+ * SCells keep their values. The carrier index matches B193's slot. Version
+ * 56 (X65, X70, X80, X85). */
+static void b179(const uint8_t *p, int n) {
+    if (n < 22 || p[0] != 56) return;
+    const uint8_t *b = p + 1;
+    int slot = (int)bits(b, 27, 3);                      /* firmware serving cell index */
+    if (slot >= SLOTS) return;
+    uint32_t earfcn = bits(b, 56, 32);
+    int pci = (int)bits(b, 88, 16);
+    if (pci > 503) return;
+    double rsrp = le16(p + 16) / 16.0 - 180.0;
+    double rsrq = le16(p + 20) / 16.0 - 30.0;
+    if (rsrp <= -160 || rsrp >= -20) return;
+    /* Around an SCell change or release B179 can still name the old cell for
+     * a second or two after the new carrier list (B184): while that list is
+     * current (its PCell is the live one), only its carriers count. */
+    int b184_current = ca[0].known && live[0].at_ms && ca[0].earfcn == live[0].earfcn && ca[0].pci == live[0].pci;
+    if (b184_current && slot > 0 && (!ca[slot].known || ca[slot].state == 0 ||
+                                     ca[slot].earfcn != earfcn || ca[slot].pci != pci)) return;
+    struct slot *s = &win[slot];
+    if (s->n_frsrp && (s->f_earfcn != earfcn || s->f_pci != pci)) {
+        s->frsrp_sum = s->frsrq_sum = 0;                 /* a new cell in this slot */
+        s->n_frsrp = s->n_frsrq = 0;
+    }
+    s->f_earfcn = earfcn;
+    s->f_pci = pci;
+    s->frsrp_sum += rsrp; s->n_frsrp++;
+    if (rsrq > -40 && rsrq < 0) { s->frsrq_sum += rsrq; s->n_frsrq++; }
+    /* The carrier stays live while it's measured, as with B193. */
+    live[slot].earfcn = earfcn;
+    live[slot].pci = pci;
+    live[slot].at_ms = now_ms();
 }
 
 /* ── NR ──────────────────────────────────────────────────────────────────── */
@@ -1205,6 +1248,7 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB184) b184(pl, pn);
     else if (code == 0xB193) b193(pl, pn);
     else if (code == 0xB168) b168(pl, pn);
+    else if (code == 0xB179) b179(pl, pn);
     else if (code == 0xB883) b883(pl, pn);
     else if (code == 0xB887) b887(pl, pn);
     else if (code == 0xB97F) b97f(pl, pn);
@@ -1324,8 +1368,13 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             uint32_t ch = is_live ? live[i].earfcn : b184_ok ? ca[i].earfcn : 0;
             int pci = is_live ? live[i].pci : b184_ok ? ca[i].pci : -1;
             double v;
-            if (held_value(&lte_held[i][0], s->rsrp_sum, s->n_rsrp, ch, pci, now, &v)) PUT(",\"rsrp\":%.2f", v);
-            if (held_value(&lte_held[i][1], s->rsrq_sum, s->n_rsrq, ch, pci, now, &v)) PUT(",\"rsrq\":%.2f", v);
+            /* B193 first; B179's filtered values when B193 measured nothing
+             * for this carrier (deactivated SCells). */
+            int f = s->n_rsrp == 0 && s->n_frsrp && s->f_earfcn == ch && s->f_pci == pci;
+            if (held_value(&lte_held[i][0], f ? s->frsrp_sum : s->rsrp_sum, f ? s->n_frsrp : s->n_rsrp, ch, pci, now, &v))
+                PUT(",\"rsrp\":%.2f", v);
+            if (held_value(&lte_held[i][1], f ? s->frsrq_sum : s->rsrq_sum, f ? s->n_frsrq : s->n_rsrq, ch, pci, now, &v))
+                PUT(",\"rsrq\":%.2f", v);
             if (held_value(&lte_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
         }
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
