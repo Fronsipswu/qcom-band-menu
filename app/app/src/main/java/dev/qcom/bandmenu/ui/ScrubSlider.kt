@@ -42,7 +42,7 @@ import kotlin.math.roundToInt
 /**
  * A slider over 0..[max] (miuix look) with fine scrubbing: while dragging,
  * moving the finger 80 dp or more away from the bar vertically slows the
- * thumb to a quarter, so a long recording can still be stepped one sample
+ * thumb to a tenth, so a long recording can still be stepped one sample
  * at a time. Only a drag moves it (a touch without moving does nothing);
  * [onDragStart] fires as one begins. [value] and [max] may change during a
  * drag (the timeline was extended); the drag carries on from the new value.
@@ -84,7 +84,7 @@ fun ScrubSlider(
             .pointerInput(Unit) {
                 val inset = 14.dp.toPx()
                 val fineAt = 80.dp.toPx()
-                fun speedFor(dy: Float) = if (dy < fineAt) 1f else 0.25f
+                fun speedFor(dy: Float) = if (dy < fineAt) 1f else 0.1f
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     held = true
