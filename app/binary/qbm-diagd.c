@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.10"
+#define HELPER_VERSION "1.22.11"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -579,12 +579,17 @@ static void b168(const uint8_t *p, int n) {
 
 /* NR RACH Attempt: the RAR's timing advance. The container layout differs
  * per log version (the message offsets move), so only TA positions validated
- * on real logs are decoded (each matched every RAR of its log). */
-static const struct { uint32_t ver; int off, bytes; } B88A_TA[] = {
-    { 0x00020007,  64, 108 },   /* 2.7, X60 */
-    { 0x0003000A, 120, 180 },   /* 3.10, X70: msg2 block at 112, TA 8 bytes in */
-    { 0x00030012, 176, 232 },   /* 3.18, X80 */
-    { 0x00030013, 184, 240 },   /* 3.19, X85 */
+ * on real logs are decoded (each matched every RAR of its log). The message
+ * bitmask says which of Msg1..Msg4 the record holds (bit 1 = Msg2): an
+ * attempt that got no RAR has TA 0 there, which isn't a measurement. */
+static const struct { uint32_t ver; int mask, off, bytes; } B88A_TA[] = {
+    { 0x00020007, 23,  64, 108 },   /* 2.7, X60 */
+    { 0x00030008, 16, 104, 160 },   /* 3.8, X65: Msg2's T_RNTI (102) returns as
+                                     * Msg4's C-RNTI in every contention-based
+                                     * access, and RA-RNTI fits Msg1 (38.321) */
+    { 0x0003000A, 19, 120, 180 },   /* 3.10, X70: msg2 block at 112, TA 8 bytes in */
+    { 0x00030012, 19, 176, 232 },   /* 3.18, X80 */
+    { 0x00030013, 19, 184, 240 },   /* 3.19, X85 */
 };
 
 static void b88a(const uint8_t *p, int n) {
@@ -593,6 +598,7 @@ static void b88a(const uint8_t *p, int n) {
     for (size_t i = 0; i < sizeof B88A_TA / sizeof B88A_TA[0]; i++) {
         if (B88A_TA[i].ver != ver) continue;
         if (n < B88A_TA[i].bytes) return;
+        if (!(p[B88A_TA[i].mask] & 2)) return;           /* no Msg2 (RAR) */
         uint32_t ta = le16(p + B88A_TA[i].off);
         if (ta > 3846) return;                           /* 12-bit index maximum */
         ta_store(&nr_ta, (int)ta);
