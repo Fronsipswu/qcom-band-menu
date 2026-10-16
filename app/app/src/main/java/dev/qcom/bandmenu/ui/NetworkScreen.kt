@@ -303,11 +303,11 @@ fun NetworkScreen(
                         })
                     }
                     .onGloballyPositioned { c ->
-                        anchor.viewport = c
                         anchor.viewTop = topBarPx
                         anchor.viewBottom = c.size.height - bottomPx
                     }
                     .verticalScroll(scrollState)
+                    .onGloballyPositioned { anchor.content = it }
                     .onSizeChanged { anchor.contentResized() }
                     .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)

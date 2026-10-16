@@ -26,13 +26,19 @@ import kotlin.math.abs
  * [contentResized].
  */
 class ScrollAnchor(private val scroll: ScrollState) {
-    /** The scrolling container (positions are measured in it, so a pull-to-refresh doesn't count). */
-    var viewport: LayoutCoordinates? = null
-    /** The visible band in the container (below the top bar, above the navbar). */
+    /**
+     * The scrolled content (inside `verticalScroll`). Cards are measured in it,
+     * so neither the scroll, a pull-to-refresh nor the overscroll bounce moves
+     * them: measured from outside, the bounce after a fling to the bottom
+     * looked like a card above the anchor shrinking, the anchor scrolled
+     * against it, and the bounce's clipped edge swept over the still cards.
+     */
+    var content: LayoutCoordinates? = null
+    /** The visible band in the scrolling container (below the top bar, above the navbar). */
     var viewTop = 0f
     var viewBottom = 0f
 
-    // Each card's top and bottom in content coordinates (y in the container + scroll).
+    // Each card's top and bottom in content coordinates.
     private val cards = HashMap<String, Pair<Float, Float>>()
     private var key: String? = null
 
@@ -42,8 +48,7 @@ class ScrollAnchor(private val scroll: ScrollState) {
     // Correction not scrolled yet (the page hadn't grown enough).
     private var pending = 0f
 
-    fun placed(k: String, viewY: Float, height: Int) {
-        val top = viewY + scroll.value
+    fun placed(k: String, top: Float, height: Int) {
         val bottom = top + height
         val old = cards[k]
         cards[k] = top to bottom
@@ -96,7 +101,7 @@ fun Modifier.scrollAnchor(anchor: ScrollAnchor?, key: String): Modifier {
     if (anchor == null) return this
     DisposableEffect(anchor, key) { onDispose { anchor.removed(key) } }
     return onGloballyPositioned { c ->
-        val vp = anchor.viewport?.takeIf { it.isAttached } ?: return@onGloballyPositioned
-        anchor.placed(key, vp.localPositionOf(c, Offset.Zero).y, c.size.height)
+        val content = anchor.content?.takeIf { it.isAttached } ?: return@onGloballyPositioned
+        anchor.placed(key, content.localPositionOf(c, Offset.Zero).y, c.size.height)
     }
 }

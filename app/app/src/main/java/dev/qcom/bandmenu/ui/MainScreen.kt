@@ -155,14 +155,19 @@ fun MainScreen(
         object : NestedScrollConnection {
             override suspend fun onPreFling(available: Velocity): Velocity {
                 val offset = pagerState.currentPageOffsetFraction
-                if (abs(offset) < 0.001f || abs(available.x) < abs(available.y)) return Velocity.Zero
+                if (abs(offset) < 0.001f) return Velocity.Zero
                 val position = pagerState.currentPage + offset
+                // Off a page boundary this pager was dragged sideways, so it
+                // settles whatever the release: a thumb lifting on a slight
+                // vertical arc (|vx| < |vy|) used to leave it between pages.
+                // Only a mostly horizontal release picks the direction.
+                val horizontal = abs(available.x) >= abs(available.y)
                 // Finger moving toward the start of the layout = next page.
                 val towardNext = if (isLtr) -available.x else available.x
                 val threshold = with(density) { SettleVelocityThreshold.toPx() }
                 val target = when {
-                    towardNext > threshold -> ceil(position)
-                    towardNext < -threshold -> floor(position)
+                    horizontal && towardNext > threshold -> ceil(position)
+                    horizontal && towardNext < -threshold -> floor(position)
                     else -> round(position)
                 }.toInt().coerceIn(0, pagerState.pageCount - 1)
                 // Run the settle here, not in a separate coroutine: the fling
