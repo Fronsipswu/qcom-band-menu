@@ -100,8 +100,11 @@ class NetworkMonitor(
     fun stopDiagBlocking() = diag.stop()
 
     /** Replay on starts a new recording; off deletes the recorded files
-     *  and polling goes back to following the page. */
+     *  and polling goes back to following the page. A call with the current
+     *  value is ignored: DataStore re-emits on every preference write (any
+     *  menu option), and a spurious repeat would wipe the recording so far. */
     fun setReplayEnabled(on: Boolean) {
+        if (on == _state.value.replayEnabled) return
         _state.update { it.copy(replayEnabled = on) }
         scope.launch(Dispatchers.IO) { recorder?.clear(keepRecording = on) }
         reschedule()
