@@ -10,7 +10,8 @@
         android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.QcomBandMenu"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
