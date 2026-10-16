@@ -294,7 +294,10 @@ class SnapshotBuilder(
             row("TAC", (l?.tac ?: sys?.common?.get(Rat.LTE)?.tac)?.toString())
             row("TA", diag?.lteTimingAdvance?.toString())
             // eNB/sector only (not the full ECI): fits a slot, so DL / UL shares the row.
-            (l?.eci ?: sys?.common?.get(Rat.LTE)?.cellId)?.let { eci ->
+            // An ECI is 28 bits (36.331); larger is the modem's "unknown" filler,
+            // which would also be too wide for the slot.
+            fun eciOf(v: Long?) = v?.takeIf { it in 0..0x0FFFFFFF }
+            (eciOf(l?.eci) ?: eciOf(sys?.common?.get(Rat.LTE)?.cellId))?.let { eci ->
                 add(Field("eNB/Sector", "${eci shr 8}/${eci and 0xFF}"))
             }
             earfcn?.let { lteFrequenciesForEarfcn(it.toInt()) }?.let { f ->

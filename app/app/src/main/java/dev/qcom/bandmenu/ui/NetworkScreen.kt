@@ -659,10 +659,17 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
     // [extraRow] is packed on its own and goes after the first [extraRowAfter] rows.
     val main = pack(fields)
     val rows = main.take(extraRowAfter) + pack(extraRow) + main.drop(extraRowAfter)
+    // Column widths. The serving card's third column is narrower, which moves
+    // the second and third columns right so the right side looks less empty
+    // (the widest third-column value, an 11-digit NCI, still fits).
+    val columns = if (serving) listOf(1.08f, 1.08f, 0.84f) else listOf(1f, 1f, 1f)
     rows.forEach { row ->
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            var col = 0
             row.forEach { f ->
-                Column(Modifier.weight(span(f).toFloat())) {
+                val weight = columns.subList(col, col + span(f)).sum()
+                col += span(f)
+                Column(Modifier.weight(weight)) {
                     // The serving card runs its fields slightly smaller than the other cards.
                     val label = MiuixTheme.textStyles.footnote2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
                     val value = MiuixTheme.textStyles.body2.let { if (serving) it.copy(fontSize = it.fontSize * 0.92f) else it }
@@ -670,8 +677,8 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
                     Text(f.value, style = value)
                 }
             }
-            val free = 3 - row.sumOf(::span)
-            if (free > 0) Spacer(Modifier.weight(free.toFloat()))
+            val free = columns.drop(col).sum()
+            if (free > 0f) Spacer(Modifier.weight(free))
         }
     }
 }
