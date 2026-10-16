@@ -773,7 +773,10 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
         }
         // No TxMode row in ENDC (NR has none).
         if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
-        row("Rank") { text(it.diag?.rank?.toString() ?: it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+        // LTE as NR: the mean scheduled layers; B126's rank when no TBs came.
+        row("Rank") {
+            text((it.diag?.let { d -> d.layers ?: d.rank?.toDouble() } ?: it.nr?.layers)?.let { l -> String.format(Locale.US, "%.1f", l) })
+        }
         row("MCS") {
             val (value, fill) = mcsCell(it)
             CellGradientBar(value, fill, barMax, cellStyle)

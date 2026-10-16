@@ -32,7 +32,9 @@ data class DiagCarrier(
     val bler: Double?, val mcs: Double?, val rbs: Double?,
     /** Majority modulation, e.g. "64QAM". */
     val modulation: String?,
-    val rank: Int?, val transmissionMode: Int?, val txAntennas: Int?, val rxAntennas: Int?
+    val rank: Int?, val transmissionMode: Int?, val txAntennas: Int?, val rxAntennas: Int?,
+    /** Mean scheduled layers per TB (B173); null when the carrier had no TBs. */
+    val layers: Double? = null
 )
 
 /** One NR carrier over the helper's last window (B825/B823/B887/B97F/B8D8/B8A7). */
@@ -130,7 +132,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     bler = c.d("bler"), mcs = c.d("mcs"), rbs = c.d("rbs"),
                     modulation = c.optString("mod").ifEmpty { null },
                     rank = c.i("rank"), transmissionMode = c.i("tm"),
-                    txAntennas = c.i("tx"), rxAntennas = c.i("rx")
+                    txAntennas = c.i("tx"), rxAntennas = c.i("rx"), layers = c.d("layers")
                 )
             }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"))
         }
