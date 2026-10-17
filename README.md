@@ -11,6 +11,11 @@ Apply cellular forcings such as RAT preferences, band locking, and 5G-NR modes t
 - Query modem-reported hardware-supported bands
 - Restore band locks to hardware defaults
 - Instant Cell & ARFCN locking (app only)
+- Live Network page: serving cell, LTE carrier aggregation, NR cells, antennas and neighbour cells, read from the modem over QMI (app only)
+- Advanced network metrics with DIAG mode (experimental)
+  - MIMO, Rank, MCS, modulation schemes, RBs, CSI-RS ports etc
+  - PHY DL/UL throughput
+  - Detailed NRCA readings
 - Available as both an Android app and a command-line utility
 
 <img height="600" alt="image" src="https://github.com/user-attachments/assets/dbd960de-2027-4221-931d-ef63e448bc7b" />
@@ -22,6 +27,7 @@ Apply cellular forcings such as RAT preferences, band locking, and 5G-NR modes t
 - Qualcomm device
 - Root access
 - Android 11 or newer for the app version
+- For DIAG mode: the vendor DIAG library (`/vendor/lib64/libdiag.so`) and a running `diag-router`
 - A terminal environment, such as Termux or ADB shell, for command-line usage
 
 Compatibility may vary between Qualcomm modem generations, device manufacturers, firmware versions, and dual-SIM implementations.
@@ -299,6 +305,84 @@ Query current state
      |
 Return updated values to the CLI or Android app
 ```
+
+# DIAG Network Metrics
+
+QMI only reports what the modem summarizes for the user: the serving cell, signal levels, and a list of carrier frequencies. Per-carrier details such as MCS, resource blocks, rank, SINR of each secondary cell, or the physical-layer throughput are only available in the modem's **DIAG** logs.
+
+DIAG mode reads these logs through the **Diag Consumer Interface (DCI)**, the same interface used by on-device diagnostic tools. A separate root helper, `qbm-diagd`, subscribes to a fixed set of log codes, decodes them on the phone, and passes a per-carrier summary to the app.
+
+```text
+Android app (Network page)
+            |
+            | abstract socket "qbm_diagd", one request per second
+            v
+        qbm-diagd (root)
+            |
+            | dlopen
+            v
+  /vendor/lib64/libdiag.so
+            |
+            | DCI client
+            v
+        diag-router
+            |
+            v
+   Modem (MPSS) DIAG log stream
+```
+
+### DCI Only
+
+The helper registers as a DCI client and only adds its own log subscriptions. It never takes the main logging session, never changes the main log masks, and never switches the logging mode.
+
+Other DIAG tools and USB diagnostics therefore keep working while DIAG mode is on. The helper is read-only towards the radio.
+
+The DCI session is opened with:
+
+```text
+Diag_LSM_Init
+diag_register_dci_client      peripheral: modem (MPSS)
+diag_dci_set_version(1)       extended header: SIM of each log
+diag_log_stream_config        subscribe to the log codes below
+```
+
+### Log Codes
+
+LTE:
+
+```text
+0xB173  PDSCH stat indication     MCS, modulation, RBs, layers, CRC, TB size
+0xB126  PDSCH demapper config     Tx/Rx antennas, rank, transmission mode
+0xB139  PUSCH Tx report           uplink TB size
+0xB184  CA metrics                PCell/SCell EARFCN, PCI, band, bandwidth, state
+0xB193  Serving cell measurement  per-carrier RSRP, RSRQ, SINR
+0xB179  Intra-frequency measure   RSRP, RSRQ of deactivated SCells
+0xB168  Random access MSG2        timing advance
+```
+
+NR:
+
+```text
+0xB887  PDSCH status              MCS, modulation, RBs, layers, TB size
+0xB883  UL physical channel       uplink TB size
+0xB97F  Measurements              SS-RSRP, SS-RSRQ
+0xB8D8  SNR                       SS-SINR, CSI-SINR
+0xB8DD  SNR (X55 to X65)          SS-SINR, CSI-SINR
+0xB96A  Beam measurements (X65)   strongest beam's SNR
+0xB8A7  CSF                       CQI, rank indicator
+0xB825  RRC configuration         carriers, band, bandwidth, SCS
+0xB823  Serving cell              PCell PCI, ARFCN, band
+0xB88A  RACH attempt              timing advance
+0xB821  RRC OTA                   CSI-RS ports
+```
+
+### Log Versions
+
+The layout of each log code changes between modem generations. Every supported version is described in a layout table (`qbm_layouts.h`), so a packet is only decoded when its version is known and its length matches.
+
+Unknown versions are skipped instead of being guessed.
+
+The NR RRC messages carried by `0xB821` are decoded with an ASN.1 decoder generated from 3GPP TS 38.331 (see Acknowledgements), to read each cell's configured CSI-RS ports.
 
 
 # Acknowledgements
