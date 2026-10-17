@@ -823,7 +823,8 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
     // the NR table's Port/Rx), Rank the mean layers.
     if (diag) {
         row("Tx/Rx") {
-            text(it.diag?.let { d -> if (d.txAntennas != null && d.rxAntennas != null) "${d.txAntennas}×${d.rxAntennas}" else null }
+            // Tx held while the carrier idles (PortHold): "4×-" without an RX count.
+            text(it.diag?.let { d -> if (d.txAntennas == null && d.rxAntennas == null) null else "${d.txAntennas ?: "-"}×${d.rxAntennas ?: "-"}" }
                 ?: it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" })
         }
         // No TxMode row in ENDC (NR has none).

@@ -77,8 +77,8 @@ class NetworkMonitor(
      *  "TRUE-H" on LTE but "TRUE5GX" on 5G), so a mode change re-reads it. */
     private val namedPlmn = arrayOfNulls<String>(2)
     private val cachedName = arrayOfNulls<String>(2)
-    /** Per SIM: NR columns' CSI-RS port counts held while idle. */
-    private val portHold = Array(2) { CsiPortHold() }
+    /** Per SIM: NR columns' CSI-RS ports and LTE columns' Tx antennas held while idle. */
+    private val portHold = Array(2) { PortHold() }
 
     fun setVisible(v: Boolean) { visible = v; reschedule() }
     fun setResumed(v: Boolean) { resumed = v; reschedule() }
