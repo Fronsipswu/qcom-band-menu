@@ -103,11 +103,20 @@ jobs:
           mv app/app/build/outputs/apk/staging/app-staging.apk "$APK"
           echo "APK=${APK}" >> "$GITHUB_ENV"
 
+      # The signing certificate's fingerprint (public), also in the run's
+      # summary: it matches the local debug key's when the secret was used.
+      - name: Show signing certificate
+        run: |
+          CERT=$("$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$APK" | grep -m1 'SHA-256 digest')
+          echo "$CERT"
+          echo "Signing certificate SHA-256: ${CERT##*: }" >> "$GITHUB_STEP_SUMMARY"
+
+      # Unzipped: the artifact downloads as the .apk itself (named after the file).
       - name: Upload staging APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.APK }}
           path: ${{ env.APK }}
+          archive: false
           retention-days: 30
           if-no-files-found: error
 
