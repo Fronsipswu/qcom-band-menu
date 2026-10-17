@@ -639,10 +639,12 @@ class SnapshotBuilder(
 
     // ── Neighbours and antennas ──────────────────────────────────────────
 
-    // Sorted by band number (unknown last), then channel.
-    private fun neighbors(): List<Neighbor> = neighborList().sortedWith(
-        compareBy<Neighbor>({ it.band?.number ?: Int.MAX_VALUE }, { it.channel })
-    )
+    // Best quality first, whatever the band: RSRQ (LTE), Ec/Io (WCDMA); GSM
+    // has only RxLev, so that. Unmeasured last.
+    private fun neighbors(): List<Neighbor> = neighborList().sortedByDescending { n ->
+        (n.metrics.firstOrNull { it.kind == MetricKind.RSRQ || it.kind == MetricKind.ECIO } ?: n.metrics.firstOrNull())
+            ?.value ?: Double.NEGATIVE_INFINITY
+    }
 
     private fun neighborList(): List<Neighbor> = buildList {
         val l = loc ?: return@buildList

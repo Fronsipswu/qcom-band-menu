@@ -1129,7 +1129,7 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
 @Composable
 private fun NeighborRows(neighbors: List<Neighbor>) {
     // Table: PCI | Band | EARFCN | RSRP bar | RSRQ bar, headers once,
-    // rows already sorted by band. Band is derived from the channel.
+    // rows already sorted, best RSRQ first. Band is derived from the channel.
     val first = neighbors.first()
     val metricLabels = first.metrics.take(2).map { it.label }
     val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
