@@ -21,8 +21,7 @@
  * Logs (every version decoded through a layout table in qbm_layouts.h):
  *   LTE 0xB173 PDSCH Stat Indication: per TB MCS, modulation, RBs, layers,
  *          CRC, TB size, carrier slot
- *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme (latched
- *          per carrier across windows, see lte126)
+ *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
  *       0xB139 PUSCH Tx Report: UL TB size and carrier slot
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
@@ -64,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.16"
+#define HELPER_VERSION "1.22.15"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -96,7 +95,7 @@ struct slot {
     long recs, layers_sum;
     /* B139 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
-    /* B126, per window; the config itself is latched in lte126 */
+    /* B126 */
     long n126, rank[4], scheme[16];
     int tx, rx;
     /* B193, means over the window */
@@ -130,23 +129,6 @@ static struct ca_cell ca_s[SIMS][SLOTS];   /* [0] = PCell, [n] = SCell n */
 #define ca (ca_s[sim])
 static int ca_seen_s[SIMS];
 #define ca_seen (ca_seen_s[sim])
-
-/* A serving cell's identity, as state that arrives without one of its own
- * (the TA, the latched B126 demapper config) is tied to it. */
-struct cell_id { int known; uint32_t arfcn; int pci; };
-
-/* The last B126 demapper config per LTE carrier slot, latched across the
- * stats windows: the modem sends B126 on (re)configurations, not in every
- * window, and the config stays the carrier's until it changes (as the NR
- * RRC CSI ports do). bound/cell tie it to the carrier it was stored under. */
-struct lte126_cfg {
-    int known;
-    int tx, rx, rank, tm;
-    int bound;
-    struct cell_id cell;
-};
-static struct lte126_cfg lte126_s[SIMS][SLOTS];
-#define lte126 (lte126_s[sim])
 /* A SIM that sent no log for SILENT_MS is off or out of service (an idle
  * SIM still measures every paging cycle, <= 2.56 s): its last carrier lists
  * are not shown. */
@@ -534,6 +516,9 @@ static void b193(const uint8_t *p, int n) {
  * the PCell; after a cell change the card shows "–" until the next random
  * access. */
 
+/* A serving cell's identity, as the TA is tied to it. */
+struct cell_id { int known; uint32_t arfcn; int pci; };
+
 /* The last random access's TA and the cell it was tied to (bound = 0 until
  * the serving cell was known once after it arrived). */
 struct ta {
@@ -579,25 +564,6 @@ static int ta_bind(struct ta *t, struct cell_id serving, long now) {
         return 1;
     }
     t->have = 0;                         /* an older value belongs to the old cell */
-    return 0;
-}
-
-/* Ties the latched demapper config to the carrier slot's current cell;
- * returns whether it may be shown. Like ta_bind, the first known identity
- * after the log binds the value — but without the handover rebind: a B126
- * config unambiguously belongs to the cell it was decoded under, so a
- * different identity drops it until the carrier's next B126. */
-static int lte126_bind(struct lte126_cfg *c, struct cell_id serving) {
-    if (!c->known || !serving.known)
-        return 0;
-    if (!c->bound) {
-        c->bound = 1;
-        c->cell = serving;
-        return 1;
-    }
-    if (c->cell.arfcn == serving.arfcn && c->cell.pci == serving.pci)
-        return 1;
-    c->known = 0;
     return 0;
 }
 
@@ -1427,29 +1393,12 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
         }
         if (s->recs > 0) PUT(",\"layers\":%.2f", (double)s->layers_sum / s->recs);
-        /* The demapper config (B126) is latched per carrier: the modem sends
-         * the log on (re)configurations, not in every window, so a window
-         * without it falls back to the last one, tied to the carrier it was
-         * stored under (lte126_bind) — as the NR side's RRC CSI ports are. */
-        struct cell_id serving = { is_live || b184_ok,
-            is_live ? live[i].earfcn : b184_ok ? ca[i].earfcn : 0,
-            is_live ? live[i].pci : b184_ok ? ca[i].pci : -1 };
-        struct lte126_cfg *m126 = &lte126[i];
         if (s->n126 > 0) {
             int r = argmax(s->rank, 4), tm = scheme_to_tm(argmax(s->scheme, 16));
-            if (r >= 0) m126->rank = r + 1;
-            if (tm) m126->tm = tm;
-            if (s->tx) m126->tx = s->tx;
-            if (s->rx) m126->rx = s->rx;
-            m126->known = 1;
-            m126->bound = serving.known;
-            m126->cell = serving;
-        }
-        if (lte126_bind(m126, serving)) {
-            if (m126->rank) PUT(",\"rank\":%d", m126->rank);
-            if (m126->tm) PUT(",\"tm\":%d", m126->tm);
-            if (m126->tx) PUT(",\"tx\":%d", m126->tx);
-            if (m126->rx) PUT(",\"rx\":%d", m126->rx);
+            if (r >= 0) PUT(",\"rank\":%d", r + 1);
+            if (tm) PUT(",\"tm\":%d", tm);
+            if (s->tx) PUT(",\"tx\":%d", s->tx);
+            if (s->rx) PUT(",\"rx\":%d", s->rx);
         }
         PUT("}");
     }
