@@ -666,9 +666,13 @@ private fun Chip(text: String, highlight: Boolean = false, compact: Boolean = fa
     }
 }
 
+/** Section titles start at the cards' inner text edge (16 dp), not
+ *  SmallTitle's default 28 dp, so the page has one left line. */
+private val SectionTitleMargin = PaddingValues(16.dp, 8.dp)
+
 @Composable
 private fun CellSection(cell: CellCard) {
-    SmallTitle(cell.title, modifier = Modifier.padding(top = 2.dp))
+    SmallTitle(cell.title, modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             cell.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 3.dp)) }
@@ -736,7 +740,7 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
 
 @Composable
 private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
-    if (title) SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp))
+    if (title) SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             if (group.summary.isNotEmpty()) {
