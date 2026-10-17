@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.17"
+#define HELPER_VERSION "1.22.18"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
 #define DIAG_PROC_MSM 0
@@ -386,6 +386,9 @@ static struct live_cell live_s[SIMS][SLOTS];
  * SCG is added. */
 static int b179_scells_s[SIMS];
 #define b179_scells (b179_scells_s[sim])
+/* With B179 reporting SCells, one unmeasured this long has been released
+ * (shorter than HOLD_MS, which bridges idle paging-cycle gaps). */
+#define SCELL_GONE_MS 3000
 #define LIVE_MS 3000
 
 /* Idle: the modem measures once per paging cycle (1.28 or 2.56 s), so many
@@ -1361,9 +1364,11 @@ static int write_stats(char *out, size_t cap, int for_sim) {
          * it names the same carrier. Shown HOLD_MS after its last record. */
         int is_live = live[i].at_ms && now - live[i].at_ms < HOLD_MS;
         int b184_ok = ca[i].known && b184_current && (!is_live || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
-        /* An SCell needs a recent measurement where B179 reports SCells
-         * (see b179_scells); otherwise B184's list is the authority. */
-        int configured = is_live || (b184_ok && (i == 0 || (ca[i].state > 0 && !b179_scells)));
+        /* An SCell needs a measurement within SCELL_GONE_MS where B179
+         * reports SCells (see b179_scells); otherwise B184's list is the
+         * authority. */
+        int configured = i > 0 && b179_scells ? live[i].at_ms && now - live[i].at_ms < SCELL_GONE_MS
+                                              : is_live || (b184_ok && (i == 0 || ca[i].state > 0));
         if (!configured && s->tb == 0 && s->ul_tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
         PUT("%s{\"slot\":%d", first ? "" : ",", i);
         first = 0;
