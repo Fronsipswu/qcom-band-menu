@@ -18,7 +18,8 @@ Apply cellular forcings such as RAT preferences, band locking, and 5G-NR modes t
   - Detailed NRCA readings
 - Available as both an Android app and a command-line utility
 
-<img height="600" alt="image" src="https://github.com/user-attachments/assets/dbd960de-2027-4221-931d-ef63e448bc7b" />
+<img height="600" alt="image" src="https://github.com/user-attachments/assets/56620800-fa04-4f80-a2db-914f86331a60" />
+<img height="600"  alt="image" src="https://github.com/user-attachments/assets/e31a72ee-fb34-4c1f-8686-a4baf68045c2" />
 <img height="600" alt="image" src="https://github.com/user-attachments/assets/3a369f98-895e-4c53-94f1-f9e44227b51b" />
 
 
