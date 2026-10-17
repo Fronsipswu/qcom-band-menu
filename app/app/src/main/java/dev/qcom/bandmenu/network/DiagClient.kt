@@ -152,7 +152,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.15"
+        private const val EXPECTED_VERSION = "1.22.16"
     }
 
     private var socket: LocalSocket? = null
