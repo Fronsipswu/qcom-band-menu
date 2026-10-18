@@ -87,17 +87,18 @@ fun ScrubSlider(
                 fun speedFor(dy: Float) = if (dy < fineAt) 1f else 0.1f
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
                     held = true
                     try {
                     val usable = (size.width - 2 * inset).coerceAtLeast(1f)
-                    var acc = current.toFloat()
-                    var lastSet = current
+                    val accum = ScrubAccumulator(current)
                     var lastX = down.position.x
                     var dragging = false
                     var speed = 1f
                     while (true) {
                         val event = awaitPointerEvent()
                         val c = event.changes.firstOrNull { it.id == down.id } ?: break
+                        c.consume()
                         if (!c.pressed) break
                         val dx = c.position.x - lastX
                         lastX = c.position.x
@@ -108,17 +109,12 @@ fun ScrubSlider(
                             dragStart()
                         }
                         if (!dragging) continue
-                        // Moved from outside (the timeline was extended): carry on from there.
-                        if (current != lastSet) { acc = current.toFloat(); lastSet = current }
                         val s = speedFor(dy)
                         if (s != speed) {
                             speed = s
                             haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                         }
-                        acc = (acc + dx / usable * top * speed).coerceIn(0f, top.toFloat())
-                        val v = acc.roundToInt()
-                        if (v != current) { setValue(v); lastSet = v }
-                        c.consume()
+                        accum.step(current, top, dx / usable * top * s)?.let(setValue)
                     }
                     } finally {
                         held = false
@@ -164,5 +160,34 @@ private fun Bubble(text: String) {
     Box(Modifier.clip(RoundedCornerShape(6.dp)).background(MiuixTheme.colorScheme.primary).padding(horizontal = 8.dp, vertical = 4.dp)) {
         Text(text, style = MiuixTheme.textStyles.footnote1.copy(fontFeatureSettings = "tnum"),
             color = MiuixTheme.colorScheme.onPrimary, maxLines = 1)
+    }
+}
+
+/**
+ * Tracks sub-sample drag progress over 0..max without losing fractional deltas
+ * when [current] lags behind [setValue] until the next recomposition, while
+ * still resetting when [current] changes externally (e.g. timeline extension).
+ */
+internal class ScrubAccumulator(initial: Int) {
+    var acc = initial.toFloat()
+        private set
+    private var lastSet = initial
+    private var lastObserved = initial
+
+    fun step(current: Int, max: Int, deltaSamples: Float): Int? {
+        if (current != lastObserved) {
+            lastObserved = current
+            if (current != lastSet) {
+                acc = current.toFloat()
+                lastSet = current
+            }
+        }
+        acc = (acc + deltaSamples).coerceIn(0f, max.toFloat())
+        val v = acc.roundToInt()
+        if (v != lastSet) {
+            lastSet = v
+            return v
+        }
+        return null
     }
 }

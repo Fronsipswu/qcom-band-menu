@@ -532,7 +532,10 @@ private fun ReplayBar(
     // Same shade as the signal-bar track on a card, so the bar stands out over cards behind it.
     val bg = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.defaultColors(color = bg)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures {} },
+        colors = CardDefaults.defaultColors(color = bg)
+    ) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
                 Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play,
