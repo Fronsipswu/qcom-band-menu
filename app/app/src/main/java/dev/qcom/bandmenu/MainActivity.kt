@@ -83,26 +83,26 @@ class MainActivity : ComponentActivity() {
             MiuixTheme(colors = darkColorScheme()) {
                 val snackbarHostState = remember { SnackbarHostState() }
 
-                var modemState by remember { mutableStateOf<ModemState?>(null) }
-                var isLoading by remember { mutableStateOf(true) }
-                var showRootDenied by remember { mutableStateOf(false) }
-                var showErrorDialog by remember { mutableStateOf(false) }
-                var errorTitle by remember { mutableStateOf("") }
-                var errorMessage by remember { mutableStateOf("") }
-                var snackbarMessage by remember { mutableStateOf<String?>(null) }
-                var snackbarIsError by remember { mutableStateOf(false) }
-                var refreshingSlots by remember { mutableStateOf(emptySet<Int>()) }
-                var refreshKey0 by remember { mutableIntStateOf(0) }
-                var refreshKey1 by remember { mutableIntStateOf(0) }
+                var modemState by daemonHolder.modemState
+                var isLoading by daemonHolder.isLoading
+                var showRootDenied by daemonHolder.showRootDenied
+                var showErrorDialog by daemonHolder.showErrorDialog
+                var errorTitle by daemonHolder.errorTitle
+                var errorMessage by daemonHolder.errorMessage
+                var snackbarMessage by daemonHolder.snackbarMessage
+                var snackbarIsError by daemonHolder.snackbarIsError
+                var refreshingSlots by daemonHolder.refreshingSlots
+                var refreshKey0 by daemonHolder.refreshKey0
+                var refreshKey1 by daemonHolder.refreshKey1
                 var debugEnabled by remember { mutableStateOf(false) }
-                val scope = rememberCoroutineScope()
+                val scope = daemonHolder.scope
                 val modemLock = daemonHolder.modemLock
 
-                var cellLockResult by remember { mutableStateOf<CellLockResult?>(null) }
-                var cellLockRefreshing by remember { mutableStateOf(false) }
-                var cellLockRefreshKey by remember { mutableIntStateOf(0) }
-                var cellLockSelectedSim by remember { mutableIntStateOf(0) }
-                var nrIndependentSupported by remember { mutableStateOf<Boolean?>(null) }
+                var cellLockResult by daemonHolder.cellLockResult
+                var cellLockRefreshing by daemonHolder.cellLockRefreshing
+                var cellLockRefreshKey by daemonHolder.cellLockRefreshKey
+                var cellLockSelectedSim by daemonHolder.cellLockSelectedSim
+                var nrIndependentSupported by daemonHolder.nrIndependentSupported
                 var bandFilter by remember { mutableStateOf(BandFilterState()) }
                 var quickSelectHidden by remember { mutableStateOf(false) }
                 var usageSettingHidden by remember { mutableStateOf(false) }
@@ -250,114 +250,119 @@ class MainActivity : ComponentActivity() {
                 // sim_set between that operation's commands and send the rest to
                 // the other SIM. Init also takes the lock, so the two never overlap.
                 // Bumped to run init again (SIM 2 turned on/off or inserted/removed).
-                var initGeneration by remember { mutableIntStateOf(0) }
-                var sim2BindRetries by remember { mutableIntStateOf(0) }
+                var initGeneration by daemonHolder.initGeneration
+                var sim2BindRetries by daemonHolder.sim2BindRetries
                 LaunchedEffect(daemonManager.isReady.value, initGeneration) {
-                    if (daemonManager.isReady.value && modemState == null) {
+                    if (daemonManager.isReady.value && modemState == null && !daemonHolder.initInFlight) {
+                        daemonHolder.initInFlight = true
                         scope.launch {
-                            modemLock.withLock {
-                                isLoading = true
-                                var initModemState: ModemState? = null
-                                var initErrorTitle: String? = null
-                                var initError: String? = null
-                                var initNrIndependentSupported: Boolean? = null
-                                withContext(Dispatchers.IO) {
-                                    try {
-                                        // sim_set binds the SIM, then the daemon runs the GET and
-                                        // both cell-lock reads, so each reply is that SIM's full
-                                        // state (hardware and NR capability come with every reply).
-                                        // SIM 2 first, then SIM 1: two requests, and the daemon
-                                        // ends bound to SIM 1, which detach/attach act on.
-                                        // I8: Check ok on each response
-                                        // SIM 2 is optional: on a single-SIM phone, or with DSDS
-                                        // off, the modem refuses to bind subscription 2. That
-                                        // marks SIM 2 unavailable instead of failing init, so
-                                        // SIM 1 still works. Only a SIM 1 failure is fatal.
-                                        // QMI only (no telephony API): UIM card status tells a SIM 2
-                                        // that's turned off or taken out apart from "no service"
-                                        // (both still bind with DSDS on). UNKNOWN (one-slot phone,
-                                        // unreadable) falls back to the bind: with DSDS off or a
-                                        // single SIM, the modem refuses subscription 2.
-                                        val (sim1Status, sim2Status) = daemonHolder.networkMonitor.simStatuses()
-                                        var sim2Available = sim2Status != SimSlotStatus.DISABLED && sim2Status != SimSlotStatus.NO_SIM
-                                        var sim2Parsed: DaemonResponse? = null
-                                        if (!sim2Available) {
-                                            AppLog.i(TAG, "Init: SIM 2 card status $sim2Status, skipping SIM 2")
-                                        } else {
-                                            val r = JsonStateParser.parseResponse(daemonManager.simSet(2))
-                                            if (r.ok) {
-                                                sim2Parsed = r
+                            try {
+                                modemLock.withLock {
+                                    isLoading = true
+                                    var initModemState: ModemState? = null
+                                    var initErrorTitle: String? = null
+                                    var initError: String? = null
+                                    var initNrIndependentSupported: Boolean? = null
+                                    withContext(Dispatchers.IO) {
+                                        try {
+                                            // sim_set binds the SIM, then the daemon runs the GET and
+                                            // both cell-lock reads, so each reply is that SIM's full
+                                            // state (hardware and NR capability come with every reply).
+                                            // SIM 2 first, then SIM 1: two requests, and the daemon
+                                            // ends bound to SIM 1, which detach/attach act on.
+                                            // I8: Check ok on each response
+                                            // SIM 2 is optional: on a single-SIM phone, or with DSDS
+                                            // off, the modem refuses to bind subscription 2. That
+                                            // marks SIM 2 unavailable instead of failing init, so
+                                            // SIM 1 still works. Only a SIM 1 failure is fatal.
+                                            // QMI only (no telephony API): UIM card status tells a SIM 2
+                                            // that's turned off or taken out apart from "no service"
+                                            // (both still bind with DSDS on). UNKNOWN (one-slot phone,
+                                            // unreadable) falls back to the bind: with DSDS off or a
+                                            // single SIM, the modem refuses subscription 2.
+                                            val (sim1Status, sim2Status) = daemonHolder.networkMonitor.simStatuses()
+                                            var sim2Available = sim2Status != SimSlotStatus.DISABLED && sim2Status != SimSlotStatus.NO_SIM
+                                            var sim2Parsed: DaemonResponse? = null
+                                            if (!sim2Available) {
+                                                AppLog.i(TAG, "Init: SIM 2 card status $sim2Status, skipping SIM 2")
                                             } else {
-                                                sim2Available = false
-                                                AppLog.w(TAG, "Init: SIM 2 unavailable (${r.error?.message ?: "unknown"}), continuing with SIM 1")
-                                            }
-                                        }
-                                        val sim2State = sim2Parsed?.simState ?: SimState()
-                                        val sim2CellLock = sim2Parsed?.cellLockState ?: CellLockState()
-                                        val sim2PlmnLock = sim2Parsed?.plmnLockState ?: PlmnLockState()
-
-                                        val sim1Parsed = JsonStateParser.parseResponse(daemonManager.simSet(1))
-                                        if (!sim1Parsed.ok) {
-                                            initErrorTitle = "Initialization Failed"
-                                            initError = "Failed to select SIM 1: ${sim1Parsed.error?.message ?: "unknown"}"
-                                            return@withContext
-                                        }
-                                        val sim1State = sim1Parsed.simState ?: SimState()
-                                        val hardware = sim1Parsed.hardware ?: HardwareBands()
-                                        val sim1CellLock = sim1Parsed.cellLockState ?: CellLockState()
-                                        val sim1PlmnLock = sim1Parsed.plmnLockState ?: PlmnLockState()
-
-                                        // Read NR independent capability from daemon response
-                                        val nrCap = sim1Parsed.nrIndependentCapability
-                                        if (nrCap != null && nrCap.checked && nrCap.independentLockSupported != null) {
-                                            if (nrIndependentSupported == null) {
-                                                initNrIndependentSupported = nrCap.independentLockSupported
-                                                AppLog.i(TAG, "NR independent supported (daemon): ${nrCap.independentLockSupported}")
-                                                // Persist to DataStore
-                                                launch {
-                                                    BandPreferences.setNrIndependentSupported(
-                                                        bandDataStore, nrCap.independentLockSupported
-                                                    )
+                                                val r = JsonStateParser.parseResponse(daemonManager.simSet(2))
+                                                if (r.ok) {
+                                                    sim2Parsed = r
+                                                } else {
+                                                    sim2Available = false
+                                                    AppLog.w(TAG, "Init: SIM 2 unavailable (${r.error?.message ?: "unknown"}), continuing with SIM 1")
                                                 }
                                             }
+                                            val sim2State = sim2Parsed?.simState ?: SimState()
+                                            val sim2CellLock = sim2Parsed?.cellLockState ?: CellLockState()
+                                            val sim2PlmnLock = sim2Parsed?.plmnLockState ?: PlmnLockState()
+
+                                            val sim1Parsed = JsonStateParser.parseResponse(daemonManager.simSet(1))
+                                            if (!sim1Parsed.ok) {
+                                                initErrorTitle = "Initialization Failed"
+                                                initError = "Failed to select SIM 1: ${sim1Parsed.error?.message ?: "unknown"}"
+                                                return@withContext
+                                            }
+                                            val sim1State = sim1Parsed.simState ?: SimState()
+                                            val hardware = sim1Parsed.hardware ?: HardwareBands()
+                                            val sim1CellLock = sim1Parsed.cellLockState ?: CellLockState()
+                                            val sim1PlmnLock = sim1Parsed.plmnLockState ?: PlmnLockState()
+
+                                            // Read NR independent capability from daemon response
+                                            val nrCap = sim1Parsed.nrIndependentCapability
+                                            if (nrCap != null && nrCap.checked && nrCap.independentLockSupported != null) {
+                                                if (nrIndependentSupported == null) {
+                                                    initNrIndependentSupported = nrCap.independentLockSupported
+                                                    AppLog.i(TAG, "NR independent supported (daemon): ${nrCap.independentLockSupported}")
+                                                    // Persist to DataStore
+                                                    launch {
+                                                        BandPreferences.setNrIndependentSupported(
+                                                            bandDataStore, nrCap.independentLockSupported
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            initModemState = ModemState(
+                                                sim1State, sim2State, hardware, true,
+                                                sim1CellLock, sim2CellLock,
+                                                sim1PlmnLock, sim2PlmnLock,
+                                                initNrIndependentSupported ?: nrIndependentSupported,
+                                                sim2Available = sim2Available,
+                                                sim2Status = sim2Status,
+                                                sim1Status = sim1Status
+                                            )
+
+                                            // I6: Enable verbose logging on startup if debug is enabled
+                                            if (debugEnabled) {
+                                                daemonManager.verboseSet(true)
+                                            }
+
+                                            AppLog.i(TAG, "Init: success")
+                                        } catch (e: Exception) {
+                                            AppLog.e(TAG, "Init: failed", e)
+                                            initErrorTitle = "Initialization Failed"
+                                            initError = "Failed to query modem state: ${e.message}"
                                         }
-
-                                        initModemState = ModemState(
-                                            sim1State, sim2State, hardware, true,
-                                            sim1CellLock, sim2CellLock,
-                                            sim1PlmnLock, sim2PlmnLock,
-                                            initNrIndependentSupported ?: nrIndependentSupported,
-                                            sim2Available = sim2Available,
-                                            sim2Status = sim2Status,
-                                            sim1Status = sim1Status
-                                        )
-
-                                        // I6: Enable verbose logging on startup if debug is enabled
-                                        if (debugEnabled) {
-                                            daemonManager.verboseSet(true)
-                                        }
-
-                                        AppLog.i(TAG, "Init: success")
-                                    } catch (e: Exception) {
-                                        AppLog.e(TAG, "Init: failed", e)
-                                        initErrorTitle = "Initialization Failed"
-                                        initError = "Failed to query modem state: ${e.message}"
                                     }
+                                    // C4: Back on Main dispatcher - update Compose state
+                                    if (initModemState != null) {
+                                        modemState = initModemState
+                                        if (initModemState.sim2Available) sim2BindRetries = 0
+                                    }
+                                    if (initNrIndependentSupported != null && nrIndependentSupported == null) {
+                                        nrIndependentSupported = initNrIndependentSupported
+                                    }
+                                    if (initError != null) {
+                                        errorTitle = initErrorTitle ?: "Initialization Failed"
+                                        errorMessage = initError
+                                        showErrorDialog = true
+                                    }
+                                    isLoading = false
                                 }
-                                // C4: Back on Main dispatcher - update Compose state
-                                if (initModemState != null) {
-                                    modemState = initModemState
-                                    if (initModemState.sim2Available) sim2BindRetries = 0
-                                }
-                                if (initNrIndependentSupported != null && nrIndependentSupported == null) {
-                                    nrIndependentSupported = initNrIndependentSupported
-                                }
-                                if (initError != null) {
-                                    errorTitle = initErrorTitle ?: "Initialization Failed"
-                                    errorMessage = initError
-                                    showErrorDialog = true
-                                }
-                                isLoading = false
+                            } finally {
+                                daemonHolder.initInFlight = false
                             }
                         }
                     }
@@ -412,16 +417,15 @@ class MainActivity : ComponentActivity() {
                 // SIM tab labels come from QMI (GET_PLMN_NAME / GET_HOME_NETWORK via
                 // the daemon's read-only monitoring client), not the telephony API,
                 // so no phone-state permission is needed.
-                var simLabels by remember { mutableStateOf(listOf("SIM 1", "SIM 2")) }
-                LaunchedEffect(
-                    modemState?.sim1Status,
-                    modemState?.sim2Status,
-                    modemState?.sim2Available,
-                    modemState?.hardware?.nr
-                ) {
+                var simLabels by daemonHolder.simLabels
+                val labelKey = modemState?.let {
+                    Triple(it.sim1Status, it.sim2Status, it.sim2Available)
+                }
+                LaunchedEffect(labelKey, modemState?.hardware?.nr) {
                     val state = modemState ?: return@LaunchedEffect
                     val monitor = daemonHolder.networkMonitor
                     monitor.nrHardwareBands = state.hardware.nr
+                    if (labelKey == daemonHolder.loadedSimLabelsKey) return@LaunchedEffect
                     simLabels = withContext(Dispatchers.IO) {
                         simTabLabels(listOf(
                             when (state.sim1Status) {
@@ -437,6 +441,7 @@ class MainActivity : ComponentActivity() {
                             }
                         ))
                     }
+                    daemonHolder.loadedSimLabelsKey = labelKey
                 }
 
                 // Commands for a SIM 2 the modem refused would fail anyway (or, for
