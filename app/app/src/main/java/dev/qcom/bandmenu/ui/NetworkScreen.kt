@@ -194,7 +194,16 @@ fun NetworkScreen(
         replayPlaying = false
         if (!state.frozen || !state.replayEnabled) { replay = null; return@LaunchedEffect }
         val sim = state.sim
-        val opened = withContext(Dispatchers.IO) { monitor.openReplay(sim) }
+        val opened = withContext(Dispatchers.IO) {
+            monitor.openReplay(sim)?.also { s ->
+                if (s.size >= 2) {
+                    val last = s.size - 1
+                    s.round(last)?.snapshot()
+                    val t = s.elapsedAt(last)
+                    s.thputBetween(t - 62_000, t + 62_000)
+                }
+            }
+        }
         replay = opened
         replayPos = ((opened?.size ?: 1) - 1).coerceAtLeast(0)
     }
@@ -215,12 +224,31 @@ fun NetworkScreen(
     fun extendReplay(toEnd: Boolean = false) {
         if (replayLoad?.isActive == true) return
         val sim = state.sim
+        val old = replay
+        val curPos = replayPos
         replayLoad = replayScope.launch {
-            val fresh = withContext(Dispatchers.IO) { monitor.openReplay(sim) } ?: return@launch
+            val fresh = withContext(Dispatchers.IO) {
+                val s = monitor.openReplay(sim) ?: return@withContext null
+                if (old != null) {
+                    if (!toEnd && s.size == old.size &&
+                        (s.size == 0 || s.elapsedAt(s.size - 1) == old.elapsedAt(old.size - 1))) {
+                        return@withContext null
+                    }
+                    s.inheritCache(old)
+                }
+                if (s.size >= 2) {
+                    val target = if (toEnd || old == null || old.size == 0) s.size - 1
+                        else s.indexAt(old.elapsedAt(curPos.coerceIn(0, old.size - 1)))
+                    s.round(target)?.snapshot()
+                    val t = s.elapsedAt(target)
+                    s.thputBetween(t - 62_000, t + 62_000)
+                }
+                s
+            } ?: return@launch
             if (fresh.size == 0 || !state.frozen || state.sim != sim) return@launch
-            val old = replay
-            replayPos = if (toEnd || old == null || old.size == 0) fresh.size - 1
-                else fresh.indexAt(old.elapsedAt(replayPos.coerceIn(0, old.size - 1)))
+            val current = replay
+            replayPos = if (toEnd || current == null || current.size == 0) fresh.size - 1
+                else fresh.indexAt(current.elapsedAt(replayPos.coerceIn(0, current.size - 1)))
             replay = fresh
         }
     }

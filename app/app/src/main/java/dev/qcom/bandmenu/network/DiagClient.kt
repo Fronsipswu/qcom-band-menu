@@ -136,6 +136,27 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                 )
             }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"))
         }
+
+        /** Combined DL and UL throughput from [o] without decoding full carrier lists. */
+        fun parseThroughput(o: JSONObject, elapsedMs: Long): ThputPoint {
+            val arr = o.getJSONArray("carriers")
+            var dl = 0.0
+            var ul = 0.0
+            for (n in 0 until arr.length()) {
+                val c = arr.getJSONObject(n)
+                dl += c.optDouble("mbps_sched", c.optDouble("mbps", 0.0))
+                if (c.has("ul_mbps")) ul += c.getDouble("ul_mbps")
+            }
+            val nrArr = o.optJSONArray("nr")
+            if (nrArr != null) {
+                for (n in 0 until nrArr.length()) {
+                    val c = nrArr.getJSONObject(n)
+                    dl += c.optDouble("mbps_sched", c.optDouble("mbps", 0.0))
+                    if (c.has("ul_mbps")) ul += c.getDouble("ul_mbps")
+                }
+            }
+            return ThputPoint(elapsedMs, dl, ul)
+        }
     }
 }
 
