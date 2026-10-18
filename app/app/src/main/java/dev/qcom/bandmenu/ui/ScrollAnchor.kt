@@ -41,57 +41,120 @@ class ScrollAnchor(private val scroll: ScrollState) {
     // Each card's top and bottom in content coordinates.
     private val cards = HashMap<String, Pair<Float, Float>>()
     private var key: String? = null
+    // The anchor's top in the viewport (top - scroll.value) when chosen, and
+    // whether the user was at the very top of the page then.
+    private var anchorViewY = 0f
+    private var anchoredAtTop = true
+    private var choosing = true
+    private var lastPlacedTop = Float.NEGATIVE_INFINITY
+    private var targetScroll: Float? = null
+    private var lastScroll = scroll.value
+    private var lastMax = scroll.maxValue
 
     /** Empty space to put after the page, in px. */
     var slack by mutableFloatStateOf(0f)
         private set
-    // Correction not scrolled yet (the page hadn't grown enough).
-    private var pending = 0f
 
     fun placed(k: String, top: Float, height: Int) {
         val bottom = top + height
         val old = cards[k]
         cards[k] = top to bottom
-        if (k == key && old != null && !scroll.isScrollInProgress && scroll.value > 0) {
-            // The anchor moved in the content: something above it changed.
-            val shift = top - old.first
-            if (abs(shift) >= 0.5f) {
-                slack = if (shift < 0) slack - shift else (slack - shift).coerceAtLeast(0f)
-                pending = shift - scroll.dispatchRawDelta(shift)
-            }
-            return
-        }
         if (scroll.isScrollInProgress) {
             // The user scrolls: drop what's left of a correction, and the
             // slack below the view.
-            pending = 0f
+            targetScroll = null
             slack = (slack - (scroll.maxValue - scroll.value)).coerceAtLeast(0f)
+            choosing = true
+            lastPlacedTop = top
+            choose()
+            return
         }
-        // A new anchor only while the user scrolls (or when there is none),
-        // so a card that grows above the anchor can't take its place.
-        if (key == null || key !in cards || scroll.isScrollInProgress) choose()
+        if (old != null || top <= lastPlacedTop) choosing = false
+        else lastPlacedTop = top
+
+        if (k == key && old != null) {
+            val shift = top - old.first
+            val clamped = scroll.maxValue < lastMax && scroll.value == scroll.maxValue && scroll.value < lastScroll
+            if (!anchoredAtTop && (abs(shift) >= 0.5f || clamped || targetScroll != null)) {
+                // Keep the anchor at anchorViewY in the viewport across
+                // measurement clamps and multi-pass height updates.
+                val target = (top - anchorViewY).coerceAtLeast(0f)
+                if (shift > 0f && slack > 0f) slack = (slack - shift).coerceAtLeast(0f)
+                val need = target - scroll.value
+                if (abs(need) >= 0.5f) scroll.dispatchRawDelta(need)
+                val rem = target - scroll.value
+                if (abs(rem) < 0.5f) {
+                    targetScroll = null
+                } else {
+                    targetScroll = target
+                    if ((shift < 0f || clamped) && target > scroll.maxValue) {
+                        slack += target - scroll.maxValue
+                    }
+                }
+                lastScroll = scroll.value
+                lastMax = scroll.maxValue
+                return
+            }
+            if (abs(shift) < 0.5f && scroll.value != lastScroll) {
+                choose()
+                return
+            }
+            lastScroll = scroll.value
+            lastMax = scroll.maxValue
+            return
+        }
+        // A new anchor only while the user scrolls (or during the pass that
+        // populates cards when there is none), so a card that grows above the
+        // anchor can't take its place.
+        if (key == null || key !in cards) {
+            choosing = true
+            lastPlacedTop = top
+        }
+        if (choosing) choose()
     }
 
     /** The scrolled content changed size: finish a correction that didn't fit. */
     fun contentResized() {
-        if (abs(pending) >= 0.5f) pending -= scroll.dispatchRawDelta(pending)
+        val target = targetScroll ?: return
+        val need = target - scroll.value
+        if (abs(need) >= 0.5f) scroll.dispatchRawDelta(need)
+        if (abs(target - scroll.value) < 0.5f) targetScroll = null
+        lastScroll = scroll.value
+        lastMax = scroll.maxValue
     }
 
     fun removed(k: String) {
         cards.remove(k)
-        if (key == k) key = null
+        if (key == k) {
+            key = null
+            targetScroll = null
+            if (cards.isNotEmpty()) {
+                choose()
+            } else {
+                slack = 0f
+                choosing = true
+                lastPlacedTop = Float.NEGATIVE_INFINITY
+            }
+        }
     }
 
     /** The card under the middle of the visible area, else the nearest one. */
     private fun choose() {
         val mid = (viewTop + viewBottom) / 2 + scroll.value
-        key = cards.minByOrNull { (_, c) ->
+        val picked = cards.minByOrNull { (_, c) ->
             when {
                 mid < c.first -> c.first - mid
                 mid > c.second -> mid - c.second
                 else -> 0f
             }
-        }?.key
+        }
+        key = picked?.key
+        if (picked != null) {
+            anchorViewY = picked.value.first - scroll.value
+            anchoredAtTop = scroll.value == 0
+        }
+        lastScroll = scroll.value
+        lastMax = scroll.maxValue
     }
 }
 

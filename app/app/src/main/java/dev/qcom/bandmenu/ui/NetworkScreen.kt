@@ -307,8 +307,10 @@ fun NetworkScreen(
                         anchor.viewBottom = c.size.height - bottomPx
                     }
                     .verticalScroll(scrollState)
-                    .onGloballyPositioned { anchor.content = it }
-                    .onSizeChanged { anchor.contentResized() }
+                    .onGloballyPositioned {
+                        anchor.content = it
+                        anchor.contentResized()
+                    }
                     .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
             ) {
@@ -539,34 +541,38 @@ private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
     endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null
 ) {
+    val p = "${snap.sim}:"
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
-        Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull(), gnbBits) }
+        Column(Modifier.scrollAnchor(anchor, "${p}summary")) { SummaryCard(snap, state, snap.cells.firstOrNull(), gnbBits) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
     if (!servingHidden) {
-        snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "cell " + it.title)) { CellSection(it) } }
+        snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "${p}cell:${it.title}")) { CellSection(it) } }
         if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
             NoticeCard("No serving-cell details were reported.")
         }
     }
-    // NSA: one ENDC table unless the menu separates LTE and NR. Anchored by
-    // position, so the LTE table turning ENDC and back keeps its place.
+    // NSA: one ENDC table unless the menu separates LTE and NR. LTE CA and
+    // combined ENDC share one key so the table keeps its place when NSA comes and goes.
     val groups = snap.endc?.takeIf { !endcSeparate }?.let(::listOf) ?: snap.carrierGroups
     // With the serving cell hidden, the tables go without their headings too.
-    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g, title = !servingHidden) } }
+    groups.forEach { g ->
+        val groupKey = if (g.title == "NR aggregation") "${p}nr" else "${p}lte"
+        Column(Modifier.scrollAnchor(anchor, groupKey)) { CarrierSection(g, title = !servingHidden) }
+    }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise (hidden on WCDMA).
     if (state.diagEnabled && thput.isNotEmpty() && snap.mode != ServiceMode.WCDMA) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
-        Column(Modifier.scrollAnchor(anchor, "thput")) {
+        Column(Modifier.scrollAnchor(anchor, "${p}thput")) {
             ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
         }
     }
-    if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "antennas")) {
+    if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top.
             snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
@@ -580,7 +586,7 @@ private fun NetworkContent(
     }
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
-    if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "neighbours")) {
+    if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}neighbours")) {
         Expandable("Neighbour cells (${snap.neighbors.size})") {
             if (snap.neighbors.isEmpty()) {
                 Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
