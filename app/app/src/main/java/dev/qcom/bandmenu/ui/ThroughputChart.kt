@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -56,13 +57,28 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
         // The card's own colour: the box only hides the lines behind the values.
         val boxColor = MiuixTheme.colorScheme.surfaceContainer
         val measurer = rememberTextMeasurer()
-        val atCursor = points.lastOrNull { it.t <= centerMs && centerMs - it.t <= GAP_MS }
+        val (atCursor, scaleStep) = remember(points, centerMs, steps) {
+            val cur = points.lastOrNull { it.t <= centerMs && centerMs - it.t <= GAP_MS }
+            // The highest DL or UL sample drawn within SCALE_SPAN_MS of the cursor,
+            // the one held in from just before the span included.
+            var peak = 0.0
+            val minT = centerMs - SCALE_SPAN_MS - GAP_MS
+            val maxT = centerMs + SCALE_SPAN_MS
+            for (p in points) {
+                if (p.t in minT..maxT) {
+                    val m = maxOf(p.mbps, p.ulMbps)
+                    if (m > peak) peak = m
+                }
+            }
+            val step = steps.firstOrNull { peak <= it * 5 * HEADROOM } ?: steps.last()
+            cur to step
+        }
+        val scaleLabels = remember(measurer, scaleStep, labelStyle) {
+            (1..5).map { i -> measurer.measure("${scaleStep * i}", labelStyle) }
+        }
+        val ulPath = remember { Path() }
+        val dlPath = remember { Path() }
         val start = centerMs - WINDOW_MS / 2
-        // The highest DL or UL sample drawn within SCALE_SPAN_MS of the cursor,
-        // the one held in from just before the span included.
-        val peak = points.filter { it.t >= centerMs - SCALE_SPAN_MS - GAP_MS && it.t <= centerMs + SCALE_SPAN_MS }
-            .maxOfOrNull { maxOf(it.mbps, it.ulMbps) } ?: 0.0
-        val scaleStep = steps.firstOrNull { peak <= it * 5 * HEADROOM } ?: steps.last()
         Canvas(Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 12.dp, vertical = 10.dp)) {
             val w = size.width
             val h = size.height
@@ -82,8 +98,8 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
             }
 
             // Throughput as steps: each sample holds until the next one.
-            fun line(value: (ThputPoint) -> Double): Path {
-                val path = Path()
+            fun line(path: Path, value: (ThputPoint) -> Double): Path {
+                path.rewind()
                 var prev: ThputPoint? = null
                 for (p in points) {
                     if (p.t < start - GAP_MS || p.t > start + WINDOW_MS + GAP_MS) { prev = null; continue }
@@ -100,14 +116,13 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
             }
             drawContext.canvas.save()
             drawContext.canvas.clipRect(0f, 0f, w, h)
-            drawPath(line { it.ulMbps }, UplinkColor, style = Stroke(width = 2.dp.toPx()))
-            drawPath(line { it.mbps }, DownlinkColor, style = Stroke(width = 2.dp.toPx()))
+            drawPath(line(ulPath) { it.ulMbps }, UplinkColor, style = Stroke(width = 2.dp.toPx()))
+            drawPath(line(dlPath) { it.mbps }, DownlinkColor, style = Stroke(width = 2.dp.toPx()))
             drawContext.canvas.restore()
 
             // Scale labels over the lines, so a line never hides them.
             for (i in 1..5) {
-                val text = measurer.measure("${scaleStep * i}", labelStyle)
-                drawText(text, topLeft = Offset(4.dp.toPx(), h - h * i / 5 + 2.dp.toPx()))
+                drawText(scaleLabels[i - 1], topLeft = Offset(4.dp.toPx(), h - h * i / 5 + 2.dp.toPx()))
             }
 
             // The cursor: the sample on screen.

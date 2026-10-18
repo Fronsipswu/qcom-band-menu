@@ -91,7 +91,7 @@ data class NrArfcnLockEntry(
 )
 
 data class NrGnbAllowlist(
-    val gnbIds: List<Int> = emptyList(),
+    val gnbIds: List<Long> = emptyList(),
     val idBits: Int? = null
 )
 
@@ -290,7 +290,7 @@ object JsonRequestBuilder {
             .put("arfcn", arfcn).put("scs_khz", scsKhz).put("band", band).put("pci_list", arr)
     }
 
-    fun nrCellLockGnbSet(idBits: Int, gnbIds: List<Int>): JSONObject {
+    fun nrCellLockGnbSet(idBits: Int, gnbIds: List<Long>): JSONObject {
         val arr = JSONArray()
         gnbIds.forEach { arr.put(it) }
         return JSONObject().put("cmd", "nr_cell_lock_gnb_set")
@@ -471,10 +471,11 @@ object JsonStateParser {
 
         val gnbJson = json.optJSONObject("gnb_allowlist")
         val gnbAllowlist = if (gnbJson != null) {
+            val idBits = if (gnbJson.has("id_bits") && !gnbJson.isNull("id_bits"))
+                gnbJson.optInt("id_bits") else null
             NrGnbAllowlist(
-                gnbIds = parseIntArray(gnbJson, "gnb_ids").toList(),
-                idBits = if (gnbJson.has("id_bits") && !gnbJson.isNull("id_bits"))
-                    gnbJson.optInt("id_bits") else null
+                gnbIds = parseGnbIds(gnbJson, "gnb_ids", idBits),
+                idBits = idBits
             )
         } else null
 
@@ -511,6 +512,18 @@ object JsonStateParser {
         }
         return result.toSet()
     }
+
+    private fun parseGnbIds(json: JSONObject, key: String, idBits: Int?): List<Long> {
+        if (json.isNull(key)) return emptyList()
+        val arr = json.optJSONArray(key) ?: return emptyList()
+        val maxId = if (idBits != null && idBits in 1..32) (1L shl idBits) - 1L else 0xFFFFFFFFL
+        val result = mutableListOf<Long>()
+        for (i in 0 until arr.length()) {
+            val v = arr.optLong(i, -1L)
+            if (v in 0L..maxId) result.add(v)
+        }
+        return result
+    }
 }
 
 object BandValidator {
@@ -522,6 +535,14 @@ object BandValidator {
     fun validateLte(bands: Set<Int>, hw: HardwareBands): Set<Int> = bands.intersect(hw.lte)
 
     fun validateNr(bands: Set<Int>, hw: HardwareBands): Set<Int> = bands.intersect(hw.nr)
+
+    fun validateGnbAllowlist(idBits: Int?, gnbIds: List<Long?>): String? {
+        if (idBits == null || idBits !in 22..32) return "ID bits must be 22-32"
+        if (gnbIds.isEmpty()) return "Need: id_bits gnb..."
+        val maxId = (1L shl idBits) - 1L
+        if (gnbIds.any { it == null || it !in 0L..maxId }) return "gNB ID must be 0-$maxId"
+        return null
+    }
 
     /**
      * Message for a RAT lock the modem would reject because none of its RATs

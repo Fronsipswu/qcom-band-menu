@@ -90,4 +90,36 @@ class NetworkReplayTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun snapshotAndThroughputCacheAreReusedAcrossExtension() {
+        val dir = createTempDirectory("replay-cache").toFile()
+        try {
+            val rec = ReplayRecorder(dir)
+            val diagJson = JSONObject()
+                .put("ms", 1000)
+                .put("carriers", JSONArray().put(JSONObject().put("slot", 0).put("mbps_sched", 42.5).put("ul_mbps", 8.5)))
+                .put("nr", JSONArray().put(JSONObject().put("cc", 0).put("pci", 10).put("arfcn", 620000L).put("mbps", 100.0).put("ul_mbps", 11.5)))
+            val diagLine = ReplayFormat.encode(
+                1, 1000L, 100, "Op", emptySet(), keys,
+                reads("ok" to "0201", "ok" to "0201", "ok" to "0201"), diagJson
+            )
+            rec.append(1000L, diagLine)
+            rec.append(2000L, line(2000L))
+
+            val s1 = rec.open(1)
+            val r0 = s1.round(0)!!
+            org.junit.Assert.assertSame(r0.snapshot(), r0.snapshot())
+            val pts1 = s1.thputBetween(0L, 3000L)
+            assertEquals(listOf(ThputPoint(1000L, 142.5, 20.0)), pts1)
+
+            rec.append(3000L, line(3000L))
+            val s2 = rec.open(1)
+            s2.inheritCache(s1)
+            org.junit.Assert.assertSame(r0, s2.round(0))
+            assertEquals(pts1, s2.thputBetween(0L, 3000L))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

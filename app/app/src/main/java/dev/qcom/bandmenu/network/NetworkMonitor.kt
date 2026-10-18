@@ -90,9 +90,11 @@ class NetworkMonitor(
         if (on) {
             if (visible && resumed) scope.launch { round() }
         } else {
-            scope.launch(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
-            // Drop the DIAG rows at once instead of waiting for the next round.
-            if (visible && resumed) scope.launch { round() }
+            scope.launch {
+                withContext(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
+                // Drop the DIAG rows at once instead of waiting for the next round.
+                if (visible && resumed) round()
+            }
         }
     }
 
@@ -164,16 +166,34 @@ class NetworkMonitor(
                 s.copy(thputBySim = s.thputBySim + (sim to history))
             }
         }
-        if (_state.value.frozen && !fresh) return@withLock
+        if (_state.value.frozen && !fresh) {
+            result.getOrNull()?.let { r ->
+                if (withDiag) {
+                    _state.update {
+                        val diagOn = it.diagEnabled && !r.diagFailed
+                        it.copy(diagEnabled = diagOn, diagError = r.diagError)
+                    }
+                }
+            }
+            return@withLock
+        }
         result.fold(
             onSuccess = { r ->
                 _state.update {
                     // DIAG that couldn't start is switched off, with the reason;
                     // DIAG toggled off during the round keeps its new state.
                     val diagOn = it.diagEnabled && !(withDiag && r.diagFailed)
-                    it.copy(snapshot = r.snapshot, operatorName = r.name, error = null,
-                        lastBySim = it.lastBySim + (sim to Reading(r.snapshot, r.name)),
-                        diagEnabled = diagOn, diagError = if (withDiag) r.diagError else it.diagError)
+                    if (r.snapshot.mode == ServiceMode.UNKNOWN) {
+                        it.copy(
+                            error = "Service information read failed (${NetworkReads.SYS})",
+                            diagEnabled = diagOn,
+                            diagError = if (withDiag) r.diagError else it.diagError
+                        )
+                    } else {
+                        it.copy(snapshot = r.snapshot, operatorName = r.name, error = null,
+                            lastBySim = it.lastBySim + (sim to Reading(r.snapshot, r.name)),
+                            diagEnabled = diagOn, diagError = if (withDiag) r.diagError else it.diagError)
+                    }
                 }
             },
             onFailure = { e -> _state.update { it.copy(error = e.message ?: "Read failed") } }
@@ -184,7 +204,7 @@ class NetworkMonitor(
         val mbps: Double? = null, val ulMbps: Double? = null)
 
     private fun readRound(sim: Int, fresh: Boolean, withDiag: Boolean): Result<RoundResult> = runCatching {
-        if (!daemon.isReady.value) throw IllegalStateException("Waiting for the daemon…")
+        if (!daemon.isReady.value && !daemon.hasConnectedOnce) throw IllegalStateException("Waiting for the daemon…")
         val t0 = SystemClock.elapsedRealtime()
         val rawReads = requestRaw(sim, NetworkReads.ROUND)
         val reads = outcomes(NetworkReads.ROUND, rawReads)

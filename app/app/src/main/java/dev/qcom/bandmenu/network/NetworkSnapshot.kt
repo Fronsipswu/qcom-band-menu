@@ -12,6 +12,7 @@ import java.util.Locale
  */
 
 enum class ServiceMode(val label: String, val generation: String) {
+    UNKNOWN("Unavailable", ""),
     NO_SERVICE("No service", ""),
     LIMITED("Limited service", ""),
     GSM("GSM", "2G"),
@@ -157,10 +158,14 @@ class SnapshotBuilder(
 
     private inline fun <T> decode(key: String, block: (QmiFrame) -> T): T? {
         val r = reads[key] as? ReadOutcome.Ok ?: return null
-        if (!r.frame.ok) return null
+        if (!r.frame.ok) {
+            if (key == NetworkReads.SYS) rejected += key
+            return null
+        }
         return try { block(r.frame) } catch (e: QmiFormatException) { malformed += key; null }
     }
 
+    private val rejected = mutableListOf<String>()
     private val malformed = mutableListOf<String>()
 
     private val sys = decode(NetworkReads.SYS, ::decodeSysInfo)
@@ -181,7 +186,7 @@ class SnapshotBuilder(
     private fun rfFor(radioIf: Int) = rf.firstOrNull { it.radioIf == radioIf }
 
     val mode: ServiceMode = run {
-        val s = sys ?: return@run ServiceMode.NO_SERVICE
+        val s = sys ?: return@run ServiceMode.UNKNOWN
         // The ARFCN list's NR RRC state / serving channels when it was read (every
         // NSA capture has them, also rounds without SYS_INFO's NR PCI). Without
         // it, SYS_INFO's NR PCI (TLV 0x54) only with a valid NR RSRP in SIG_INFO:
@@ -230,7 +235,7 @@ class SnapshotBuilder(
                 else -> {}
             }
         }
-        val failed = reads.filter { (_, o) -> o !is ReadOutcome.Ok }.keys + malformed
+        val failed = (reads.filter { (_, o) -> o !is ReadOutcome.Ok }.keys + rejected + malformed).distinct()
         val lteGroup = lteCarriers()
         return NetworkSnapshot(
             sim = sim,
@@ -246,7 +251,7 @@ class SnapshotBuilder(
             endc = if (mode == ServiceMode.NR_NSA) endcCarriers(lteGroup) else null,
             neighbors = neighbors(),
             antennas = antennas(),
-            failedReads = failed.toList()
+            failedReads = failed
         )
     }
 
@@ -332,11 +337,13 @@ class SnapshotBuilder(
         return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
     }
 
+    private fun primaryNrArfcn(): Long? = sys?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
+
     private fun nrCell(sa: Boolean): CellCard? {
         val s = sys
         val n = loc?.nr
         val pci = s?.nrPci ?: n?.pci
-        val ch = s?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
+        val ch = primaryNrArfcn()
         val band = rfFor(NasRadioIf.NR5G)
         // NSA keeps a fixed set of fields ("–" when the NR leg is down) so the
         // SCG card holds its shape instead of popping in and out.
@@ -532,7 +539,7 @@ class SnapshotBuilder(
         // idle): no card, rather than the QMI frequency-only fallback.
         if (diag != null && mode == ServiceMode.NR_NSA) return null
         val serving = arfcn?.nrServing.orEmpty()
-        val primary = sys?.nrArfcn ?: loc?.nrArfcn
+        val primary = primaryNrArfcn()
         val extra = serving.filter { it != primary }
         // Always shown in SA and NSA (only the note when there's no secondary),
         // so it doesn't pop in and out.
@@ -561,7 +568,7 @@ class SnapshotBuilder(
     private fun diagNrCarriers(): CarrierGroup? {
         val list = diag?.nr?.takeIf { it.isNotEmpty() } ?: return null
         val qmiPci = sys?.nrPci ?: loc?.nr?.pci
-        val qmiArfcn = sys?.nrArfcn ?: loc?.nrArfcn
+        val qmiArfcn = primaryNrArfcn()
         val primary = list.firstOrNull { it.pcell == true }
             ?: list.firstOrNull { it.pcell == null && it.pci == qmiPci && it.arfcn == qmiArfcn }
             ?: list.minBy { it.cc }
@@ -620,7 +627,7 @@ class SnapshotBuilder(
 
     /** The NR leg from QMI: the SCG's serving cell, then frequency-only NR SCells. */
     private fun qmiNrCarriers(): List<Carrier> {
-        val ch = sys?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull() ?: return emptyList()
+        val ch = primaryNrArfcn() ?: return emptyList()
         val band = rfFor(NasRadioIf.NR5G)
         val scg = Carrier(
             role = "SCG",

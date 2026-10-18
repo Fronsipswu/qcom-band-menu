@@ -30,6 +30,10 @@ class DaemonManager(private val context: Context) {
     var isReady = mutableStateOf(false)
         private set
 
+    @Volatile
+    var hasConnectedOnce = false
+        private set
+
     var isRootDenied = mutableStateOf(false)
         private set
 
@@ -86,6 +90,22 @@ class DaemonManager(private val context: Context) {
     @Volatile
     private var stopped = false
 
+    @Volatile
+    private var sessionGen = 0
+
+    private fun isAborted(gen: Int): Boolean = stopped || sessionGen != gen
+
+    /** Cleanup for a launch that was aborted. After stop() nothing else owns
+     *  the daemon or the socket, so what this launch may have started goes.
+     *  Superseded by a newer session (stop then start again), it leaves both
+     *  alone: the socket and the daemon's process name are shared, and the new
+     *  session reuses a running daemon of the right version. */
+    private fun abandon() {
+        if (!stopped) return
+        disconnect()
+        Shell.cmd(killCmd).exec()
+    }
+
     /** Kills any running daemon by exact process name (not a command-line
      *  substring match, which could hit unrelated processes). */
     private val killCmd = "pkill -9 -x $BINARY_NAME 2>/dev/null; true"
@@ -128,39 +148,55 @@ class DaemonManager(private val context: Context) {
 
     private fun launch() {
         AppLog.d(TAG, "start: requesting shell...")
+        val gen = ++sessionGen
         launching = true
         stopped = false
         launchError.value = null
         Shell.getShell { shell ->
+            if (isAborted(gen)) {
+                launching = false
+                return@getShell
+            }
             AppLog.d(TAG, "start: shell obtained, isRoot=${shell.isRoot}, status=${shell.status}")
             if (shell.isRoot) {
                 Thread {
                     try {
-                        launchAndConnect { msg -> onLaunchFailed(msg) }
+                        launchAndConnect(gen) { msg -> onLaunchFailed(msg) }
                     } catch (t: Throwable) {
-                        AppLog.e(TAG, "start: launchAndConnect crashed", t)
-                        val msg = "Daemon launch failed: ${t.message ?: t.javaClass.simpleName}"
-                        launchError.value = msg
-                        Handler(Looper.getMainLooper()).post {
-                            isReady.value = false
-                            onLaunchFailed(msg)
+                        if (!isAborted(gen)) {
+                            AppLog.e(TAG, "start: launchAndConnect crashed", t)
+                            val msg = "Daemon launch failed: ${t.message ?: t.javaClass.simpleName}"
+                            launchError.value = msg
+                            Handler(Looper.getMainLooper()).post {
+                                if (!isAborted(gen)) {
+                                    isReady.value = false
+                                    onLaunchFailed(msg)
+                                }
+                            }
                         }
                     } finally {
-                        launching = false
+                        if (sessionGen == gen) {
+                            launching = false
+                        }
                     }
                 }.start()
             } else {
                 AppLog.e(TAG, "start: root denied")
-                launching = false
+                if (sessionGen == gen) {
+                    launching = false
+                }
                 Handler(Looper.getMainLooper()).post {
-                    isRootDenied.value = true
-                    onDenied()
+                    if (!isAborted(gen)) {
+                        isRootDenied.value = true
+                        onDenied()
+                    }
                 }
             }
         }
     }
 
-    private fun launchAndConnect(onLaunchFailed: (String) -> Unit) {
+    private fun launchAndConnect(gen: Int, onLaunchFailed: (String) -> Unit) {
+        if (isAborted(gen)) return
         // F3: reset the per-launch auth signals once here (never per retry), so
         // a squatter that accepts then drops/closes cannot clear its own trace.
         lastConnectAuthFailure = false
@@ -169,9 +205,16 @@ class DaemonManager(private val context: Context) {
         // overwriting a binary that's still being executed by a running daemon.
         AppLog.i(TAG, "launchAndConnect: trying existing daemon...")
         if (tryConnect()) {
+            if (isAborted(gen)) {
+                abandon()
+                return
+            }
             if (connectedDaemonVersion == EXPECTED_DAEMON_VERSION) {
                 AppLog.i(TAG, "launchAndConnect: connected to existing daemon (v$connectedDaemonVersion)")
-                Handler(Looper.getMainLooper()).post { isReady.value = true }
+                hasConnectedOnce = true
+                Handler(Looper.getMainLooper()).post {
+                    if (!isAborted(gen)) isReady.value = true
+                }
                 return
             }
             AppLog.i(TAG, "launchAndConnect: existing daemon v$connectedDaemonVersion != expected v$EXPECTED_DAEMON_VERSION, redeploying")
@@ -180,6 +223,7 @@ class DaemonManager(private val context: Context) {
             writer = null
             reader = null
         }
+        if (isAborted(gen)) return
         AppLog.i(TAG, "launchAndConnect: no existing daemon, starting fresh")
 
         // No existing daemon reachable — kill any stale process before copying.
@@ -187,23 +231,28 @@ class DaemonManager(private val context: Context) {
         // sleep: copyBinary() retries while a dying daemon still holds the file
         // busy, so the usual cold start (nothing running) does not wait at all.
         Shell.cmd(killCmd).exec()
+        if (isAborted(gen)) return
 
         try {
             val destFile = File(context.filesDir, BINARY_NAME)
-            copyBinary(destFile)
+            copyBinary(destFile, gen)
             destFile.setExecutable(true)
             AppLog.i(TAG, "launchAndConnect: binary copied, size=${destFile.length()}")
         } catch (e: Exception) {
+            if (isAborted(gen)) return
             AppLog.e(TAG, "launchAndConnect: failed to copy binary", e)
             val msg = "Failed to copy daemon binary: ${e.message}"
             launchError.value = msg
             Handler(Looper.getMainLooper()).post {
-                isReady.value = false
-                onLaunchFailed(msg)
+                if (!isAborted(gen)) {
+                    isReady.value = false
+                    onLaunchFailed(msg)
+                }
             }
             return
         }
 
+        if (isAborted(gen)) return
         val uid = Process.myUid()
         val path = File(context.filesDir, BINARY_NAME).absolutePath
         // F3: hand the daemon our shared token via an owner-only file.
@@ -215,16 +264,32 @@ class DaemonManager(private val context: Context) {
         // which would cause exec() to block waiting for the pipe to close.
         Shell.cmd("setsid '$path' -uid $uid -tokenfile '$tokenPath' </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
         AppLog.i(TAG, "launchAndConnect: daemon launch command returned")
+        if (isAborted(gen)) {
+            abandon()
+            return
+        }
 
         for (i in 1..12) {
             Thread.sleep(250)
+            if (isAborted(gen)) {
+                abandon()
+                return
+            }
             if (tryConnect()) {
+                if (isAborted(gen)) {
+                    abandon()
+                    return
+                }
                 AppLog.i(TAG, "launchAndConnect: connected after ${(i * 250)}ms")
-                Handler(Looper.getMainLooper()).post { isReady.value = true }
+                hasConnectedOnce = true
+                Handler(Looper.getMainLooper()).post {
+                    if (!isAborted(gen)) isReady.value = true
+                }
                 return
             }
         }
 
+        if (isAborted(gen)) return
         AppLog.e(TAG, "launchAndConnect: failed to connect after 3s")
 
         if (lastConnectAuthFailure || socketPeerUnauthenticated) {
@@ -237,8 +302,10 @@ class DaemonManager(private val context: Context) {
             AppLog.e(TAG, "launchAndConnect: $msg")
             launchError.value = msg
             Handler(Looper.getMainLooper()).post {
-                isReady.value = false
-                onLaunchFailed(msg)
+                if (!isAborted(gen)) {
+                    isReady.value = false
+                    onLaunchFailed(msg)
+                }
             }
             return
         }
@@ -263,9 +330,20 @@ class DaemonManager(private val context: Context) {
 
                 for (i in 1..20) {
                     Thread.sleep(250)
+                    if (isAborted(gen)) {
+                        abandon()
+                        return
+                    }
                     if (tryConnect()) {
+                        if (isAborted(gen)) {
+                            abandon()
+                            return
+                        }
                         AppLog.i(TAG, "launchAndConnect: connected after SELinux permissive (${i * 250}ms)")
-                        Handler(Looper.getMainLooper()).post { isReady.value = true }
+                        hasConnectedOnce = true
+                        Handler(Looper.getMainLooper()).post {
+                            if (!isAborted(gen)) isReady.value = true
+                        }
                         return
                     }
                 }
@@ -280,6 +358,7 @@ class DaemonManager(private val context: Context) {
             }
         }
 
+        if (isAborted(gen)) return
         AppLog.e(TAG, "launchAndConnect: failed to connect")
         val stderr = if (stderrFile.exists()) stderrFile.readText().trim() else ""
         val msg = if (stderr.isNotEmpty()) {
@@ -290,24 +369,27 @@ class DaemonManager(private val context: Context) {
         launchError.value = msg
         if (stderrFile.exists()) stderrFile.delete()
         Handler(Looper.getMainLooper()).post {
-            isReady.value = false
-            onLaunchFailed(msg)
+            if (!isAborted(gen)) {
+                isReady.value = false
+                onLaunchFailed(msg)
+            }
         }
     }
 
     /** Copies the bundled daemon binary. A daemon that was just killed can
      *  keep the old file busy (ETXTBSY) for a moment, so retry briefly
      *  (max ~2 s) rather than sleeping before every launch. */
-    private fun copyBinary(dest: File) {
+    private fun copyBinary(dest: File, gen: Int) {
         var attempt = 0
         while (true) {
+            if (isAborted(gen)) throw IOException("Launch aborted")
             try {
                 context.assets.open(BINARY_NAME).use { input ->
                     dest.outputStream().use { output -> input.copyTo(output) }
                 }
                 return
             } catch (e: IOException) {
-                if (++attempt >= 40) throw e
+                if (isAborted(gen) || ++attempt >= 40) throw e
                 Thread.sleep(50)
             }
         }
@@ -388,12 +470,14 @@ class DaemonManager(private val context: Context) {
      */
     @Synchronized
     fun reconnect(): Boolean {
+        if (stopped) return false
         AppLog.d(TAG, "reconnect")
         try { socket?.close() } catch (_: Exception) {}
         socket = null
         writer = null
         reader = null
         return if (tryConnect()) {
+            hasConnectedOnce = true
             isReady.value = true
             // Resync by sending a query
             try {
@@ -525,7 +609,7 @@ class DaemonManager(private val context: Context) {
         sendRequest(JsonRequestBuilder.nrCellLockArfcnSet(arfcn, scsKhz))
     fun nrCellLockMultiPciSet(arfcn: Int, scsKhz: Int, band: Int, pciList: List<Int>): JSONObject =
         sendRequest(JsonRequestBuilder.nrCellLockMultiPciSet(arfcn, scsKhz, band, pciList))
-    fun nrCellLockGnbSet(idBits: Int, gnbIds: List<Int>): JSONObject =
+    fun nrCellLockGnbSet(idBits: Int, gnbIds: List<Long>): JSONObject =
         sendRequest(JsonRequestBuilder.nrCellLockGnbSet(idBits, gnbIds))
     fun nrCellLockClear(): JSONObject = sendRequest(JsonRequestBuilder.nrCellLockClear())
     fun queryLteCellLock(): JSONObject = sendRequest(JsonRequestBuilder.queryLteCellLock())
@@ -540,6 +624,9 @@ class DaemonManager(private val context: Context) {
     fun stop() {
         if (stopped) return
         stopped = true
+        sessionGen++
+        launching = false
+        hasConnectedOnce = false
         AppLog.i(TAG, "stop: sending shutdown...")
         var sentShutdown = false
         try {
@@ -579,6 +666,9 @@ class DaemonManager(private val context: Context) {
     fun stopBlocking() {
         if (stopped) return
         stopped = true
+        sessionGen++
+        launching = false
+        hasConnectedOnce = false
         AppLog.i(TAG, "stopBlocking: sending shutdown...")
         var sentShutdown = false
         try {
@@ -608,6 +698,8 @@ class DaemonManager(private val context: Context) {
 
     fun retry() {
         AppLog.d(TAG, "retry")
+        sessionGen++
+        hasConnectedOnce = false
         isReady.value = false
         isRootDenied.value = false
         consecutiveFailures = 0

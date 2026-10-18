@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -128,7 +129,7 @@ fun CellLockScreen(
     })
 
     val scope = rememberCoroutineScope()
-    var experimentalEnabled by remember { mutableStateOf(false) }
+    var experimentalEnabled by rememberSaveable { mutableStateOf(false) }
 
     // The pager is the single source of truth for the selected page. Mirroring
     // it into a separate state with a pair of LaunchedEffects let a stale
@@ -144,7 +145,7 @@ fun CellLockScreen(
     // The SIM the caller was last told about, so a swipe and a tab tap each
     // report a switch once. Keyed on the slot, so SIM 1 turning off (same
     // page, now SIM 2) also switches.
-    var notifiedSim by remember { mutableIntStateOf(0) }
+    var notifiedSim by rememberSaveable { mutableIntStateOf(0) }
 
     LaunchedEffect(selectedSim) {
         if (notifiedSim != selectedSim) {
@@ -186,8 +187,10 @@ fun CellLockScreen(
                                 val target = index - simOffset
                                 if (target !in 0 until pagerState.pageCount) return@TabRowWithContour
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                notifiedSim = index
-                                onSimSwitch(index)
+                                if (notifiedSim != index) {
+                                    notifiedSim = index
+                                    onSimSwitch(index)
+                                }
                                 if (pagerState.targetPage != target) {
                                     scope.launch { pagerState.animateScrollToPage(target) }
                                 }
@@ -351,17 +354,23 @@ private fun SimCellLockPage(
     val scrollState = rememberScrollState()
     val keyboard = LocalSoftwareKeyboardController.current
 
-    var nrArfcnText by remember { mutableStateOf("") }
-    var nrPciText by remember { mutableStateOf("") }
-    var nrMultiPciText by remember { mutableStateOf("") }
-    var nrGnbText by remember { mutableStateOf("") }
-    var ltePciText by remember { mutableStateOf("") }
-    var lteMultiPciText by remember { mutableStateOf("") }
-    var plmnText by remember { mutableStateOf("") }
+    var nrArfcnText by rememberSaveable { mutableStateOf("") }
+    var nrPciText by rememberSaveable { mutableStateOf("") }
+    var nrMultiPciText by rememberSaveable { mutableStateOf("") }
+    var nrGnbText by rememberSaveable { mutableStateOf("") }
+    var ltePciText by rememberSaveable { mutableStateOf("") }
+    var lteMultiPciText by rememberSaveable { mutableStateOf("") }
+    var plmnText by rememberSaveable { mutableStateOf("") }
+    var syncedStateKey by rememberSaveable { mutableStateOf("") }
 
     var labelOverrides by remember { mutableStateOf<Map<Int, LabelOverride>>(emptyMap()) }
+    val overrideJobs = remember { mutableMapOf<Int, kotlinx.coroutines.Job>() }
+    val pageScope = rememberCoroutineScope()
 
     LaunchedEffect(cellLockState, plmnLockState, refreshKey) {
+        val currentKey = "$refreshKey|$cellLockState|$plmnLockState"
+        if (currentKey == syncedStateKey) return@LaunchedEffect
+        syncedStateKey = currentKey
         val nr = cellLockState?.nr
         val lte = cellLockState?.lte
 
@@ -392,7 +401,7 @@ private fun SimCellLockPage(
         } else ""
 
         plmnText = if (plmnLockState?.lockedPlmn != null) {
-            val lp = plmnLockState.lockedPlmn!!
+            val lp = plmnLockState.lockedPlmn
             val mncStr = lp.mncDisplay.ifBlank { lp.mnc.toString() }
             "${lp.mcc} $mncStr"
         } else if (plmnLockState?.mcc != null && plmnLockState.mnc != null) {
@@ -402,16 +411,21 @@ private fun SimCellLockPage(
 
     LaunchedEffect(lockResult) {
         if (lockResult != null && lockResult.sim == simSlot + 1) {
+            val fieldIndex = lockResult.fieldIndex
             val override = if (lockResult.success) {
                 LabelOverride("Success locking ${lockResult.type} \u2713", GreenColor)
             } else {
                 val msg = lockResult.message ?: "Rejected by modem"
                 LabelOverride("$msg \u2717", RedColor)
             }
-            labelOverrides = labelOverrides + (lockResult.fieldIndex to override)
-            delay(3000)
-            labelOverrides = labelOverrides - lockResult.fieldIndex
             onLockResultConsumed()
+            labelOverrides = labelOverrides + (fieldIndex to override)
+            overrideJobs[fieldIndex]?.cancel()
+            overrideJobs[fieldIndex] = pageScope.launch {
+                delay(3000)
+                labelOverrides = labelOverrides - fieldIndex
+                overrideJobs.remove(fieldIndex)
+            }
         }
     }
 

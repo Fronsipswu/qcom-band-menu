@@ -45,6 +45,37 @@ class NasDecodeTest {
         val f = QmiFrame.parse(frame(NasMsg.CELL_LOCATION, result = 1, error = 0x5D))
         assertFalse(f.ok)
         assertEquals(0x5D, f.error)
+
+        // Valid empty SYS_INFO -> genuine NO_SERVICE with no failedReads.
+        val validNoService = SnapshotBuilder(
+            mapOf(
+                NetworkReads.SYS to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.SYS_INFO))),
+                NetworkReads.CA to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.LTE_CA_INFO, result = 1, error = 3)))
+            )
+        ).build(1, 0, 0)
+        assertEquals(ServiceMode.NO_SERVICE, validNoService.mode)
+        assertEquals(emptyList<String>(), validNoService.failedReads)
+
+        // QMI-rejected SYS_INFO -> UNKNOWN mode and 004d in failedReads.
+        val rejectedSys = SnapshotBuilder(
+            mapOf(NetworkReads.SYS to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.SYS_INFO, result = 1, error = 3))))
+        ).build(1, 0, 0)
+        assertEquals(ServiceMode.UNKNOWN, rejectedSys.mode)
+        assertEquals(listOf(NetworkReads.SYS), rejectedSys.failedReads)
+
+        // Transport timeout on SYS_INFO -> UNKNOWN mode and 004d in failedReads.
+        val timeoutSys = SnapshotBuilder(
+            mapOf(NetworkReads.SYS to ReadOutcome.Failed("timeout"))
+        ).build(1, 0, 0)
+        assertEquals(ServiceMode.UNKNOWN, timeoutSys.mode)
+        assertEquals(listOf(NetworkReads.SYS), timeoutSys.failedReads)
+
+        // Malformed SYS_INFO TLV -> UNKNOWN mode and 004d in failedReads.
+        val malformedSys = SnapshotBuilder(
+            mapOf(NetworkReads.SYS to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.SYS_INFO, tlv(0x13, 1)))))
+        ).build(1, 0, 0)
+        assertEquals(ServiceMode.UNKNOWN, malformedSys.mode)
+        assertEquals(listOf(NetworkReads.SYS), malformedSys.failedReads)
     }
 
     @Test
@@ -104,6 +135,28 @@ class NasDecodeTest {
         assertNull(a.nrNeighbor)
         val b = decodeArfcnList(QmiFrame.parse(frame(NasMsg.ARFCN_LIST, tlv(0x1D, 0))))
         assertEquals(emptyList<Long>(), b.nrNeighbor)
+    }
+
+    @Test
+    fun fallbackPrimaryNrArfcnIsNotDuplicatedAsSecondary() {
+        val sysSa = QmiFrame.parse(frame(NasMsg.SYS_INFO, tlv(0x4A, 2, 2)))
+        val singleServing = SnapshotBuilder(
+            mapOf(
+                NetworkReads.SYS to ReadOutcome.Ok(sysSa),
+                NetworkReads.ARFCN to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.ARFCN_LIST, tlv(0x1C, 1, *le32(529950)))))
+            )
+        ).build(1, 0, 0)
+        assertEquals("529950", singleServing.cells.single().fields.first { it.label == "NARFCN" }.value)
+        assertEquals(emptyList<Carrier>(), singleServing.carrierGroups.single().carriers)
+
+        val twoServing = SnapshotBuilder(
+            mapOf(
+                NetworkReads.SYS to ReadOutcome.Ok(sysSa),
+                NetworkReads.ARFCN to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.ARFCN_LIST, tlv(0x1C, 2, *le32(529950), *le32(628800)))))
+            )
+        ).build(1, 0, 0)
+        assertEquals("529950", twoServing.cells.single().fields.first { it.label == "NARFCN" }.value)
+        assertEquals(listOf("628800"), twoServing.carrierGroups.single().carriers.map { it.channel.substringBefore(' ') })
     }
 
     @Test

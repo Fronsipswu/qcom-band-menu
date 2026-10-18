@@ -40,7 +40,11 @@ class ReplayRound(
     val reads: Map<String, ReadOutcome>,
     val diag: DiagStats?
 ) {
-    fun snapshot(): NetworkSnapshot = SnapshotBuilder(reads, nrBands, diag).build(sim, elapsedMs, roundMs)
+    private val built: NetworkSnapshot by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        SnapshotBuilder(reads, nrBands, diag).build(sim, elapsedMs, roundMs)
+    }
+
+    fun snapshot(): NetworkSnapshot = built
 }
 
 object ReplayFormat {
@@ -184,29 +188,64 @@ class ReplaySession(private val entries: List<Entry>) {
         return lo
     }
 
-    private var cached: Pair<Int, ReplayRound?>? = null
-    private val thput = HashMap<Int, ThputPoint?>()
+    private val rounds = object : LinkedHashMap<Long, ReplayRound?>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, ReplayRound?>?) = size > 64
+    }
+    private val thput = HashMap<Long, ThputPoint>()
+    private val noThput = HashSet<Long>()
+
+    /** Carries decoded rounds and throughput points over when a recording is re-opened. */
+    @Synchronized
+    fun inheritCache(old: ReplaySession) {
+        synchronized(old) {
+            rounds.putAll(old.rounds)
+            thput.putAll(old.thput)
+            noThput.addAll(old.noThput)
+        }
+    }
 
     /** The throughput samples within [fromMs]..[toMs] (rounds with DIAG only). */
+    @Synchronized
     fun thputBetween(fromMs: Long, toMs: Long): List<ThputPoint> {
         if (entries.isEmpty()) return emptyList()
         val a = indexAt(fromMs)
         val b = indexAt(toMs)
-        return (a..b).mapNotNull { i ->
-            thput.getOrPut(i) {
+        val out = ArrayList<ThputPoint>(b - a + 1)
+        for (i in a..b) {
+            val t = entries[i].elapsedMs
+            thput[t]?.let { out += it; continue }
+            if (t in noThput) continue
+            val pt = if (rounds.containsKey(t)) {
+                rounds[t]?.diag?.let { s -> ThputPoint(t, s.totalMbps, s.totalUlMbps) }
+            } else {
                 try {
-                    val d = JSONObject(String(entries[i].line, Charsets.UTF_8)).optJSONObject("d")
-                    d?.let { DiagStats.parse(it).let { s -> ThputPoint(entries[i].elapsedMs, s.totalMbps, s.totalUlMbps) } }
+                    val line = String(entries[i].line, Charsets.UTF_8)
+                    if (!line.contains("\"d\":")) null
+                    else JSONObject(line).optJSONObject("d")?.let { DiagStats.parseThroughput(it, t) }
                 } catch (e: JSONException) { null }
             }
+            if (pt != null) {
+                thput[t] = pt
+                out += pt
+            } else {
+                noThput += t
+            }
         }
+        return out
     }
 
     /** The round at [i], or null when its line can't be read. */
+    @Synchronized
     fun round(i: Int): ReplayRound? {
-        cached?.let { if (it.first == i) return it.second }
+        val t = entries[i].elapsedMs
+        if (rounds.containsKey(t)) return rounds[t]
         val r = ReplayFormat.decode(String(entries[i].line, Charsets.UTF_8))
-        cached = i to r
+        rounds[t] = r
+        if (r != null && t !in thput && t !in noThput) {
+            val d = r.diag
+            if (d != null) thput[t] = ThputPoint(t, d.totalMbps, d.totalUlMbps)
+            else noThput += t
+        }
         return r
     }
 }

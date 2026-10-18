@@ -194,7 +194,16 @@ fun NetworkScreen(
         replayPlaying = false
         if (!state.frozen || !state.replayEnabled) { replay = null; return@LaunchedEffect }
         val sim = state.sim
-        val opened = withContext(Dispatchers.IO) { monitor.openReplay(sim) }
+        val opened = withContext(Dispatchers.IO) {
+            monitor.openReplay(sim)?.also { s ->
+                if (s.size >= 2) {
+                    val last = s.size - 1
+                    s.round(last)?.snapshot()
+                    val t = s.elapsedAt(last)
+                    s.thputBetween(t - 62_000, t + 62_000)
+                }
+            }
+        }
         replay = opened
         replayPos = ((opened?.size ?: 1) - 1).coerceAtLeast(0)
     }
@@ -215,12 +224,31 @@ fun NetworkScreen(
     fun extendReplay(toEnd: Boolean = false) {
         if (replayLoad?.isActive == true) return
         val sim = state.sim
+        val old = replay
+        val curPos = replayPos
         replayLoad = replayScope.launch {
-            val fresh = withContext(Dispatchers.IO) { monitor.openReplay(sim) } ?: return@launch
+            val fresh = withContext(Dispatchers.IO) {
+                val s = monitor.openReplay(sim) ?: return@withContext null
+                if (old != null) {
+                    if (!toEnd && s.size == old.size &&
+                        (s.size == 0 || s.elapsedAt(s.size - 1) == old.elapsedAt(old.size - 1))) {
+                        return@withContext null
+                    }
+                    s.inheritCache(old)
+                }
+                if (s.size >= 2) {
+                    val target = if (toEnd || old == null || old.size == 0) s.size - 1
+                        else s.indexAt(old.elapsedAt(curPos.coerceIn(0, old.size - 1)))
+                    s.round(target)?.snapshot()
+                    val t = s.elapsedAt(target)
+                    s.thputBetween(t - 62_000, t + 62_000)
+                }
+                s
+            } ?: return@launch
             if (fresh.size == 0 || !state.frozen || state.sim != sim) return@launch
-            val old = replay
-            replayPos = if (toEnd || old == null || old.size == 0) fresh.size - 1
-                else fresh.indexAt(old.elapsedAt(replayPos.coerceIn(0, old.size - 1)))
+            val current = replay
+            replayPos = if (toEnd || current == null || current.size == 0) fresh.size - 1
+                else fresh.indexAt(current.elapsedAt(replayPos.coerceIn(0, current.size - 1)))
             replay = fresh
         }
     }
@@ -307,8 +335,10 @@ fun NetworkScreen(
                         anchor.viewBottom = c.size.height - bottomPx
                     }
                     .verticalScroll(scrollState)
-                    .onGloballyPositioned { anchor.content = it }
-                    .onSizeChanged { anchor.contentResized() }
+                    .onGloballyPositioned {
+                        anchor.content = it
+                        anchor.contentResized()
+                    }
                     .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
             ) {
@@ -362,8 +392,12 @@ fun NetworkScreen(
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else state.thputBySim[sim].orEmpty()
                                 val pageGnbBits = if (sim == 2) gnbBitsSim2 else gnbBitsSim1
-                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
-                                    endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
+                                androidx.compose.runtime.CompositionLocalProvider(
+                                    LocalSnapSignalBars provides (sim == state.sim && replayRound != null)
+                                ) {
+                                    NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
+                                        endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
+                                }
                             }
                         }
                     }
@@ -501,8 +535,12 @@ private fun ReplayBar(
 ) {
     // Same shade as the signal-bar track on a card, so the bar stands out over cards behind it.
     val bg = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
+    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm:ss", Locale.US) }
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.defaultColors(color = bg)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures {} },
+        colors = CardDefaults.defaultColors(color = bg)
+    ) {
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
                 Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play,
@@ -511,9 +549,10 @@ private fun ReplayBar(
             }
             // The sample's clock time, shown above the thumb while it's held.
             val wall = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - elapsedMs)
+            val bubble = remember(wall / 1000) { timeFormat.format(java.util.Date(wall)) }
             ScrubSlider(
                 value = pos, max = size - 1, onValue = onPos,
-                bubble = java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
+                bubble = bubble,
                 onDragStart = onDragStart,
                 modifier = Modifier.weight(1f).padding(end = 10.dp)
             )
@@ -539,34 +578,39 @@ private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
     endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null
 ) {
+    val p = "${snap.sim}:"
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
     if (!servingHidden) {
-        Column(Modifier.scrollAnchor(anchor, "summary")) { SummaryCard(snap, state, snap.cells.firstOrNull(), gnbBits) }
+        Column(Modifier.scrollAnchor(anchor, "${p}summary")) { SummaryCard(snap, state, snap.cells.firstOrNull(), gnbBits) }
     }
     state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
 
     if (!servingHidden) {
-        snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "cell " + it.title)) { CellSection(it) } }
-        if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
+        snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "${p}cell:${it.title}")) { CellSection(it) } }
+        if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE &&
+            snap.mode != ServiceMode.LIMITED && snap.mode != ServiceMode.UNKNOWN) {
             NoticeCard("No serving-cell details were reported.")
         }
     }
-    // NSA: one ENDC table unless the menu separates LTE and NR. Anchored by
-    // position, so the LTE table turning ENDC and back keeps its place.
+    // NSA: one ENDC table unless the menu separates LTE and NR. LTE CA and
+    // combined ENDC share one key so the table keeps its place when NSA comes and goes.
     val groups = snap.endc?.takeIf { !endcSeparate }?.let(::listOf) ?: snap.carrierGroups
     // With the serving cell hidden, the tables go without their headings too.
-    groups.forEachIndexed { i, g -> Column(Modifier.scrollAnchor(anchor, "group $i")) { CarrierSection(g, title = !servingHidden) } }
+    groups.forEach { g ->
+        val groupKey = if (g.title == "NR aggregation") "${p}nr" else "${p}lte"
+        Column(Modifier.scrollAnchor(anchor, groupKey)) { CarrierSection(g, title = !servingHidden) }
+    }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise (hidden on WCDMA).
     if (state.diagEnabled && thput.isNotEmpty() && snap.mode != ServiceMode.WCDMA) {
         val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
-        Column(Modifier.scrollAnchor(anchor, "thput")) {
+        Column(Modifier.scrollAnchor(anchor, "${p}thput")) {
             ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
         }
     }
-    if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "antennas")) {
+    if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top.
             snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
@@ -580,7 +624,7 @@ private fun NetworkContent(
     }
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
-    if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "neighbours")) {
+    if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}neighbours")) {
         Expandable("Neighbour cells (${snap.neighbors.size})") {
             if (snap.neighbors.isEmpty()) {
                 Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,

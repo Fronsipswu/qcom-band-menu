@@ -279,4 +279,34 @@ class JsonStateParserTest {
         val parsed = JsonStateParser.parseResponse(resp)
         assertTrue(parsed.simState!!.ratMask.isEmpty())
     }
+
+    @Test
+    fun parseCellLockState_gnbAllowlistUnsigned32BitAndValidation() {
+        val gnbIds = listOf(0L, 2147483647L, 2147483648L, 3000000000L, 4294967295L)
+        val state = JSONObject().put("nr_cell_lock", JSONObject()
+            .put("valid", true)
+            .put("type", "gnb_allowlist")
+            .put("gnb_allowlist", JSONObject()
+                .put("id_bits", 32)
+                .put("gnb_ids", JSONArray(gnbIds))))
+        val parsed = JsonStateParser.parseCellLockState(state)
+        assertEquals(32, parsed.nr.gnbAllowlist?.idBits)
+        assertEquals(gnbIds, parsed.nr.gnbAllowlist?.gnbIds)
+
+        // Values outside 0 .. 2^id_bits - 1 are filtered out on readback and rejected on input.
+        val state22 = JSONObject().put("nr_cell_lock", JSONObject()
+            .put("valid", true)
+            .put("type", "gnb_allowlist")
+            .put("gnb_allowlist", JSONObject()
+                .put("id_bits", 22)
+                .put("gnb_ids", JSONArray(listOf(-1L, 0L, (1L shl 22) - 1L, 1L shl 22)))))
+        assertEquals(listOf(0L, (1L shl 22) - 1L), JsonStateParser.parseCellLockState(state22).nr.gnbAllowlist?.gnbIds)
+
+        assertNull(BandValidator.validateGnbAllowlist(32, gnbIds))
+        assertNull(BandValidator.validateGnbAllowlist(22, listOf(0L, (1L shl 22) - 1L)))
+        assertEquals("ID bits must be 22-32", BandValidator.validateGnbAllowlist(21, listOf(1L)))
+        assertEquals("ID bits must be 22-32", BandValidator.validateGnbAllowlist(33, listOf(1L)))
+        assertEquals("gNB ID must be 0-4194303", BandValidator.validateGnbAllowlist(22, listOf(1L shl 22)))
+        assertEquals("gNB ID must be 0-4294967295", BandValidator.validateGnbAllowlist(32, listOf(-1L)))
+    }
 }

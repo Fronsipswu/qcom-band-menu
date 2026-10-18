@@ -63,9 +63,9 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.18"
+#define HELPER_VERSION "1.22.19"
 #define SOCKET_NAME "qbm_diagd"
-#define WATCHDOG_MS 4000              /* app polls about every 1-1.5 s */
+#define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
 #define DIAG_CON_MPSS (1 << 1)
 #define DCI_NO_ERROR 1001
@@ -316,8 +316,9 @@ static void b184(const uint8_t *p, int n) {
     if (n < 2) return;
     const struct b184_layout *L;
     FIND_LAYOUT(B184_LAYOUTS, p[0], L);
-    if (!L || L->sc_start / 8 > n) return;
+    if (!L || L->sc_start / 8 > n || !fits(L->sc_count, n)) return;
     int count = at(p, L->sc_count), sc_bytes = L->sc_bits / 8;
+    if (count < 0 || count > 32 || L->sc_start / 8 + count * sc_bytes > n) return;
     const uint8_t *pc = p + L->pcell_at / 8;
     memset(ca, 0, sizeof ca);
     ca[0].known = 1;
@@ -328,7 +329,6 @@ static void b184(const uint8_t *p, int n) {
     ca[0].state = 2;
     for (int i = 0; i < count && i + 1 < SLOTS; i++) {
         int off = L->sc_start / 8 + i * sc_bytes;
-        if (off + sc_bytes > n) break;
         const uint8_t *c = p + off;
         /* The SCell's own carrier slot where the version has one: during an
          * SCell swap a lone SCell can be listed first with slot 2. */
@@ -794,11 +794,17 @@ static void b825(const uint8_t *p, int n) {
     FIND_LAYOUT(B825_LAYOUTS, nr_ver(p), L);
     if (!L || L->arrays_at > n * 8 || !fits(L->cell_count, n)) return;
     int pos = L->arrays_at / 8;
-    for (int k = 0; k < 2; k++) pos += at(p, L->skip[k]) * (L->skip_bits[k] / 8);
+    for (int k = 0; k < 2; k++) {
+        if (L->skip[k].bits && !fits(L->skip[k], n)) return;
+        int skip_n = at(p, L->skip[k]), skip_b = L->skip_bits[k] / 8;
+        if (skip_n < 0 || skip_n > 64 || pos + skip_n * skip_b > n) return;
+        pos += skip_n * skip_b;
+    }
     int cc_n = at(p, L->cell_count), stride = L->cell_bits / 8;
+    if (cc_n < 0 || cc_n > 32 || pos + cc_n * stride > n) return;
     memset(nrcc, 0, sizeof nrcc);
     nr_b825_seen = 1;
-    for (int i = 0; i < cc_n && pos + stride <= n; i++, pos += stride) {
+    for (int i = 0; i < cc_n; i++, pos += stride) {
         const uint8_t *c = p + pos;
         /* The CC Id is only where the cell is kept (cells are matched to
          * carriers by PCI and NR-ARFCN). NSA SCG cells can be numbered past
