@@ -589,7 +589,8 @@ private fun NetworkContent(
 
     if (!servingHidden) {
         snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "${p}cell:${it.title}")) { CellSection(it) } }
-        if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE && snap.mode != ServiceMode.LIMITED) {
+        if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE &&
+            snap.mode != ServiceMode.LIMITED && snap.mode != ServiceMode.UNKNOWN) {
             NoticeCard("No serving-cell details were reported.")
         }
     }

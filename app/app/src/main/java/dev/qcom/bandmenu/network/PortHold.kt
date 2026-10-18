@@ -21,6 +21,7 @@ class PortHold {
     private var held = emptyMap<String, Held>()
 
     fun apply(snap: NetworkSnapshot): NetworkSnapshot {
+        if (snap.mode == ServiceMode.UNKNOWN) return snap
         val next = HashMap<String, Held>()
         // The separate tables and NSA's combined table are separate columns.
         val result = snap.copy(

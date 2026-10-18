@@ -12,6 +12,7 @@ import java.util.Locale
  */
 
 enum class ServiceMode(val label: String, val generation: String) {
+    UNKNOWN("Unavailable", ""),
     NO_SERVICE("No service", ""),
     LIMITED("Limited service", ""),
     GSM("GSM", "2G"),
@@ -157,10 +158,14 @@ class SnapshotBuilder(
 
     private inline fun <T> decode(key: String, block: (QmiFrame) -> T): T? {
         val r = reads[key] as? ReadOutcome.Ok ?: return null
-        if (!r.frame.ok) return null
+        if (!r.frame.ok) {
+            if (key == NetworkReads.SYS) rejected += key
+            return null
+        }
         return try { block(r.frame) } catch (e: QmiFormatException) { malformed += key; null }
     }
 
+    private val rejected = mutableListOf<String>()
     private val malformed = mutableListOf<String>()
 
     private val sys = decode(NetworkReads.SYS, ::decodeSysInfo)
@@ -181,7 +186,7 @@ class SnapshotBuilder(
     private fun rfFor(radioIf: Int) = rf.firstOrNull { it.radioIf == radioIf }
 
     val mode: ServiceMode = run {
-        val s = sys ?: return@run ServiceMode.NO_SERVICE
+        val s = sys ?: return@run ServiceMode.UNKNOWN
         // The ARFCN list's NR RRC state / serving channels when it was read (every
         // NSA capture has them, also rounds without SYS_INFO's NR PCI). Without
         // it, SYS_INFO's NR PCI (TLV 0x54) only with a valid NR RSRP in SIG_INFO:
@@ -230,7 +235,7 @@ class SnapshotBuilder(
                 else -> {}
             }
         }
-        val failed = reads.filter { (_, o) -> o !is ReadOutcome.Ok }.keys + malformed
+        val failed = (reads.filter { (_, o) -> o !is ReadOutcome.Ok }.keys + rejected + malformed).distinct()
         val lteGroup = lteCarriers()
         return NetworkSnapshot(
             sim = sim,
@@ -246,7 +251,7 @@ class SnapshotBuilder(
             endc = if (mode == ServiceMode.NR_NSA) endcCarriers(lteGroup) else null,
             neighbors = neighbors(),
             antennas = antennas(),
-            failedReads = failed.toList()
+            failedReads = failed
         )
     }
 

@@ -171,9 +171,17 @@ class NetworkMonitor(
                     // DIAG that couldn't start is switched off, with the reason;
                     // DIAG toggled off during the round keeps its new state.
                     val diagOn = it.diagEnabled && !(withDiag && r.diagFailed)
-                    it.copy(snapshot = r.snapshot, operatorName = r.name, error = null,
-                        lastBySim = it.lastBySim + (sim to Reading(r.snapshot, r.name)),
-                        diagEnabled = diagOn, diagError = if (withDiag) r.diagError else it.diagError)
+                    if (r.snapshot.mode == ServiceMode.UNKNOWN) {
+                        it.copy(
+                            error = "Service information read failed (${NetworkReads.SYS})",
+                            diagEnabled = diagOn,
+                            diagError = if (withDiag) r.diagError else it.diagError
+                        )
+                    } else {
+                        it.copy(snapshot = r.snapshot, operatorName = r.name, error = null,
+                            lastBySim = it.lastBySim + (sim to Reading(r.snapshot, r.name)),
+                            diagEnabled = diagOn, diagError = if (withDiag) r.diagError else it.diagError)
+                    }
                 }
             },
             onFailure = { e -> _state.update { it.copy(error = e.message ?: "Read failed") } }
