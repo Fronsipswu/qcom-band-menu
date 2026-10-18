@@ -485,7 +485,7 @@ class MainActivity : ComponentActivity() {
                                 withContext(Dispatchers.IO) {
                                     try {
                                         val resp = JsonStateParser.parseResponse(daemonManager.simSet(sim))
-                                        if (resp.ok) {
+                                        if (resp.ok && resp.sim == sim) {
                                             newCellLock = resp.cellLockState
                                             newPlmnLock = resp.plmnLockState
                                         }
@@ -495,15 +495,15 @@ class MainActivity : ComponentActivity() {
                                 }
                                 if (newCellLock != null) {
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1CellLock = newCellLock!!)
+                                        modemState?.copy(sim1CellLock = newCellLock)
                                     else
-                                        modemState?.copy(sim2CellLock = newCellLock!!)
+                                        modemState?.copy(sim2CellLock = newCellLock)
                                 }
                                 if (newPlmnLock != null) {
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim1PlmnLock = newPlmnLock)
                                     else
-                                        modemState?.copy(sim2PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim2PlmnLock = newPlmnLock)
                                 }
                             }
                         }
@@ -516,77 +516,110 @@ class MainActivity : ComponentActivity() {
                                 var errorMsg: String? = null
                                 var newCellLock: CellLockState? = null
                                 var newPlmnLock: PlmnLockState? = null
-                                val parts = input.trim().split(Regex("\\s+"))
+                                val parts = input.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 
-                                withContext(Dispatchers.IO) {
-                                    try {
-                                        val simResp = JsonStateParser.parseResponse(daemonManager.simSet(sim))
-                                        if (!simResp.ok) {
-                                            errorMsg = simResp.error?.message ?: "Failed to select SIM $sim"
-                                            return@withContext
+                                val action: (() -> org.json.JSONObject)? = try {
+                                    when (fieldIndex) {
+                                        0 -> {
+                                            if (parts.size < 2) { errorMsg = "Need: arfcn scs_khz"; null }
+                                            else {
+                                                val arfcn = parts[0].toInt()
+                                                val scs = parts[1].toInt()
+                                                ({ daemonManager.nrCellLockArfcnSet(arfcn, scs) })
+                                            }
                                         }
-
-                                        val resp = when (fieldIndex) {
-                                            0 -> {
-                                                if (parts.size < 2) { errorMsg = "Need: arfcn scs_khz"; return@withContext }
-                                                JsonStateParser.parseResponse(daemonManager.nrCellLockArfcnSet(parts[0].toInt(), parts[1].toInt()))
+                                        1 -> {
+                                            if (parts.size < 4) { errorMsg = "Need: arfcn pci scs_khz band"; null }
+                                            else {
+                                                val arfcn = parts[0].toInt()
+                                                val pci = parts[1].toInt()
+                                                val scs = parts[2].toInt()
+                                                val band = parts[3].toInt()
+                                                ({ daemonManager.nrCellLockPciSet(arfcn, pci, scs, band) })
                                             }
-                                            1 -> {
-                                                if (parts.size < 4) { errorMsg = "Need: arfcn pci scs_khz band"; return@withContext }
-                                                JsonStateParser.parseResponse(daemonManager.nrCellLockPciSet(parts[0].toInt(), parts[1].toInt(), parts[2].toInt(), parts[3].toInt()))
-                                            }
-                                            2 -> {
-                                                if (parts.size < 4) { errorMsg = "Need: arfcn scs_khz band pci..."; return@withContext }
+                                        }
+                                        2 -> {
+                                            if (parts.size < 4) { errorMsg = "Need: arfcn scs_khz band pci..."; null }
+                                            else {
                                                 val arfcn = parts[0].toInt()
                                                 val scs = parts[1].toInt()
                                                 val band = parts[2].toInt()
                                                 val pciList = parts.drop(3).map { it.toInt() }
-                                                JsonStateParser.parseResponse(daemonManager.nrCellLockMultiPciSet(arfcn, scs, band, pciList))
+                                                ({ daemonManager.nrCellLockMultiPciSet(arfcn, scs, band, pciList) })
                                             }
-                                            3 -> {
-                                                if (parts.size < 2) { errorMsg = "Need: id_bits gnb..."; return@withContext }
+                                        }
+                                        3 -> {
+                                            if (parts.size < 2) { errorMsg = "Need: id_bits gnb..."; null }
+                                            else {
                                                 val idBits = parts[0].toIntOrNull()
                                                 val gnbIds = parts.drop(1).map { it.toLongOrNull() }
                                                 val err = BandValidator.validateGnbAllowlist(idBits, gnbIds)
-                                                if (err != null) { errorMsg = err; return@withContext }
-                                                JsonStateParser.parseResponse(daemonManager.nrCellLockGnbSet(idBits!!, gnbIds.filterNotNull()))
+                                                if (err != null) { errorMsg = err; null }
+                                                else {
+                                                    val validIds = gnbIds.filterNotNull()
+                                                    ({ daemonManager.nrCellLockGnbSet(idBits!!, validIds) })
+                                                }
                                             }
-                                            4 -> {
-                                                if (parts.size < 2) { errorMsg = "Need: earfcn pci"; return@withContext }
-                                                JsonStateParser.parseResponse(daemonManager.lteCellLockSet(parts[0].toInt(), parts[1].toInt()))
+                                        }
+                                        4 -> {
+                                            if (parts.size < 2) { errorMsg = "Need: earfcn pci"; null }
+                                            else {
+                                                val earfcn = parts[0].toInt()
+                                                val pci = parts[1].toInt()
+                                                ({ daemonManager.lteCellLockSet(earfcn, pci) })
                                             }
-                                            6 -> {
-                                                if (parts.size < 2) { errorMsg = "Need: earfcn pci..."; return@withContext }
+                                        }
+                                        6 -> {
+                                            if (parts.size < 2) { errorMsg = "Need: earfcn pci..."; null }
+                                            else {
                                                 val earfcn = parts[0].toInt()
                                                 val pciList = parts.drop(1).map { it.toInt() }
-                                                if (pciList.size > 64) { errorMsg = "Max 64 PCIs"; return@withContext }
-                                                if (pciList.any { it < 0 || it > 503 }) { errorMsg = "PCI must be 0-503"; return@withContext }
-                                                JsonStateParser.parseResponse(daemonManager.lteCellLockMultiPciSet(earfcn, pciList))
+                                                if (pciList.size > 64) { errorMsg = "Max 64 PCIs"; null }
+                                                else if (pciList.any { it < 0 || it > 503 }) { errorMsg = "PCI must be 0-503"; null }
+                                                else ({ daemonManager.lteCellLockMultiPciSet(earfcn, pciList) })
                                             }
-                                            5 -> {
-                                                if (parts.size != 2) { errorMsg = "Need: mcc mnc"; return@withContext }
+                                        }
+                                        5 -> {
+                                            if (parts.size != 2) { errorMsg = "Need: mcc mnc"; null }
+                                            else {
                                                 val mcc = parts[0].toIntOrNull()
                                                 val mnc = parts[1].toIntOrNull()
                                                 if (mcc == null || mcc < 0 || mcc > 999 || mnc == null || mnc < 0 || mnc > 999) {
-                                                    errorMsg = "MCC and MNC must be 0-999"; return@withContext
-                                                }
-                                                JsonStateParser.parseResponse(daemonManager.plmnLockSet(mcc, mnc))
+                                                    errorMsg = "MCC and MNC must be 0-999"; null
+                                                } else ({ daemonManager.plmnLockSet(mcc, mnc) })
                                             }
-                                            else -> { errorMsg = "Unknown field"; return@withContext }
                                         }
+                                        else -> { errorMsg = "Unknown field"; null }
+                                    }
+                                } catch (e: Exception) {
+                                    errorMsg = "Invalid number: ${e.message}"
+                                    null
+                                }
 
-                                        success = resp.ok
-                                        if (!resp.ok) {
-                                            errorMsg = resp.error?.message ?: "Rejected by modem"
+                                if (action != null) {
+                                    withContext(Dispatchers.IO) {
+                                        try {
+                                            val simResp = JsonStateParser.parseResponse(daemonManager.simSet(sim))
+                                            if (!simResp.ok) {
+                                                errorMsg = simResp.error?.message ?: "Failed to select SIM $sim"
+                                                return@withContext
+                                            }
+
+                                            val resp = JsonStateParser.parseResponse(action())
+                                            success = resp.ok
+                                            if (!resp.ok) {
+                                                errorMsg = resp.error?.message ?: "Rejected by modem"
+                                            } else if (resp.sim == sim) {
+                                                if (fieldIndex == 5) {
+                                                    newPlmnLock = resp.plmnLockState
+                                                } else {
+                                                    newCellLock = resp.cellLockState
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            errorMsg = "Apply failed: ${e.message}"
+                                            AppLog.e(TAG, "CellLock apply: error", e)
                                         }
-                                        if (fieldIndex == 5) {
-                                            newPlmnLock = resp.plmnLockState
-                                        } else {
-                                            newCellLock = resp.cellLockState
-                                        }
-                                    } catch (e: Exception) {
-                                        errorMsg = "Apply failed: ${e.message}"
-                                        AppLog.e(TAG, "CellLock apply: error", e)
                                     }
                                 }
 
@@ -598,17 +631,17 @@ class MainActivity : ComponentActivity() {
                                 if (newCellLock != null) {
                                     val slot = sim - 1
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1CellLock = newCellLock!!)
+                                        modemState?.copy(sim1CellLock = newCellLock)
                                     else
-                                        modemState?.copy(sim2CellLock = newCellLock!!)
+                                        modemState?.copy(sim2CellLock = newCellLock)
                                 }
 
                                 if (newPlmnLock != null) {
                                     val slot = sim - 1
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim1PlmnLock = newPlmnLock)
                                     else
-                                        modemState?.copy(sim2PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim2PlmnLock = newPlmnLock)
                                 }
                             }
                         }
@@ -648,9 +681,9 @@ class MainActivity : ComponentActivity() {
                                 if (newCellLock != null) {
                                     val slot = sim - 1
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1CellLock = newCellLock!!)
+                                        modemState?.copy(sim1CellLock = newCellLock)
                                     else
-                                        modemState?.copy(sim2CellLock = newCellLock!!)
+                                        modemState?.copy(sim2CellLock = newCellLock)
                                 }
                                 snackbarIsError = errorMsg != null
                                 snackbarMessage = errorMsg ?: "Cleared all cell locks for SIM $sim"
@@ -673,6 +706,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                         try {
                                             val resp = JsonStateParser.parseResponse(daemonManager.nrCellLockClear())
+                                            if (!resp.ok) errorMsg = resp.error?.message ?: "Rejected by modem"
                                             newCellLock = resp.cellLockState
                                         } catch (e: Exception) {
                                             // NR clear I/O error — not a modem rejection.
@@ -687,9 +721,9 @@ class MainActivity : ComponentActivity() {
                                 if (newCellLock != null) {
                                     val slot = sim - 1
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1CellLock = newCellLock!!)
+                                        modemState?.copy(sim1CellLock = newCellLock)
                                     else
-                                        modemState?.copy(sim2CellLock = newCellLock!!)
+                                        modemState?.copy(sim2CellLock = newCellLock)
                                 }
                                 snackbarIsError = errorMsg != null || ioError
                                 snackbarMessage = when {
@@ -724,9 +758,9 @@ class MainActivity : ComponentActivity() {
                                 if (newCellLock != null) {
                                     val slot = sim - 1
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1CellLock = newCellLock!!)
+                                        modemState?.copy(sim1CellLock = newCellLock)
                                     else
-                                        modemState?.copy(sim2CellLock = newCellLock!!)
+                                        modemState?.copy(sim2CellLock = newCellLock)
                                 }
                                 snackbarIsError = errorMsg != null
                                 snackbarMessage = errorMsg ?: "Cleared 4G cell lock for SIM $sim"
@@ -759,9 +793,9 @@ class MainActivity : ComponentActivity() {
                                 if (newPlmnLock != null) {
                                     val slot = sim - 1
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim1PlmnLock = newPlmnLock)
                                     else
-                                        modemState?.copy(sim2PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim2PlmnLock = newPlmnLock)
                                 }
                                 snackbarIsError = errorMsg != null
                                 snackbarMessage = errorMsg ?: "Cleared PLMN lock for SIM $sim"
@@ -772,8 +806,10 @@ class MainActivity : ComponentActivity() {
                     onCellLockResultConsumed = { cellLockResult = null },
                     cellLockRefreshing = cellLockRefreshing,
                     onCellLockRefresh = cellRefresh@{
+                        val slot = cellLockSelectedSim
+                        val sim = slot + 1
                         recheckSim2()
-                        if (sim2Unavailable(cellLockSelectedSim + 1)) return@cellRefresh
+                        if (sim2Unavailable(sim)) return@cellRefresh
                         scope.launch {
                             cellLockRefreshing = true
                             modemLock.withLock {
@@ -782,12 +818,11 @@ class MainActivity : ComponentActivity() {
                                 var errorMsg: String? = null
                                 withContext(Dispatchers.IO) {
                                     try {
-                                        // Switch to the selected SIM first to ensure we read
-                                        // the correct SIM's cell lock state, not whatever SIM
-                                        // the daemon happened to be on.
-                                        val sim = cellLockSelectedSim + 1
+                                        // Switch to the captured SIM first to ensure we read
+                                        // the requested SIM's cell lock state and assign the
+                                        // response back to that same SIM even if the user swipes.
                                         val resp = JsonStateParser.parseResponse(daemonManager.simSet(sim))
-                                        if (resp.ok) {
+                                        if (resp.ok && resp.sim == sim) {
                                             newCellLock = resp.cellLockState
                                             newPlmnLock = resp.plmnLockState
                                         } else {
@@ -799,19 +834,17 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 if (newCellLock != null) {
-                                    val slot = cellLockSelectedSim
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1CellLock = newCellLock!!)
+                                        modemState?.copy(sim1CellLock = newCellLock)
                                     else
-                                        modemState?.copy(sim2CellLock = newCellLock!!)
+                                        modemState?.copy(sim2CellLock = newCellLock)
                                     cellLockRefreshKey++
                                 }
                                 if (newPlmnLock != null) {
-                                    val slot = cellLockSelectedSim
                                     modemState = if (slot == 0)
-                                        modemState?.copy(sim1PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim1PlmnLock = newPlmnLock)
                                     else
-                                        modemState?.copy(sim2PlmnLock = newPlmnLock!!)
+                                        modemState?.copy(sim2PlmnLock = newPlmnLock)
                                 }
                                 if (errorMsg != null) {
                                     snackbarIsError = true

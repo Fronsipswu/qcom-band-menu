@@ -186,8 +186,10 @@ fun CellLockScreen(
                                 val target = index - simOffset
                                 if (target !in 0 until pagerState.pageCount) return@TabRowWithContour
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                notifiedSim = index
-                                onSimSwitch(index)
+                                if (notifiedSim != index) {
+                                    notifiedSim = index
+                                    onSimSwitch(index)
+                                }
                                 if (pagerState.targetPage != target) {
                                     scope.launch { pagerState.animateScrollToPage(target) }
                                 }
@@ -360,6 +362,8 @@ private fun SimCellLockPage(
     var plmnText by remember { mutableStateOf("") }
 
     var labelOverrides by remember { mutableStateOf<Map<Int, LabelOverride>>(emptyMap()) }
+    val overrideJobs = remember { mutableMapOf<Int, kotlinx.coroutines.Job>() }
+    val pageScope = rememberCoroutineScope()
 
     LaunchedEffect(cellLockState, plmnLockState, refreshKey) {
         val nr = cellLockState?.nr
@@ -392,7 +396,7 @@ private fun SimCellLockPage(
         } else ""
 
         plmnText = if (plmnLockState?.lockedPlmn != null) {
-            val lp = plmnLockState.lockedPlmn!!
+            val lp = plmnLockState.lockedPlmn
             val mncStr = lp.mncDisplay.ifBlank { lp.mnc.toString() }
             "${lp.mcc} $mncStr"
         } else if (plmnLockState?.mcc != null && plmnLockState.mnc != null) {
@@ -402,16 +406,21 @@ private fun SimCellLockPage(
 
     LaunchedEffect(lockResult) {
         if (lockResult != null && lockResult.sim == simSlot + 1) {
+            val fieldIndex = lockResult.fieldIndex
             val override = if (lockResult.success) {
                 LabelOverride("Success locking ${lockResult.type} \u2713", GreenColor)
             } else {
                 val msg = lockResult.message ?: "Rejected by modem"
                 LabelOverride("$msg \u2717", RedColor)
             }
-            labelOverrides = labelOverrides + (lockResult.fieldIndex to override)
-            delay(3000)
-            labelOverrides = labelOverrides - lockResult.fieldIndex
             onLockResultConsumed()
+            labelOverrides = labelOverrides + (fieldIndex to override)
+            overrideJobs[fieldIndex]?.cancel()
+            overrideJobs[fieldIndex] = pageScope.launch {
+                delay(3000)
+                labelOverrides = labelOverrides - fieldIndex
+                overrideJobs.remove(fieldIndex)
+            }
         }
     }
 
