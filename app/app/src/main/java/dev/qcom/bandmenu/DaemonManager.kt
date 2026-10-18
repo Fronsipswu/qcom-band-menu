@@ -525,7 +525,7 @@ class DaemonManager(private val context: Context) {
         sendRequest(JsonRequestBuilder.nrCellLockArfcnSet(arfcn, scsKhz))
     fun nrCellLockMultiPciSet(arfcn: Int, scsKhz: Int, band: Int, pciList: List<Int>): JSONObject =
         sendRequest(JsonRequestBuilder.nrCellLockMultiPciSet(arfcn, scsKhz, band, pciList))
-    fun nrCellLockGnbSet(idBits: Int, gnbIds: List<Int>): JSONObject =
+    fun nrCellLockGnbSet(idBits: Int, gnbIds: List<Long>): JSONObject =
         sendRequest(JsonRequestBuilder.nrCellLockGnbSet(idBits, gnbIds))
     fun nrCellLockClear(): JSONObject = sendRequest(JsonRequestBuilder.nrCellLockClear())
     fun queryLteCellLock(): JSONObject = sendRequest(JsonRequestBuilder.queryLteCellLock())

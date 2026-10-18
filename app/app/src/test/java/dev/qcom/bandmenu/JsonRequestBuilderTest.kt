@@ -122,4 +122,15 @@ class JsonRequestBuilderTest {
         assertEquals("verbose_set", json.getString("cmd"))
         assertTrue(json.getBoolean("verbose"))
     }
+
+    @Test
+    fun nrCellLockGnbSet_unsigned32Bit() {
+        val ids = listOf(0L, 2147483647L, 2147483648L, 3000000000L, 4294967295L)
+        val json = JsonRequestBuilder.nrCellLockGnbSet(32, ids)
+        assertEquals("nr_cell_lock_gnb_set", json.getString("cmd"))
+        assertEquals(32, json.getInt("id_bits"))
+        val arr = json.getJSONArray("gnb_ids")
+        assertEquals(ids.size, arr.length())
+        ids.forEachIndexed { i, expected -> assertEquals(expected, arr.getLong(i)) }
+    }
 }

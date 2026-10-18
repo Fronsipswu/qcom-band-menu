@@ -545,9 +545,11 @@ class MainActivity : ComponentActivity() {
                                             }
                                             3 -> {
                                                 if (parts.size < 2) { errorMsg = "Need: id_bits gnb..."; return@withContext }
-                                                val idBits = parts[0].toInt()
-                                                val gnbIds = parts.drop(1).map { it.toInt() }
-                                                JsonStateParser.parseResponse(daemonManager.nrCellLockGnbSet(idBits, gnbIds))
+                                                val idBits = parts[0].toIntOrNull()
+                                                val gnbIds = parts.drop(1).map { it.toLongOrNull() }
+                                                val err = BandValidator.validateGnbAllowlist(idBits, gnbIds)
+                                                if (err != null) { errorMsg = err; return@withContext }
+                                                JsonStateParser.parseResponse(daemonManager.nrCellLockGnbSet(idBits!!, gnbIds.filterNotNull()))
                                             }
                                             4 -> {
                                                 if (parts.size < 2) { errorMsg = "Need: earfcn pci"; return@withContext }
