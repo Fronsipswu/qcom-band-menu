@@ -2,6 +2,7 @@ package dev.qcom.bandmenu.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +31,8 @@ import dev.qcom.bandmenu.network.Rat
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Locale
+
+internal val LocalSnapSignalBars = compositionLocalOf { false }
 
 /**
  * Signal scale for one metric family on one RAT: the bar's range and the
@@ -94,8 +98,13 @@ fun SignalBar(
     val scale = signalScale(metric.kind, metric.rat)
     val v = metric.value
     val level = v?.let(scale::level)
-    val fill by animateFloatAsState(v?.let(scale::fraction) ?: 0f, tween(450), label = "signalFill")
-    val color by animateColorAsState(level?.let { LEVEL_COLORS[it] } ?: Color.Transparent, tween(450), label = "signalColor")
+    val snapBars = LocalSnapSignalBars.current
+    val targetFill = v?.let(scale::fraction) ?: 0f
+    val targetColor = level?.let { LEVEL_COLORS[it] } ?: Color.Transparent
+    val fillAnim by animateFloatAsState(targetFill, if (snapBars) snap() else tween(450), label = "signalFill")
+    val colorAnim by animateColorAsState(targetColor, if (snapBars) snap() else tween(450), label = "signalColor")
+    val fill = if (snapBars) targetFill else fillAnim
+    val color = if (snapBars) targetColor else colorAnim
     val track = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     val tick = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.22f)
     val valueText = metric.text ?: v?.let { "${formatMetric(it)} ${metric.unit}" } ?: "—"

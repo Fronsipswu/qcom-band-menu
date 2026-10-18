@@ -392,8 +392,12 @@ fun NetworkScreen(
                                     remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
                                 else state.thputBySim[sim].orEmpty()
                                 val pageGnbBits = if (sim == 2) gnbBitsSim2 else gnbBitsSim1
-                                NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
-                                    endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
+                                androidx.compose.runtime.CompositionLocalProvider(
+                                    LocalSnapSignalBars provides (sim == state.sim && replayRound != null)
+                                ) {
+                                    NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
+                                        endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
+                                }
                             }
                         }
                     }
@@ -531,6 +535,7 @@ private fun ReplayBar(
 ) {
     // Same shade as the signal-bar track on a card, so the bar stands out over cards behind it.
     val bg = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f).compositeOver(MiuixTheme.colorScheme.surfaceContainer)
+    val timeFormat = remember { java.text.SimpleDateFormat("HH:mm:ss", Locale.US) }
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
     Card(
         modifier = Modifier.fillMaxWidth().pointerInput(Unit) { detectTapGestures {} },
@@ -544,9 +549,10 @@ private fun ReplayBar(
             }
             // The sample's clock time, shown above the thumb while it's held.
             val wall = System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - elapsedMs)
+            val bubble = remember(wall / 1000) { timeFormat.format(java.util.Date(wall)) }
             ScrubSlider(
                 value = pos, max = size - 1, onValue = onPos,
-                bubble = java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(java.util.Date(wall)),
+                bubble = bubble,
                 onDragStart = onDragStart,
                 modifier = Modifier.weight(1f).padding(end = 10.dp)
             )
