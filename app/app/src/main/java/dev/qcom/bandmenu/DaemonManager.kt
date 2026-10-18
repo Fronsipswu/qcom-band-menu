@@ -95,6 +95,17 @@ class DaemonManager(private val context: Context) {
 
     private fun isAborted(gen: Int): Boolean = stopped || sessionGen != gen
 
+    /** Cleanup for a launch that was aborted. After stop() nothing else owns
+     *  the daemon or the socket, so what this launch may have started goes.
+     *  Superseded by a newer session (stop then start again), it leaves both
+     *  alone: the socket and the daemon's process name are shared, and the new
+     *  session reuses a running daemon of the right version. */
+    private fun abandon() {
+        if (!stopped) return
+        disconnect()
+        Shell.cmd(killCmd).exec()
+    }
+
     /** Kills any running daemon by exact process name (not a command-line
      *  substring match, which could hit unrelated processes). */
     private val killCmd = "pkill -9 -x $BINARY_NAME 2>/dev/null; true"
@@ -195,7 +206,7 @@ class DaemonManager(private val context: Context) {
         AppLog.i(TAG, "launchAndConnect: trying existing daemon...")
         if (tryConnect()) {
             if (isAborted(gen)) {
-                disconnect()
+                abandon()
                 return
             }
             if (connectedDaemonVersion == EXPECTED_DAEMON_VERSION) {
@@ -254,21 +265,19 @@ class DaemonManager(private val context: Context) {
         Shell.cmd("setsid '$path' -uid $uid -tokenfile '$tokenPath' </dev/null >/dev/null 2>'${stderrFile.absolutePath}' &").exec()
         AppLog.i(TAG, "launchAndConnect: daemon launch command returned")
         if (isAborted(gen)) {
-            Shell.cmd(killCmd).exec()
+            abandon()
             return
         }
 
         for (i in 1..12) {
             Thread.sleep(250)
             if (isAborted(gen)) {
-                disconnect()
-                Shell.cmd(killCmd).exec()
+                abandon()
                 return
             }
             if (tryConnect()) {
                 if (isAborted(gen)) {
-                    disconnect()
-                    Shell.cmd(killCmd).exec()
+                    abandon()
                     return
                 }
                 AppLog.i(TAG, "launchAndConnect: connected after ${(i * 250)}ms")
@@ -322,14 +331,12 @@ class DaemonManager(private val context: Context) {
                 for (i in 1..20) {
                     Thread.sleep(250)
                     if (isAborted(gen)) {
-                        disconnect()
-                        Shell.cmd(killCmd).exec()
+                        abandon()
                         return
                     }
                     if (tryConnect()) {
                         if (isAborted(gen)) {
-                            disconnect()
-                            Shell.cmd(killCmd).exec()
+                            abandon()
                             return
                         }
                         AppLog.i(TAG, "launchAndConnect: connected after SELinux permissive (${i * 250}ms)")
