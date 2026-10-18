@@ -251,6 +251,7 @@ class MainActivity : ComponentActivity() {
                 // the other SIM. Init also takes the lock, so the two never overlap.
                 // Bumped to run init again (SIM 2 turned on/off or inserted/removed).
                 var initGeneration by remember { mutableIntStateOf(0) }
+                var sim2BindRetries by remember { mutableIntStateOf(0) }
                 LaunchedEffect(daemonManager.isReady.value, initGeneration) {
                     if (daemonManager.isReady.value && modemState == null) {
                         scope.launch {
@@ -346,6 +347,7 @@ class MainActivity : ComponentActivity() {
                                 // C4: Back on Main dispatcher - update Compose state
                                 if (initModemState != null) {
                                     modemState = initModemState
+                                    if (initModemState.sim2Available) sim2BindRetries = 0
                                 }
                                 if (initNrIndependentSupported != null && nrIndependentSupported == null) {
                                     nrIndependentSupported = initNrIndependentSupported
@@ -378,10 +380,18 @@ class MainActivity : ComponentActivity() {
                         }
                         val current = modemState ?: return@launch
                         // Unreadable this time: can't tell, try again on the next check.
-                        // Unchanged: nothing to do (a SIM 2 that's ready but that the
-                        // modem won't bind would otherwise re-init on every check).
-                        if (status == SimSlotStatus.UNKNOWN || status == current.sim2Status) return@launch
+                        if (status == SimSlotStatus.UNKNOWN) return@launch
+                        if (status != current.sim2Status) {
+                            sim2BindRetries = 0
+                        }
+                        // Unchanged: nothing to do, except bounded retries when SIM 2
+                        // is ACTIVE in UIM but a transient startup bind failure left it
+                        // unavailable (capped so a single-SIM / DSDS-off modem doesn't
+                        // re-init forever).
+                        val needsBindRetry = status == SimSlotStatus.ACTIVE && !current.sim2Available && sim2BindRetries < 3
+                        if (status == current.sim2Status && !needsBindRetry) return@launch
                         if ((status == SimSlotStatus.ACTIVE) != current.sim2Available) {
+                            if (status == current.sim2Status) sim2BindRetries++
                             AppLog.i(TAG, "SIM 2 card status ${current.sim2Status} -> $status, re-initialising")
                             modemState = null
                             initGeneration++
@@ -403,7 +413,12 @@ class MainActivity : ComponentActivity() {
                 // the daemon's read-only monitoring client), not the telephony API,
                 // so no phone-state permission is needed.
                 var simLabels by remember { mutableStateOf(listOf("SIM 1", "SIM 2")) }
-                LaunchedEffect(modemState) {
+                LaunchedEffect(
+                    modemState?.sim1Status,
+                    modemState?.sim2Status,
+                    modemState?.sim2Available,
+                    modemState?.hardware?.nr
+                ) {
                     val state = modemState ?: return@LaunchedEffect
                     val monitor = daemonHolder.networkMonitor
                     monitor.nrHardwareBands = state.hardware.nr

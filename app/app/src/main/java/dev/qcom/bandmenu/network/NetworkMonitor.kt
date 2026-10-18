@@ -90,9 +90,11 @@ class NetworkMonitor(
         if (on) {
             if (visible && resumed) scope.launch { round() }
         } else {
-            scope.launch(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
-            // Drop the DIAG rows at once instead of waiting for the next round.
-            if (visible && resumed) scope.launch { round() }
+            scope.launch {
+                withContext(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
+                // Drop the DIAG rows at once instead of waiting for the next round.
+                if (visible && resumed) round()
+            }
         }
     }
 
@@ -164,7 +166,17 @@ class NetworkMonitor(
                 s.copy(thputBySim = s.thputBySim + (sim to history))
             }
         }
-        if (_state.value.frozen && !fresh) return@withLock
+        if (_state.value.frozen && !fresh) {
+            result.getOrNull()?.let { r ->
+                if (withDiag) {
+                    _state.update {
+                        val diagOn = it.diagEnabled && !r.diagFailed
+                        it.copy(diagEnabled = diagOn, diagError = r.diagError)
+                    }
+                }
+            }
+            return@withLock
+        }
         result.fold(
             onSuccess = { r ->
                 _state.update {
@@ -192,7 +204,7 @@ class NetworkMonitor(
         val mbps: Double? = null, val ulMbps: Double? = null)
 
     private fun readRound(sim: Int, fresh: Boolean, withDiag: Boolean): Result<RoundResult> = runCatching {
-        if (!daemon.isReady.value) throw IllegalStateException("Waiting for the daemon…")
+        if (!daemon.isReady.value && !daemon.hasConnectedOnce) throw IllegalStateException("Waiting for the daemon…")
         val t0 = SystemClock.elapsedRealtime()
         val rawReads = requestRaw(sim, NetworkReads.ROUND)
         val reads = outcomes(NetworkReads.ROUND, rawReads)

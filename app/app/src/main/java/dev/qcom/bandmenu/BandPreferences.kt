@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 object BandPreferences {
@@ -72,7 +73,7 @@ object BandPreferences {
                 prefs[NR_SA_SIM2],
                 prefs[NR_MODE_SIM2]
             )
-        }
+        }.distinctUntilChanged()
     }
 
     suspend fun saveSimState(dataStore: DataStore<Preferences>, sim: Int, state: SimState) {
@@ -116,11 +117,11 @@ object BandPreferences {
     }
 
     fun getDebugLogging(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[DEBUG_LOGGING] ?: false }
+        return dataStore.data.map { it[DEBUG_LOGGING] ?: false }.distinctUntilChanged()
     }
 
     fun getBandFilter(dataStore: DataStore<Preferences>): Flow<BandFilterState> {
-        return dataStore.data.map { prefs -> prefsToBandFilter(prefs) }
+        return dataStore.data.map { prefs -> prefsToBandFilter(prefs) }.distinctUntilChanged()
     }
 
     suspend fun saveBandFilter(dataStore: DataStore<Preferences>, state: BandFilterState) {
@@ -187,7 +188,7 @@ object BandPreferences {
     }
 
     fun getQuickSelectHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[QUICK_SELECT_HIDDEN] ?: false }
+        return dataStore.data.map { it[QUICK_SELECT_HIDDEN] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setQuickSelectHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
@@ -195,7 +196,7 @@ object BandPreferences {
     }
 
     fun getUsageSettingHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[USAGE_SETTING_HIDDEN] ?: false }
+        return dataStore.data.map { it[USAGE_SETTING_HIDDEN] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setUsageSettingHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
@@ -203,7 +204,7 @@ object BandPreferences {
     }
 
     fun getThputHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[THPUT_HIDDEN] ?: false }
+        return dataStore.data.map { it[THPUT_HIDDEN] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setThputHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
@@ -212,7 +213,7 @@ object BandPreferences {
 
     /** Network page menu: keep the screen on while the app is shown. */
     fun getKeepScreenOn(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[KEEP_SCREEN_ON] ?: false }
+        return dataStore.data.map { it[KEEP_SCREEN_ON] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setKeepScreenOn(dataStore: DataStore<Preferences>, on: Boolean) {
@@ -220,7 +221,7 @@ object BandPreferences {
     }
 
     fun getNavbarHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[NAVBAR_HIDDEN] ?: false }
+        return dataStore.data.map { it[NAVBAR_HIDDEN] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setNavbarHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
@@ -228,7 +229,7 @@ object BandPreferences {
     }
 
     fun getEndcSeparate(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[ENDC_SEPARATE] ?: true }
+        return dataStore.data.map { it[ENDC_SEPARATE] ?: true }.distinctUntilChanged()
     }
 
     suspend fun setEndcSeparate(dataStore: DataStore<Preferences>, separate: Boolean) {
@@ -240,7 +241,7 @@ object BandPreferences {
         return dataStore.data.map { prefs ->
             val b = prefs[key] ?: 22
             if (b in 22..32 && b % 2 == 0) b else 22
-        }
+        }.distinctUntilChanged()
     }
 
     suspend fun setGnbBits(dataStore: DataStore<Preferences>, sim: Int, bits: Int) {
@@ -249,7 +250,7 @@ object BandPreferences {
     }
 
     fun getServingHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[SERVING_HIDDEN] ?: false }
+        return dataStore.data.map { it[SERVING_HIDDEN] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setServingHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
@@ -257,7 +258,7 @@ object BandPreferences {
     }
 
     fun getDiagEnabled(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[DIAG_ENABLED] ?: false }
+        return dataStore.data.map { it[DIAG_ENABLED] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setDiagEnabled(dataStore: DataStore<Preferences>, enabled: Boolean) {
@@ -265,7 +266,7 @@ object BandPreferences {
     }
 
     fun getReplayEnabled(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[REPLAY_ENABLED] ?: false }
+        return dataStore.data.map { it[REPLAY_ENABLED] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setReplayEnabled(dataStore: DataStore<Preferences>, enabled: Boolean) {
@@ -273,7 +274,7 @@ object BandPreferences {
     }
 
     fun getNrModeHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {
-        return dataStore.data.map { it[NR_MODE_HIDDEN] ?: false }
+        return dataStore.data.map { it[NR_MODE_HIDDEN] ?: false }.distinctUntilChanged()
     }
 
     suspend fun setNrModeHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
@@ -281,7 +282,7 @@ object BandPreferences {
     }
 
     fun getNrIndependentSupported(dataStore: DataStore<Preferences>): Flow<Boolean?> {
-        return dataStore.data.map { it[NR_INDEPENDENT_SUPPORTED] }
+        return dataStore.data.map { it[NR_INDEPENDENT_SUPPORTED] }.distinctUntilChanged()
     }
 
     suspend fun setNrIndependentSupported(dataStore: DataStore<Preferences>, supported: Boolean) {
