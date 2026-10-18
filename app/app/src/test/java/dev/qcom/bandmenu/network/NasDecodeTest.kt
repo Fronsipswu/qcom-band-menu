@@ -138,6 +138,28 @@ class NasDecodeTest {
     }
 
     @Test
+    fun fallbackPrimaryNrArfcnIsNotDuplicatedAsSecondary() {
+        val sysSa = QmiFrame.parse(frame(NasMsg.SYS_INFO, tlv(0x4A, 2, 2)))
+        val singleServing = SnapshotBuilder(
+            mapOf(
+                NetworkReads.SYS to ReadOutcome.Ok(sysSa),
+                NetworkReads.ARFCN to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.ARFCN_LIST, tlv(0x1C, 1, *le32(529950)))))
+            )
+        ).build(1, 0, 0)
+        assertEquals("529950", singleServing.cells.single().fields.first { it.label == "NARFCN" }.value)
+        assertEquals(emptyList<Carrier>(), singleServing.carrierGroups.single().carriers)
+
+        val twoServing = SnapshotBuilder(
+            mapOf(
+                NetworkReads.SYS to ReadOutcome.Ok(sysSa),
+                NetworkReads.ARFCN to ReadOutcome.Ok(QmiFrame.parse(frame(NasMsg.ARFCN_LIST, tlv(0x1C, 2, *le32(529950), *le32(628800)))))
+            )
+        ).build(1, 0, 0)
+        assertEquals("529950", twoServing.cells.single().fields.first { it.label == "NARFCN" }.value)
+        assertEquals(listOf("628800"), twoServing.carrierGroups.single().carriers.map { it.channel.substringBefore(' ') })
+    }
+
+    @Test
     fun bandsDerivedFromChannels() {
         // 529950 (2649.75 MHz) is in n7 and n41; the modem's supported bands decide.
         assertEquals(41, nrBandForArfcn(529950, setOf(1, 28, 40, 41)))

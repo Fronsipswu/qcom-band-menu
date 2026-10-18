@@ -337,11 +337,13 @@ class SnapshotBuilder(
         return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
     }
 
+    private fun primaryNrArfcn(): Long? = sys?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
+
     private fun nrCell(sa: Boolean): CellCard? {
         val s = sys
         val n = loc?.nr
         val pci = s?.nrPci ?: n?.pci
-        val ch = s?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
+        val ch = primaryNrArfcn()
         val band = rfFor(NasRadioIf.NR5G)
         // NSA keeps a fixed set of fields ("–" when the NR leg is down) so the
         // SCG card holds its shape instead of popping in and out.
@@ -537,7 +539,7 @@ class SnapshotBuilder(
         // idle): no card, rather than the QMI frequency-only fallback.
         if (diag != null && mode == ServiceMode.NR_NSA) return null
         val serving = arfcn?.nrServing.orEmpty()
-        val primary = sys?.nrArfcn ?: loc?.nrArfcn
+        val primary = primaryNrArfcn()
         val extra = serving.filter { it != primary }
         // Always shown in SA and NSA (only the note when there's no secondary),
         // so it doesn't pop in and out.
@@ -566,7 +568,7 @@ class SnapshotBuilder(
     private fun diagNrCarriers(): CarrierGroup? {
         val list = diag?.nr?.takeIf { it.isNotEmpty() } ?: return null
         val qmiPci = sys?.nrPci ?: loc?.nr?.pci
-        val qmiArfcn = sys?.nrArfcn ?: loc?.nrArfcn
+        val qmiArfcn = primaryNrArfcn()
         val primary = list.firstOrNull { it.pcell == true }
             ?: list.firstOrNull { it.pcell == null && it.pci == qmiPci && it.arfcn == qmiArfcn }
             ?: list.minBy { it.cc }
@@ -625,7 +627,7 @@ class SnapshotBuilder(
 
     /** The NR leg from QMI: the SCG's serving cell, then frequency-only NR SCells. */
     private fun qmiNrCarriers(): List<Carrier> {
-        val ch = sys?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull() ?: return emptyList()
+        val ch = primaryNrArfcn() ?: return emptyList()
         val band = rfFor(NasRadioIf.NR5G)
         val scg = Carrier(
             role = "SCG",
