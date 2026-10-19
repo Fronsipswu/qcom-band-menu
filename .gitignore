@@ -4,3 +4,7 @@
 *.txt
 *.bat
 *.sh
+**/.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
