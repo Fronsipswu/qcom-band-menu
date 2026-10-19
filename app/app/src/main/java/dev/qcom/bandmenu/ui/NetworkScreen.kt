@@ -603,11 +603,10 @@ private fun NetworkContent(
         Column(Modifier.scrollAnchor(anchor, groupKey)) { CarrierSection(g, title = !servingHidden) }
     }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
-    // DIAG only: QMI has no throughput. NR scale for NSA/SA, LTE scale otherwise (hidden on WCDMA).
+    // DIAG only: QMI has no throughput (hidden on WCDMA).
     if (state.diagEnabled && thput.isNotEmpty() && snap.mode != ServiceMode.WCDMA) {
-        val nr = snap.mode == ServiceMode.NR_NSA || snap.mode == ServiceMode.NR_SA
         Column(Modifier.scrollAnchor(anchor, "${p}thput")) {
-            ThroughputCard(thput, snap.takenAtElapsedMs, if (nr) listOf(100, 200, 400, 800) else listOf(50, 100, 200, 300))
+            ThroughputCard(thput, snap.takenAtElapsedMs)
         }
     }
     if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
