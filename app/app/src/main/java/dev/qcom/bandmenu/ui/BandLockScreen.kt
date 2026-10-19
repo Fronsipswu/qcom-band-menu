@@ -2,6 +2,8 @@ package dev.qcom.bandmenu.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onSizeChanged
@@ -374,10 +377,6 @@ fun BandLockScreen(
             }
 
             if (!(selectedSim == 1 && modemState?.sim2Available == false)) BandLockActionsFab(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp)
-                    .padding(bottom = floatingControlBottom(24.dp)),
                 onApply = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                     val s = slotStates[selectedSim]
@@ -422,86 +421,150 @@ fun BandLockScreen(
     }
 }
 
-/** The Reset action's light red (no red token in the miuix scheme). */
+/** The Reset action's light red and the Apply action's green (no red/green
+ *  tokens in the miuix scheme). */
 private val ResetRed = Color(0xFFEF5350)
+private val ApplyGreen = Color(0xFF43A047)
+
+private val FabSize = 56.dp
+private val FabMiniSize = 44.dp
+private val FabGap = 12.dp
+
+/**
+ * Immediate, long-press-safe press tracking for the band-lock buttons: the
+ * scale follows the raw pointer stream — shrink on touch-down, stay shrunk
+ * for the whole touch, restore on lift. Deliberately not clickable's own
+ * press state: that one cancels after the system long-press timeout, which
+ * made the button pop back while the finger was still down. Everything is
+ * remembered and driven without recomposition (the scale is only read inside
+ * graphicsLayer), so the tracker can never restart mid-gesture. Returns the
+ * animated scale and the tracking modifier.
+ */
+@Composable
+private fun rememberPressFeedback(): Pair<Animatable<Float, AnimationVector1D>, Modifier> {
+    val scale = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+    val tracker = remember {
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                scope.launch { scale.animateTo(0.88f, tween(durationMillis = 70)) }
+                do {
+                    val event = awaitPointerEvent()
+                } while (event.changes.any { it.pressed })
+                scope.launch { scale.animateTo(1f, tween(durationMillis = 90)) }
+            }
+        }
+    }
+    return scale to tracker
+}
 
 /**
  * The band-lock actions as one round button floating at the screen's bottom
  * right (as on KernelSU's modules page). Tapping it expands two smaller
  * circles above it — Reset, then Apply nearest the button — each labelled;
- * tapping an action runs it and collapses the group. The circles fade, scale
- * and slide in staggered, the one nearest the button first.
+ * they spawn from behind the button and jump up to their spots. Tapping an
+ * action runs it and collapses the group; a tap anywhere else closes it.
  */
 @Composable
 private fun BandLockActionsFab(
     onApply: () -> Unit,
-    onReset: () -> Unit,
-    modifier: Modifier = Modifier
+    onReset: () -> Unit
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     var expanded by remember { mutableStateOf(false) }
     // 0 = collapsed, 1 = expanded; the circles follow it with a per-index lag.
+    // The bounce (dampingRatio < 1) is the circles' jump.
     val progress = remember { Animatable(0f) }
     LaunchedEffect(expanded) {
         progress.animateTo(
             if (expanded) 1f else 0f,
-            spring(dampingRatio = 0.85f, stiffness = 350f)
+            spring(dampingRatio = 0.75f, stiffness = 350f)
         )
     }
 
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        BandLockActionCircle(
-            label = "Reset",
-            icon = MiuixIcons.Reset,
-            container = ResetRed,
-            content = Color.White,
-            expanded = expanded,
-            index = 1,
-            progress = progress,
-            onClick = {
-                expanded = false
-                onReset()
-            }
-        )
-        BandLockActionCircle(
-            label = "Apply",
-            icon = MiuixIcons.Ok,
-            container = MiuixTheme.colorScheme.primary,
-            content = MiuixTheme.colorScheme.onPrimary,
-            expanded = expanded,
-            index = 0,
-            progress = progress,
-            onClick = {
-                expanded = false
-                onApply()
-            }
-        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        // While open, the page behind dims slightly and a tap anywhere else
+        // closes the group. The dim fades with the group's progress; the
+        // tap-absorbing clickable is attached only while open (an always-on
+        // full-screen clickable consumes the touch the page's scrolling
+        // starts with, even disabled).
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(MiuixTheme.colorScheme.primary)
-                .clickable(
-                    interactionSource = null,
-                    indication = null
-                ) {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                    expanded = !expanded
-                },
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .graphicsLayer { alpha = progress.value.coerceIn(0f, 1f) }
+                .background(Color.Black.copy(alpha = 0.6f))
+                .then(
+                    if (expanded) {
+                        Modifier.clickable(
+                            interactionSource = null,
+                            indication = null
+                        ) {
+                            expanded = false
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp)
+                .padding(bottom = floatingControlBottom(24.dp)),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(FabGap)
         ) {
-            Crossfade(
-                targetState = expanded,
-                animationSpec = tween(150),
-                label = "BandLockFabIcon"
-            ) { open ->
+            BandLockActionCircle(
+                label = "Reset",
+                icon = MiuixIcons.Reset,
+                container = ResetRed,
+                content = Color.White,
+                expanded = expanded,
+                index = 1,
+                progress = progress,
+                onClick = {
+                    expanded = false
+                    onReset()
+                }
+            )
+            BandLockActionCircle(
+                label = "Apply",
+                icon = MiuixIcons.Ok,
+                container = ApplyGreen,
+                content = Color.White,
+                expanded = expanded,
+                index = 0,
+                progress = progress,
+                onClick = {
+                    expanded = false
+                    onApply()
+                }
+            )
+            val (mainPressScale, mainPressTracker) = rememberPressFeedback()
+            Box(
+                modifier = Modifier
+                    .size(FabSize)
+                    .graphicsLayer {
+                        val s = mainPressScale.value
+                        scaleX = s
+                        scaleY = s
+                    }
+                    .then(mainPressTracker)
+                    .background(MiuixTheme.colorScheme.primary, CircleShape)
+                    .clickable(
+                        interactionSource = null,
+                        indication = null,
+                        role = Role.Button
+                    ) {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                        expanded = !expanded
+                    },
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
-                    imageVector = if (open) MiuixIcons.Close else MiuixIcons.Tune,
-                    contentDescription = if (open) "Collapse actions" else "Band lock actions",
+                    imageVector = if (expanded) MiuixIcons.Close else MiuixIcons.Tune,
+                    contentDescription = if (expanded) "Collapse actions" else "Band lock actions",
                     tint = MiuixTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(26.dp)
                 )
@@ -523,28 +586,42 @@ private fun BandLockActionCircle(
     progress: Animatable<Float, AnimationVector1D>,
     onClick: () -> Unit
 ) {
+    val (pressScale, pressTracker) = rememberPressFeedback()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
-            // End padding shifts the 44 dp circle 6 dp left, so its centre
-            // sits on the 56 dp main button's axis (the Column is end-aligned).
-            .padding(end = 6.dp)
+            // End padding shifts the circle left by half the size difference,
+            // so its centre sits on the main button's axis (the Column is
+            // end-aligned).
+            .padding(end = (FabSize - FabMiniSize) / 2)
             .graphicsLayer {
                 val p = ((progress.value - index * 0.25f) / (1f - index * 0.25f)).coerceIn(0f, 1f)
                 alpha = p
-                val scale = 0.6f + 0.4f * p
+                // Spawn from behind the main button: start centred on it and
+                // jump up to the resting spot (the spring's overshoot is the
+                // jump). Each further index starts one slot higher.
+                translationY = (1f - p) * (FabSize / 2 + FabGap + FabMiniSize / 2 + (FabMiniSize + FabGap) * index).toPx()
+                val scale = (0.7f + 0.3f * p) * pressScale.value
                 scaleX = scale
                 scaleY = scale
-                translationY = (1f - p) * 12.dp.toPx()
-                transformOrigin = TransformOrigin(1f, 1f)   // grow from the FAB's corner
+                transformOrigin = TransformOrigin(1f, 1f)
             }
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                enabled = expanded,
-                role = Role.Button,
-                onClick = onClick
+            // Interactive only while expanded: the rows keep their layout
+            // place while collapsed (so the main button never shifts), but a
+            // disabled clickable would still take the touches the page's
+            // scrolling starts with.
+            .then(
+                if (expanded) {
+                    pressTracker.clickable(
+                        interactionSource = null,
+                        indication = null,
+                        role = Role.Button,
+                        onClick = onClick
+                    )
+                } else {
+                    Modifier
+                }
             )
     ) {
         Box(
@@ -557,7 +634,7 @@ private fun BandLockActionCircle(
         }
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(FabMiniSize)
                 .clip(CircleShape)
                 .background(container),
             contentAlignment = Alignment.Center
