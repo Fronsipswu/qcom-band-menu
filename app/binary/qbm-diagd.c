@@ -63,7 +63,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.19"
+#define HELPER_VERSION "1.22.20"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -417,6 +417,45 @@ static int held_value(struct held *h, double sum, long n, uint32_t arfcn, int pc
     return 0;
 }
 
+/* The combined RSRP code is based at -180 dB in some versions and -140 dB in
+ * others (40, 48, 57, 66 so far), while the per-chain codes are always
+ * -180-based. The combined value is never above the best chain and at most
+ * 17 dB below it (every capture); on the wrong base it would be 40 dB or more
+ * below. So a gap over RSRP_BASE_GAP votes for -140, a smaller one for -180,
+ * per version (the log version is the modem's, the same for both SIMs). Until
+ * a version has RSRP_BASE_VOTES votes, each record follows its own gap, and
+ * a record without valid chains the table's rsrp_add. */
+#define RSRP_BASE_GAP (28 * 16)
+#define RSRP_BASE_VOTES 8
+#define RSRP_VOTE_CAP 1000
+static int rsrp_base_votes[256];        /* > 0: -140 base, < 0: -180 */
+
+static int rsrp_code_valid(int code, int bits) { return code != 0 && code != (1 << bits) - 1 && code != 0x961; }
+
+static int b193_rsrp_add(const struct b193_layout *L, const uint8_t *r, int mask) {
+    int *votes = &rsrp_base_votes[L->ver];
+    int combined = L->rsrp.bits ? (int)at(r, L->rsrp) : 0;
+    int chain = -1, own = -1;
+    for (int i = 0; i < 4; i++) {
+        if (!(mask & (1 << i)) || !L->rsrp_ch[i].bits) continue;
+        int c = (int)at(r, L->rsrp_ch[i]);
+        if (rsrp_code_valid(c, L->rsrp_ch[i].bits) && c > chain) chain = c;
+    }
+    if (rsrp_code_valid(combined, L->rsrp.bits) && chain >= 0) {
+        int gap = chain - combined;
+        if (gap > RSRP_BASE_GAP) {
+            own = 640;
+            if (*votes < RSRP_VOTE_CAP) (*votes)++;
+        } else if (gap >= -32) {                        /* a combined value far above every chain votes for neither */
+            own = 0;
+            if (*votes > -RSRP_VOTE_CAP) (*votes)--;
+        }
+    }
+    if (*votes >= RSRP_BASE_VOTES) return 640;
+    if (*votes <= -RSRP_BASE_VOTES) return 0;
+    return own >= 0 ? own : L->rsrp_add;
+}
+
 static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t earfcn, struct meas *pk) {
     if (L->serving.bits && !at(r, L->serving)) return;  /* serving cell records only (older: one cell, serving) */
     int slot = at(r, L->slot);                          /* absent before CA: the PCell */
@@ -426,7 +465,7 @@ static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t ea
     struct meas m = { 0 };
     m.earfcn = earfcn;
     m.pci = (int)at(r, L->pci);
-    m.have_rsrp = best(r, mask, L->rsrp, L->rsrp_add, L->rsrp_ch, rsrp_db, &m.rsrp);
+    m.have_rsrp = best(r, mask, L->rsrp, b193_rsrp_add(L, r, mask), L->rsrp_ch, rsrp_db, &m.rsrp);
     m.have_rsrq = best(r, mask, L->rsrq, 0, L->rsrq_ch, rsrq_db, &m.rsrq);
     for (int i = 0; i < 4; i++) {
         if (!(mask & (1 << i)) || !L->snr_ch[i].bits) continue;
