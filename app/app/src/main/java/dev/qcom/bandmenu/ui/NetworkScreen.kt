@@ -103,6 +103,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableIntStateOf
 import dev.qcom.bandmenu.network.TrafficTest
+import dev.qcom.bandmenu.network.RadioReference
+import android.telephony.SubscriptionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -197,11 +199,14 @@ fun NetworkScreen(
     var pendingExport by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingReportId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingJson by rememberSaveable { mutableStateOf(true) }
+    var pendingSummary by rememberSaveable { mutableStateOf(false) }
+    var preparingSummary by remember { mutableStateOf(false) }
     var exportPickerLaunched by rememberSaveable { mutableStateOf(false) }
     fun finishExport(uri: Uri?) {
         val name = pendingExport ?: return
         pendingExport = null
         pendingReportId = null
+        pendingSummary = false
         exportPickerLaunched = false
         val appContext = context.applicationContext
         reportExportScope.launch {
@@ -227,12 +232,14 @@ fun NetworkScreen(
     LaunchedEffect(pendingExport, testReports.isNotEmpty()) {
         val name = pendingExport ?: return@LaunchedEffect
         if (exportPickerLaunched) return@LaunchedEffect
-        val report = testReports.firstOrNull { it.id == pendingReportId } ?: return@LaunchedEffect
-        val prepared = withContext(Dispatchers.IO) {
-            runCatching { File(context.cacheDir, name).writeText(if (pendingJson) report.toJson().toString(2) else report.toCsv()) }
-        }
+        val report = testReports.firstOrNull { it.id == pendingReportId }
+        if (!pendingSummary && report == null) return@LaunchedEffect
+        val prepared = withContext(Dispatchers.IO) { runCatching {
+            if (pendingSummary) check(File(context.cacheDir, name).isFile) { "Prepared campaign summary is unavailable" }
+            else File(context.cacheDir, name).writeText(if (pendingJson) report!!.toJson().toString(2) else report!!.toCsv())
+        } }
         if (prepared.isSuccess) {
-            val filename = "data-test-${report.startedAtMs}.${if (pendingJson) "json" else "csv"}"
+            val filename = "${if (pendingSummary) "mic-campaign" else "data-test-${report!!.startedAtMs}"}.${if (pendingJson) "json" else "csv"}"
             exportPickerLaunched = true
             try {
                 if (pendingJson) exportJson.launch(filename) else exportCsv.launch(filename)
@@ -508,7 +515,14 @@ fun NetworkScreen(
         IconButton(
             onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                if (testRun.running) test.stop() else if (!test.start()) {
+                if (testRun.running) test.stop() else if (!test.start {
+                    val slot = SubscriptionManager.getSlotIndex(SubscriptionManager.getDefaultDataSubscriptionId()) + 1
+                    val live = monitor.state.value
+                    val snap = if (slot == live.sim) live.snapshot else live.lastBySim[slot]?.snapshot
+                    if (slot !in 1..2 || snap == null || android.os.SystemClock.elapsedRealtime() - snap.takenAtElapsedMs !in 0..5000) null
+                    else RadioReference(snap.mode.label, snap.cells.flatMap { it.metrics }.filter { it.value != null || it.text != null }
+                        .joinToString("; ") { "${it.rat} ${it.label} ${it.text ?: it.value} ${it.unit}" }, snap.takenAtElapsedMs, slot)
+                }) {
                     showTestSetup = true
                     test.run.value.error?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
                 }
@@ -525,6 +539,7 @@ fun NetworkScreen(
             show = showTestSetup,
             config = testConfig,
             running = testRun.running,
+            onRegimeSelect = { test.selectRegime(it) },
             onSelect = { test.select(it) },
             onDismiss = { showTestSetup = false },
             onSave = { test.save(it); showTestSetup = false }
@@ -534,11 +549,30 @@ fun NetworkScreen(
             reports = testReports,
             onDismiss = { showTestResults = false },
             onExport = { report, json ->
-                if (pendingExport == null) {
+                if (pendingExport == null && !preparingSummary) {
                     pendingReportId = report.id
                     pendingJson = json
+                    pendingSummary = false
                     exportPickerLaunched = false
                     pendingExport = "test-export-${UUID.randomUUID()}.tmp"
+                }
+            },
+            onExportSummary = { content, json ->
+                if (pendingExport == null && !preparingSummary) {
+                    preparingSummary = true
+                    val name = "test-export-${UUID.randomUUID()}.tmp"
+                    replayScope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { File(context.cacheDir, name).writeText(content) }
+                            pendingReportId = null
+                            pendingJson = json
+                            pendingSummary = true
+                            exportPickerLaunched = false
+                            pendingExport = name
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: Exception) { Toast.makeText(context, "Could not prepare campaign export: ${e.message}", Toast.LENGTH_LONG).show() }
+                        finally { preparingSummary = false }
+                    }
                 }
             }
         )

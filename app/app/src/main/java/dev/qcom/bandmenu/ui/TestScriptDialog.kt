@@ -28,8 +28,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.qcom.bandmenu.network.DataTestConfig
 import dev.qcom.bandmenu.network.DataTestKind
+import dev.qcom.bandmenu.network.MicArea
 import dev.qcom.bandmenu.network.NbtcProfile
 import dev.qcom.bandmenu.network.SamplingArea
+import dev.qcom.bandmenu.network.TestRegime
 import java.util.Locale
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -47,15 +49,20 @@ fun TestScriptDialog(
     onDismiss: () -> Unit,
     onSave: (DataTestConfig) -> Unit,
     onSelect: (DataTestKind) -> Unit,
+    onRegimeSelect: (TestRegime) -> Unit,
     running: Boolean
 ) {
-    var draft by remember(show, config) { mutableStateOf(config.copy(custom = config.custom || !config.kind.nbtc)) }
+    var draft by remember(show, config) { mutableStateOf(config) }
     var numbers by remember(show, config) {
         mutableStateOf(mapOf(
             "repetitions" to config.repetitions.toString(), "interval" to config.intervalSeconds.toString(),
             "timeout" to config.timeoutSeconds.toString(), "port" to config.port.toString(),
             "bytes" to config.transferBytes.toString(), "payload" to config.pingPayloadBytes.toString(),
-            "height" to config.videoHeight.toString(), "videoSeconds" to config.videoMinimumSeconds.toString()
+            "height" to config.videoHeight.toString(), "videoSeconds" to config.videoMinimumSeconds.toString(),
+            "connections" to config.parallelConnections.toString(), "warmupSeconds" to config.warmupSeconds.toString(),
+            "warmupBytes" to config.warmupBytes.toString(), "measureSeconds" to config.measureSeconds.toString(),
+            "measureBytes" to config.measureBytes.toString(), "udpCount" to config.udpCount.toString(),
+            "udpInterval" to config.udpIntervalMs.toString(), "udpTimeout" to config.udpTimeoutMs.toString()
         ))
     }
     var showErrors by remember(show, config) { mutableStateOf(false) }
@@ -69,16 +76,44 @@ fun TestScriptDialog(
         transferBytes = number("bytes").toLongOrNull() ?: -1,
         pingPayloadBytes = number("payload").toIntOrNull() ?: -1,
         videoHeight = number("height").toIntOrNull() ?: -1,
-        videoMinimumSeconds = number("videoSeconds").toIntOrNull() ?: -1
+        videoMinimumSeconds = number("videoSeconds").toIntOrNull() ?: -1,
+        parallelConnections = number("connections").toIntOrNull() ?: -1,
+        warmupSeconds = number("warmupSeconds").toIntOrNull() ?: -1,
+        warmupBytes = number("warmupBytes").toLongOrNull() ?: -1,
+        measureSeconds = number("measureSeconds").toIntOrNull() ?: -1,
+        measureBytes = number("measureBytes").toLongOrNull() ?: -1,
+        udpCount = number("udpCount").toIntOrNull() ?: -1,
+        udpIntervalMs = number("udpInterval").toIntOrNull() ?: -1,
+        udpTimeoutMs = number("udpTimeout").toIntOrNull() ?: -1
     )
     val errors = candidate.validationErrors()
     val transfer = draft.kind in listOf(DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD,
         DataTestKind.WEB_PAGE, DataTestKind.HTTP_DOWNLOAD, DataTestKind.HTTP_UPLOAD)
+    val parallel = draft.kind in listOf(DataTestKind.MIC_POINT, DataTestKind.PARALLEL_DOWNLOAD, DataTestKind.PARALLEL_UPLOAD)
+    val udp = draft.kind in listOf(DataTestKind.MIC_POINT, DataTestKind.UDP_LATENCY)
+    val kinds = DataTestKind.entries.filter { kind -> when (candidate.effectiveRegime) {
+        TestRegime.NBTC -> kind.nbtc
+        TestRegime.MIC -> kind.mic
+        TestRegime.CUSTOM -> true
+    } }
 
     WindowDialog(show = show, title = "Test script", onDismissRequest = onDismiss) {
         Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SetupHint("Choose a test function. Each function keeps its own saved settings.")
-            DataTestKind.entries.chunked(2).forEach { row ->
+            SetupLabel("Measurement profile")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TestRegime.entries.forEach { regime ->
+                    ChoiceButton(regime.name, candidate.effectiveRegime == regime, !running, Modifier.weight(1f)) {
+                        if (candidate.effectiveRegime != regime) onRegimeSelect(regime)
+                    }
+                }
+            }
+            SetupHint(when (candidate.effectiveRegime) {
+                TestRegime.NBTC -> "Thailand: NBTC data measurements and numerical session targets."
+                TestRegime.MIC -> "Japan: MIC reference methods and point statistics. No minimum-speed pass/fail target."
+                TestRegime.CUSTOM -> "Editable diagnostic measurements without an NBTC or MIC assessment."
+            })
+            SetupHint("Choose a function. Each profile and function keeps its own saved settings.")
+            kinds.chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { kind ->
                         ChoiceButton(kind.title, draft.kind == kind, !running, Modifier.weight(1f)) {
@@ -89,22 +124,6 @@ fun TestScriptDialog(
                 }
             }
             if (running) SetupHint("Stop the active test before changing its configuration.")
-            if (draft.kind.nbtc) {
-                SetupLabel("Measurement settings")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ChoiceButton("NBTC preset", !draft.custom, !running, Modifier.weight(1f)) { draft = draft.copy(custom = false) }
-                    ChoiceButton("Custom", draft.custom, !running, Modifier.weight(1f)) {
-                        if (!draft.custom) {
-                            numbers = numbers + mapOf(
-                                "timeout" to candidate.effectiveTimeoutSeconds.toString(), "bytes" to candidate.effectiveTransferBytes.toString(),
-                                "payload" to candidate.effectivePingPayloadBytes.toString(), "height" to candidate.effectiveVideoHeight.toString(),
-                                "videoSeconds" to candidate.effectiveVideoMinimumSeconds.toString()
-                            )
-                            draft = draft.copy(custom = true)
-                        }
-                    }
-                }
-            }
             if (candidate.isNbtc) {
                 SetupLabel("Declared radio technology")
                 NbtcProfile.entries.chunked(2).forEach { row ->
@@ -117,7 +136,14 @@ fun TestScriptDialog(
                 SetupHint("Select the technology and band used by the modem. This selection does not change its radio settings.")
                 if (draft.profile == NbtcProfile.UMTS) SetupHint("3G is exempt where the operator provides a higher technology in the prescribed area.")
                 SetupHint(presetDescription(candidate))
-            } else SetupHint("Custom parameters produce diagnostic results without an NBTC target assessment.")
+            }
+            if (candidate.isMic) {
+                SetupHint("Independent implementation of the published method; this app does not replace the designated MIC software, server admission or campaign process.")
+                if (draft.kind == DataTestKind.MIC_POINT) SetupHint("Three trials at one stationary outdoor point. Each trial runs download, upload, then UDP. Point means require all three speed values.")
+                else SetupHint("Three trials of the selected component. Use Point sequence for a complete DL + UL + UDP point record.")
+                if (parallel) SetupHint("3 concurrent HTTP connections per direction. Warm-up ends at 5 s or more than 2.5 MB; each measured stream ends at 20 MB or 20 s. Rates are summed.")
+                if (udp) SetupHint("UDP: 60 probes, 16-byte payload, 500 ms cadence and 2,000 ms reply deadline. Late replies count as lost.")
+            }
 
             when (draft.kind) {
                 DataTestKind.PING -> {
@@ -159,13 +185,52 @@ fun TestScriptDialog(
                     }
                     SetupHint("Keep the player visible and verify its actual resolution during the test. Avoid concurrent traffic.")
                 }
+                DataTestKind.MIC_POINT, DataTestKind.PARALLEL_DOWNLOAD, DataTestKind.PARALLEL_UPLOAD, DataTestKind.UDP_LATENCY -> {
+                    if (draft.kind in listOf(DataTestKind.MIC_POINT, DataTestKind.PARALLEL_DOWNLOAD)) {
+                        SetupTextField("HTTP download object URL", draft.url, !running, KeyboardType.Uri) {
+                            draft = draft.copy(url = it.trim(), referenceServerConfirmed = false)
+                        }
+                        SetupHint(if (candidate.isMic) "Use an uncached 100,000,000-byte object with that exact Content-Length. Each connection measures only its configured window."
+                            else "Use an uncached object large enough for the warm-up and measurement windows.")
+                    }
+                    if (draft.kind in listOf(DataTestKind.MIC_POINT, DataTestKind.PARALLEL_UPLOAD)) {
+                        SetupTextField("HTTP POST upload endpoint URL", draft.uploadUrl, !running, KeyboardType.Uri) {
+                            draft = draft.copy(uploadUrl = it.trim(), referenceServerConfirmed = false)
+                        }
+                        SetupHint("The endpoint must accept streaming binary POST bodies and acknowledge completion. Public website forms are unsuitable.")
+                    }
+                    if (udp) {
+                        SetupTextField("UDP echo host or IP address", draft.host, !running, KeyboardType.Uri) {
+                            draft = draft.copy(host = it.trim(), referenceServerConfirmed = false)
+                        }
+                        SetupNumberField("UDP echo port", number("port"), !running) {
+                            setNumber("port", it)
+                            draft = draft.copy(referenceServerConfirmed = false)
+                        }
+                        SetupHint("Use a cooperating endpoint that echoes the exact 16-byte payload.")
+                    }
+                    if (!candidate.isMic && parallel) {
+                        SetupNumberField("Parallel connections", number("connections"), !running) { setNumber("connections", it) }
+                        SetupNumberField("Warm-up time limit (seconds)", number("warmupSeconds"), !running) { setNumber("warmupSeconds", it) }
+                        SetupNumberField("Warm-up payload threshold (bytes)", number("warmupBytes"), !running) { setNumber("warmupBytes", it) }
+                        SetupNumberField("Measured time limit per connection (seconds)", number("measureSeconds"), !running) { setNumber("measureSeconds", it) }
+                        SetupNumberField("Measured payload limit per connection (bytes)", number("measureBytes"), !running) { setNumber("measureBytes", it) }
+                    }
+                    if (!candidate.isMic && udp) {
+                        SetupNumberField("UDP probe count", number("udpCount"), !running) { setNumber("udpCount", it) }
+                        SetupNumberField("UDP probe interval (milliseconds)", number("udpInterval"), !running) { setNumber("udpInterval", it) }
+                        SetupNumberField("UDP reply deadline (milliseconds)", number("udpTimeout"), !running) { setNumber("udpTimeout", it) }
+                    }
+                }
             }
             if (transfer) {
                 if (candidate.isNbtc) SetupHint("Expected complete content: ${candidate.effectiveTransferBytes} bytes (${dataVolume(candidate.effectiveTransferBytes)}).")
                 else SetupNumberField(if (draft.kind == DataTestKind.WEB_PAGE) "Expected complete webpage size (bytes)" else "Transfer / expected resource size (bytes)", number("bytes"), !running) { setNumber("bytes", it) }
             }
-            if (!candidate.isNbtc || draft.kind == DataTestKind.PING) {
-                SetupNumberField("Timeout per attempt (seconds)", number("timeout"), !running) { setNumber("timeout", it) }
+            if (draft.kind == DataTestKind.UDP_LATENCY) {
+                SetupHint("UDP batch budget includes the sending interval and final reply deadlines.")
+            } else if (!candidate.isNbtc || draft.kind == DataTestKind.PING) {
+                SetupNumberField(if (parallel) "HTTP phase timeout including setup (seconds)" else "Timeout per attempt (seconds)", number("timeout"), !running) { setNumber("timeout", it) }
             } else SetupHint("Preset timeout: ${candidate.effectiveTimeoutSeconds} seconds per attempt.")
 
             if (candidate.isNbtc) {
@@ -185,13 +250,34 @@ fun TestScriptDialog(
                 }, enabled = !running, modifier = Modifier.fillMaxWidth())
                 SetupHint("Campaign hours: Mon-Fri, 08:00-20:00 Thailand time. Geographic coverage must be checked separately.")
             }
-            SetupNumberField("Repetitions", number("repetitions"), !running) { setNumber("repetitions", it) }
+            if (candidate.isMic) {
+                SetupLabel("District / measurement window")
+                MicArea.entries.forEach { area ->
+                    ChoiceButton("${area.title}: ${area.startHour}:00-${area.endHour}:00 JST", draft.micArea == area,
+                        !running, Modifier.fillMaxWidth()) { draft = draft.copy(micArea = area) }
+                }
+                ConfirmationRow("I am measuring outdoors at one stationary point.", draft.stationaryConfirmed, !running) {
+                    draft = draft.copy(stationaryConfirmed = it)
+                }
+                ConfirmationRow("The shared Japan IX server, sufficient bandwidth and server admission arrangements have been verified.",
+                    draft.referenceServerConfirmed, !running) { draft = draft.copy(referenceServerConfirmed = it) }
+                SetupHint("These declarations are recorded with results. The app cannot independently verify placement or server admission.")
+                SetupLabel("Repetitions: 3 per point")
+            } else SetupNumberField("Repetitions", number("repetitions"), !running) { setNumber("repetitions", it) }
             SetupNumberField("Idle interval between attempts (seconds)", number("interval"), !running) { setNumber("interval", it) }
-            if (transfer && candidate.repetitions in 1..10000 && candidate.effectiveTransferBytes in 1..2_000_000_000L) {
-                SetupLabel("Planned payload: ${dataVolume(candidate.expectedTransferBytes)} across ${candidate.repetitions} attempts")
+            if ((transfer || parallel) && errors.isEmpty() && candidate.expectedTransferBytes > 0) {
+                SetupLabel("Planned payload: ${dataVolume(candidate.expectedTransferBytes)} across ${candidate.effectiveRepetitions} trials")
                 SetupHint("Network overhead and failed traffic add to this amount.")
             }
-            SetupTextField("Operator (optional)", draft.operator, !running) { draft = draft.copy(operator = it) }
+            if (draft.kind.mic) {
+                SetupTextField(if (candidate.isMic) "Campaign ID" else "Campaign ID (optional)", draft.campaignId, !running) { draft = draft.copy(campaignId = it.trim()) }
+                SetupTextField(if (candidate.isMic) "Point ID" else "Point ID (optional)", draft.pointId, !running) { draft = draft.copy(pointId = it.trim()) }
+                SetupTextField(if (candidate.isMic) "Declared radio technology" else "Declared radio technology (optional)", draft.declaredTechnology, !running) {
+                    draft = draft.copy(declaredTechnology = it.trim())
+                }
+                SetupHint("Use a unique point ID for each physical location. Keep campaign IDs consistent only for comparable measurements.")
+            }
+            SetupTextField(if (candidate.isMic) "Operator" else "Operator (optional)", draft.operator, !running) { draft = draft.copy(operator = it) }
             SetupTextField("Site / route label (optional)", draft.locationLabel, !running) { draft = draft.copy(locationLabel = it) }
             SetupTextField("Session label (optional)", draft.sessionLabel, !running) { draft = draft.copy(sessionLabel = it) }
             if (showErrors) errors.forEach { SetupHint(it) }

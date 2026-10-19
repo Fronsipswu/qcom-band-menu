@@ -21,6 +21,7 @@ import dev.qcom.bandmenu.network.AttemptOutcome
 import dev.qcom.bandmenu.network.DataTestAttempt
 import dev.qcom.bandmenu.network.DataTestKind
 import dev.qcom.bandmenu.network.DataTestReport
+import dev.qcom.bandmenu.network.MicTransferResult
 import dev.qcom.bandmenu.network.assess
 import dev.qcom.bandmenu.network.displayValue
 import java.time.Instant
@@ -38,7 +39,8 @@ fun DataTestResultsDialog(
     show: Boolean,
     reports: List<DataTestReport>,
     onDismiss: () -> Unit,
-    onExport: (DataTestReport, Boolean) -> Unit
+    onExport: (DataTestReport, Boolean) -> Unit,
+    onExportSummary: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     val ordered = remember(reports) { reports.sortedByDescending { it.startedAtMs } }
     var selectedId by remember(show) { mutableStateOf(ordered.firstOrNull()?.id) }
@@ -61,17 +63,29 @@ fun DataTestResultsDialog(
                     ResultHint("Session ${index + 1} of ${ordered.size}")
                 }
                 Text(report.config.kind.title, style = MiuixTheme.textStyles.body1)
-                Text(if (report.config.isNbtc) "NBTC preset: ${report.config.profile.title}" else "Custom configuration",
+                Text(when {
+                    report.config.isNbtc -> "NBTC preset: ${report.config.profile.title}"
+                    report.config.isMic -> "MIC Japan: independent method measurements"
+                    else -> "Custom configuration"
+                },
                     style = MiuixTheme.textStyles.body2)
-                ResultHint("Started: ${reportTime(report.startedAtMs)}")
-                ResultHint(report.endedAtMs?.let { "Ended: ${reportTime(it)}" } ?: "Session in progress")
+                ResultHint("Started: ${reportTime(report.startedAtMs, report.config.isMic)}")
+                ResultHint(report.endedAtMs?.let { "Ended: ${reportTime(it, report.config.isMic)}" } ?: "Session in progress")
                 if (report.config.sessionLabel.isNotBlank()) ResultHint("Label: ${report.config.sessionLabel}")
                 if (report.config.operator.isNotBlank()) ResultHint("Operator: ${report.config.operator}")
                 if (report.config.locationLabel.isNotBlank()) ResultHint("Location: ${report.config.locationLabel}")
+                if (report.config.campaignId.isNotBlank()) ResultHint("Campaign: ${report.config.campaignId}")
+                if (report.config.pointId.isNotBlank()) ResultHint("Point: ${report.config.pointId}")
+                if (report.config.kind.mic) ResultHint("Declared technology: ${report.config.declaredTechnology}")
+                if (report.config.isMic) ResultHint("${report.config.micArea.title}: ${report.config.micArea.startHour}:00-${report.config.micArea.endHour}:00 JST")
                 ResultHint("Network: ${report.network.ifBlank { "Not recorded" }}")
                 if (report.environment.isNotBlank()) ResultHint(report.environment)
                 SelectionContainer { ResultHint("Endpoint: ${reportEndpoint(report)}") }
-                ResultHint("${report.config.repetitions} requested attempts; ${report.config.effectiveTimeoutSeconds} s timeout; ${report.config.intervalSeconds} s idle interval")
+                ResultHint("${report.config.effectiveRepetitions} requested trials; ${report.config.effectiveTimeoutSeconds} s trial budget; ${report.config.intervalSeconds} s idle interval")
+                if (report.config.kind.mic && report.config.kind != DataTestKind.UDP_LATENCY) {
+                    ResultHint("${report.config.effectiveParallelConnections} connections; warm-up ${report.config.effectiveWarmupSeconds} s or more than ${report.config.effectiveWarmupBytes} bytes; " +
+                        "measured limit ${report.config.effectiveMeasureSeconds} s or ${report.config.effectiveMeasureBytes} bytes per stream")
+                }
                 Text("${report.attempts.size} recorded attempts", style = MiuixTheme.textStyles.body2)
                 val counts = report.attempts.groupingBy { it.outcome }.eachCount()
                 ResultHint("Success ${counts[AttemptOutcome.SUCCESS] ?: 0}  |  Failed ${counts[AttemptOutcome.FAILED] ?: 0}\n" +
@@ -92,6 +106,11 @@ fun DataTestResultsDialog(
                         if (report.config.isNbtc && metric.target.isNotBlank()) ResultHint("Target ${metric.target}")
                         ResultHint(metric.status)
                     }
+                }
+                if (report.config.isMic && report.config.kind == DataTestKind.MIC_POINT) {
+                    MicCampaignSummary(reports = reports, selected = report, onExport = onExportSummary)
+                } else if (report.config.isMic) {
+                    ResultHint("This is a component session. Campaign point distributions use complete Point sequence records.")
                 }
                 Text("Measurement context", style = MiuixTheme.textStyles.body1)
                 report.limitations().forEach { ResultHint(it) }
@@ -116,8 +135,27 @@ fun DataTestResultsDialog(
                         SelectionContainer {
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("#${attempt.number} ${attempt.outcome.name}", style = MiuixTheme.textStyles.body2)
-                                ResultHint(reportTime(attempt.startedAtMs))
+                                ResultHint(reportTime(attempt.startedAtMs, report.config.isMic))
                                 ResultHint(attemptDetails(attempt))
+                                attempt.radio?.let { radio ->
+                                    val age = attempt.elapsedRealtimeMs - radio.observedAtElapsedMs
+                                    ResultHint("Radio: ${radio.technology}; ${radio.signal.ifBlank { "signal unavailable" }}; SIM slot ${radio.simSlot}; " +
+                                        if (age >= 0) "snapshot age ${age} ms" else "snapshot time unavailable")
+                                }
+                                if (report.config.kind.mic && attempt.radio == null) ResultHint("Measured radio reference unavailable for this trial.")
+                                attempt.measurement.mic?.let { mic ->
+                                    mic.download?.let { TransferEvidence("Download", it) }
+                                    mic.upload?.let { TransferEvidence("Upload", it) }
+                                    mic.udp?.let { udp ->
+                                        ResultHint("UDP: ${udp.sent} sent, ${udp.received} received, ${udp.lost} lost; " +
+                                            "loss ${valueWithUnit(udp.lossPercent, "%")}; mean RTT ${valueWithUnit(udp.averageRttMs, "ms")}")
+                                        if (udp.rttsMs.isNotEmpty()) {
+                                            ResultHint("RTT min ${valueWithUnit(udp.rttsMs.minOrNull(), "ms")}; max ${valueWithUnit(udp.rttsMs.maxOrNull(), "ms")}")
+                                            ResultHint("Received RTTs (ms): " + udp.rttsMs.joinToString(", ") { String.format(Locale.US, "%.2f", it) })
+                                        }
+                                        udp.error?.let { ResultHint("UDP error: $it") }
+                                    }
+                                }
                                 attempt.measurement.error?.let { ResultHint(it) }
                                 attempt.measurement.detail?.let { ResultHint(it) }
                             }
@@ -136,6 +174,9 @@ private fun reportEndpoint(report: DataTestReport): String = with(report.config)
         DataTestKind.PING -> host
         DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD -> "$host:$port$path"
         DataTestKind.STREAMING -> "https://www.youtube.com/watch?v=$videoId"
+        DataTestKind.MIC_POINT -> "Download $url\nUpload $uploadUrl\nUDP $host:$port"
+        DataTestKind.PARALLEL_UPLOAD -> uploadUrl
+        DataTestKind.UDP_LATENCY -> "$host:$port"
         else -> url
     }
 }
@@ -153,11 +194,28 @@ private fun attemptDetails(attempt: DataTestAttempt): String = with(attempt.meas
         observedQuality?.let { add("Quality $it") }
         if (playbackDurationMs > 0 || freezeDurationMs > 0) add("Playing ${playbackDurationMs} ms; frozen ${freezeDurationMs} ms")
         if (!contentVerified) add("Content / quality unverified")
+        if (!measurementAvailable) add("Instrument measurement unavailable")
     }.joinToString(" | ")
 }
 
-private fun reportTime(ms: Long): String = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z", Locale.US)
-    .withZone(ZoneId.of("Asia/Bangkok")).format(Instant.ofEpochMilli(ms))
+private fun reportTime(ms: Long, mic: Boolean): String = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z", Locale.US)
+    .withZone(ZoneId.of(if (mic) "Asia/Tokyo" else "Asia/Bangkok")).format(Instant.ofEpochMilli(ms))
+
+@Composable
+private fun TransferEvidence(label: String, transfer: MicTransferResult) {
+    ResultHint("$label: ${valueWithUnit(transfer.aggregateMbps, "Mbps")}; ${transfer.streams.size}/${transfer.expectedStreams} streams recorded")
+    transfer.streams.forEach { stream ->
+        ResultHint("Stream ${stream.index}: ${valueWithUnit(stream.rateMbps, "Mbps")}; " +
+            "warm-up ${stream.warmupBytes} bytes / ${valueWithUnit(stream.warmupMs, "ms")}; " +
+            "measured ${stream.bytes} bytes / ${valueWithUnit(stream.durationMs, "ms")}")
+        if (stream.stopReason.isNotBlank()) ResultHint("Stream ${stream.index} stopped: ${stream.stopReason}")
+        stream.httpStatus?.let { ResultHint("Stream ${stream.index}: HTTP $it") }
+        stream.error?.let { ResultHint("Stream ${stream.index} error: $it") }
+    }
+    transfer.error?.let { ResultHint("$label error: $it") }
+}
+
+private fun valueWithUnit(value: Double?, unit: String): String = value?.let { String.format(Locale.US, "%.3f %s", it, unit) } ?: "N/A"
 
 @Composable
 private fun ResultHint(text: String) {

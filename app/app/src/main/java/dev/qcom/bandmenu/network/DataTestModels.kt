@@ -7,10 +7,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 
-enum class DataTestKind(val title: String, val nbtc: Boolean = true) {
+enum class DataTestKind(val title: String, val nbtc: Boolean = true, val mic: Boolean = false) {
     PING("ICMP latency"), FTP_DOWNLOAD("FTP download"), FTP_UPLOAD("FTP upload"),
     WEB_PAGE("Webpage loading"), STREAMING("YouTube streaming"),
-    HTTP_DOWNLOAD("HTTP download", false), HTTP_UPLOAD("HTTP upload", false)
+    HTTP_DOWNLOAD("HTTP download", false), HTTP_UPLOAD("HTTP upload", false),
+    MIC_POINT("Point sequence: DL + UL + UDP", false, true),
+    PARALLEL_DOWNLOAD("Parallel HTTP download", false, true), PARALLEL_UPLOAD("Parallel HTTP upload", false, true),
+    UDP_LATENCY("UDP latency / loss", false, true)
 }
 
 /** Explicit declared radio profile; selecting this never changes the modem's RAT/bands. */
@@ -64,15 +67,48 @@ data class DataTestConfig(
     val locationLabel: String = "",
     val sessionLabel: String = "",
     /** Operator confirms that this is the supplied NBTC server/content, not a public speedtest. */
-    val referenceServerConfirmed: Boolean = false
+    val referenceServerConfirmed: Boolean = false,
+    val regime: TestRegime = TestRegime.NBTC,
+    val uploadUrl: String = "",
+    val parallelConnections: Int = 3,
+    val warmupSeconds: Int = 5,
+    val warmupBytes: Long = 2_500_000,
+    val measureSeconds: Int = 20,
+    val measureBytes: Long = 20_000_000,
+    val udpCount: Int = 60,
+    val udpIntervalMs: Int = 500,
+    val udpTimeoutMs: Int = 2000,
+    val micArea: MicArea = MicArea.BUSINESS,
+    val campaignId: String = "",
+    val pointId: String = "",
+    val declaredTechnology: String = "LTE",
+    val stationaryConfirmed: Boolean = false
 ) {
-    val isNbtc get() = kind.nbtc && !custom
-    val upload get() = kind == DataTestKind.FTP_UPLOAD || kind == DataTestKind.HTTP_UPLOAD
-    val effectiveTimeoutSeconds get() = if (!isNbtc) timeoutSeconds else when (kind) {
+    // Preserve old callers/reports that used the custom flag and had no regulator field.
+    val effectiveRegime get() = if (custom || (regime == TestRegime.NBTC && !kind.nbtc)) TestRegime.CUSTOM else regime
+    val isNbtc get() = effectiveRegime == TestRegime.NBTC && kind.nbtc
+    val isMic get() = effectiveRegime == TestRegime.MIC && kind.mic
+    val upload get() = kind in listOf(DataTestKind.FTP_UPLOAD, DataTestKind.HTTP_UPLOAD, DataTestKind.PARALLEL_UPLOAD)
+    val effectiveRepetitions get() = if (isMic) 3 else repetitions
+    val effectiveParallelConnections get() = if (isMic) 3 else parallelConnections
+    val effectiveWarmupSeconds get() = if (isMic) 5 else warmupSeconds
+    val effectiveWarmupBytes get() = if (isMic) 2_500_000L else warmupBytes
+    val effectiveMeasureSeconds get() = if (isMic) 20 else measureSeconds
+    val effectiveMeasureBytes get() = if (isMic) 20_000_000L else measureBytes
+    val effectiveUdpCount get() = if (isMic) 60 else udpCount
+    val effectiveUdpIntervalMs get() = if (isMic) 500 else udpIntervalMs
+    val effectiveUdpTimeoutMs get() = if (isMic) 2000 else udpTimeoutMs
+    val udpBudgetSeconds get() = ((effectiveUdpCount - 1L) * effectiveUdpIntervalMs + effectiveUdpTimeoutMs + 999) / 1000 + 5
+    val effectiveTimeoutSeconds get() = when {
+        kind == DataTestKind.MIC_POINT -> (2L * timeoutSeconds + udpBudgetSeconds + 10).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        kind == DataTestKind.UDP_LATENCY -> udpBudgetSeconds.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        !isNbtc -> timeoutSeconds
+        else -> when (kind) {
         DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD -> 600
         DataTestKind.WEB_PAGE -> profile.webTimeoutSeconds
         DataTestKind.STREAMING -> 300
         else -> timeoutSeconds // ICMP timeout is an instrument setting, not the RTT target.
+        }
     }
     val effectiveTransferBytes get() = if (!isNbtc) transferBytes else when (kind) {
         DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD -> profile.fileBytes(upload)
@@ -82,17 +118,21 @@ data class DataTestConfig(
     val effectivePingPayloadBytes get() = if (isNbtc) 32 else pingPayloadBytes
     val effectiveVideoHeight get() = if (isNbtc) profile.videoHeight else videoHeight
     val effectiveVideoMinimumSeconds get() = if (isNbtc) 180 else videoMinimumSeconds
-    val minimumSamples get() = if (kind == DataTestKind.STREAMING) 100 else area.samples
+    val minimumSamples get() = if (isMic) 3 else if (kind == DataTestKind.STREAMING) 100 else area.samples
     val expectedTransferBytes get() = when (kind) {
         DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD, DataTestKind.HTTP_UPLOAD,
         DataTestKind.HTTP_DOWNLOAD, DataTestKind.WEB_PAGE -> effectiveTransferBytes * repetitions
+        DataTestKind.PARALLEL_DOWNLOAD, DataTestKind.PARALLEL_UPLOAD, DataTestKind.MIC_POINT ->
+            (effectiveWarmupBytes + 1 + effectiveMeasureBytes) * effectiveParallelConnections * effectiveRepetitions *
+                (if (kind == DataTestKind.MIC_POINT) 2 else 1)
         else -> 0L
     }
 
     fun validationErrors(): List<String> = buildList {
         if (repetitions !in 1..10000) add("Repetitions must be 1–10,000.")
         if (intervalSeconds !in 0..3600) add("Interval must be 0–3,600 seconds.")
-        if (effectiveTimeoutSeconds !in 1..3600) add("Timeout must be 1–3,600 seconds.")
+        if (timeoutSeconds !in 1..3600) add("Timeout must be 1–3,600 seconds.")
+        if (effectiveRegime == TestRegime.MIC && !kind.mic) add("This test function has no MIC measurement profile.")
         if (listOf(host, username, password, path).any { '\r' in it || '\n' in it || '\u0000' in it })
             add("Host, credentials and FTP path must not contain control characters.")
         when (kind) {
@@ -118,6 +158,23 @@ data class DataTestConfig(
                 if (effectiveVideoHeight !in listOf(144, 240, 360, 480, 720, 1080, 1440, 2160)) add("Select a valid video height.")
                 if (effectiveVideoMinimumSeconds !in 1..3600) add("Minimum video length must be 1–3,600 seconds.")
             }
+            DataTestKind.PARALLEL_DOWNLOAD, DataTestKind.PARALLEL_UPLOAD, DataTestKind.UDP_LATENCY, DataTestKind.MIC_POINT -> {
+                if (kind in listOf(DataTestKind.PARALLEL_DOWNLOAD, DataTestKind.MIC_POINT) && !validHttpUrl(url)) add("Enter a valid download URL without embedded credentials.")
+                if (kind in listOf(DataTestKind.PARALLEL_UPLOAD, DataTestKind.MIC_POINT) && !validHttpUrl(uploadUrl)) add("Enter a valid HTTP POST upload URL without embedded credentials.")
+                if (kind in listOf(DataTestKind.UDP_LATENCY, DataTestKind.MIC_POINT)) {
+                    if (!validHost(host)) add("Enter the UDP echo server hostname or IP address.")
+                    if (port !in 1..65535) add("UDP port must be 1–65,535.")
+                }
+                if (effectiveParallelConnections !in 1..8) add("Parallel connections must be 1–8.")
+                if (effectiveWarmupSeconds !in 0..60 || effectiveWarmupBytes !in 0..100_000_000L) add("Warm-up must be 0–60 seconds and 0–100,000,000 bytes.")
+                if (effectiveMeasureSeconds !in 1..300 || effectiveMeasureBytes !in 1..1_000_000_000L) add("Measurement window must be 1–300 seconds and 1–1,000,000,000 bytes.")
+                if (kind != DataTestKind.UDP_LATENCY && timeoutSeconds <= effectiveWarmupSeconds + effectiveMeasureSeconds)
+                    add("Attempt timeout must exceed warm-up plus measurement duration to allow connection setup and acknowledgement.")
+                if (effectiveUdpCount !in 1..1000 || effectiveUdpIntervalMs !in 10..10000 || effectiveUdpTimeoutMs !in 1..10000)
+                    add("UDP settings require 1–1,000 probes, 10–10,000 ms intervals and 1–10,000 ms reply deadlines.")
+                if (isMic && (campaignId.isBlank() || pointId.isBlank() || operator.isBlank() || declaredTechnology.isBlank()))
+                    add("MIC measurements need campaign ID, point ID, operator and declared radio technology.")
+            }
         }
         if (kind in listOf(DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD, DataTestKind.WEB_PAGE,
                 DataTestKind.HTTP_DOWNLOAD, DataTestKind.HTTP_UPLOAD) && effectiveTransferBytes !in 1..2_000_000_000L)
@@ -131,6 +188,10 @@ data class DataTestConfig(
         .put("videoId", videoId).put("videoHeight", videoHeight).put("videoMinimumSeconds", videoMinimumSeconds)
         .put("area", area.name).put("operator", operator).put("locationLabel", locationLabel)
         .put("sessionLabel", sessionLabel).put("referenceServerConfirmed", referenceServerConfirmed)
+        .put("regime", effectiveRegime.name).put("uploadUrl", uploadUrl).put("parallelConnections", parallelConnections)
+        .put("warmupSeconds", warmupSeconds).put("warmupBytes", warmupBytes).put("measureSeconds", measureSeconds).put("measureBytes", measureBytes)
+        .put("udpCount", udpCount).put("udpIntervalMs", udpIntervalMs).put("udpTimeoutMs", udpTimeoutMs).put("micArea", micArea.name)
+        .put("campaignId", campaignId).put("pointId", pointId).put("declaredTechnology", declaredTechnology).put("stationaryConfirmed", stationaryConfirmed)
 
     companion object {
         fun fromJson(j: JSONObject): DataTestConfig = DataTestConfig(
@@ -143,7 +204,14 @@ data class DataTestConfig(
             videoId = j.optString("videoId"), videoHeight = j.optInt("videoHeight", 720),
             videoMinimumSeconds = j.optInt("videoMinimumSeconds", 180), area = enumValueOr(j.optString("area"), SamplingArea.ROUTE),
             operator = j.optString("operator"), locationLabel = j.optString("locationLabel"), sessionLabel = j.optString("sessionLabel"),
-            referenceServerConfirmed = j.optBoolean("referenceServerConfirmed"))
+            referenceServerConfirmed = j.optBoolean("referenceServerConfirmed"),
+            regime = if (j.has("regime")) enumValueOr(j.optString("regime"), TestRegime.CUSTOM) else TestRegime.NBTC,
+            uploadUrl = j.optString("uploadUrl"), parallelConnections = j.optInt("parallelConnections", 3),
+            warmupSeconds = j.optInt("warmupSeconds", 5), warmupBytes = j.optLong("warmupBytes", 2_500_000),
+            measureSeconds = j.optInt("measureSeconds", 20), measureBytes = j.optLong("measureBytes", 20_000_000),
+            udpCount = j.optInt("udpCount", 60), udpIntervalMs = j.optInt("udpIntervalMs", 500), udpTimeoutMs = j.optInt("udpTimeoutMs", 2000),
+            micArea = enumValueOr(j.optString("micArea"), MicArea.BUSINESS), campaignId = j.optString("campaignId"), pointId = j.optString("pointId"),
+            declaredTechnology = j.optString("declaredTechnology", "LTE"), stationaryConfirmed = j.optBoolean("stationaryConfirmed"))
     }
 }
 
@@ -186,7 +254,8 @@ data class AttemptMeasurement(
     val serviceAccessed: Boolean = false,
     val startupDelayMs: Double? = null,
     /** False for unsupported/broken instrumentation; network failures remain valid observations. */
-    val measurementAvailable: Boolean = true
+    val measurementAvailable: Boolean = true,
+    val mic: MicMeasurement? = null
 ) {
     fun toJson(): JSONObject = JSONObject().put("bytes", bytes).put("durationMs", durationMs)
         .put("throughputMbps", throughputMbps ?: JSONObject.NULL).put("rttMs", rttMs ?: JSONObject.NULL)
@@ -197,6 +266,7 @@ data class AttemptMeasurement(
         .put("error", error ?: JSONObject.NULL).put("detail", detail ?: JSONObject.NULL)
         .put("serviceAccessed", serviceAccessed).put("startupDelayMs", startupDelayMs ?: JSONObject.NULL)
         .put("measurementAvailable", measurementAvailable)
+        .put("mic", mic?.toJson() ?: JSONObject.NULL)
 
     companion object {
         fun fromJson(j: JSONObject) = AttemptMeasurement(j.optLong("bytes"), j.optDouble("durationMs", 0.0),
@@ -204,7 +274,8 @@ data class AttemptMeasurement(
             j.optBoolean("playbackStarted"), j.optBoolean("playbackCompleted"), j.numberOrNull("mediaDurationSeconds"),
             j.stringOrNull("observedQuality"), j.optLong("freezeDurationMs"), j.optLong("playbackDurationMs"),
             j.optBoolean("contentVerified", true), j.stringOrNull("error"), j.stringOrNull("detail"),
-            j.optBoolean("serviceAccessed"), j.numberOrNull("startupDelayMs"), j.optBoolean("measurementAvailable", true))
+            j.optBoolean("serviceAccessed"), j.numberOrNull("startupDelayMs"), j.optBoolean("measurementAvailable", true),
+            j.optJSONObject("mic")?.let(MicMeasurement::fromJson))
     }
 }
 
@@ -212,12 +283,14 @@ private fun JSONObject.numberOrNull(key: String): Double? = if (isNull(key)) nul
 private fun JSONObject.stringOrNull(key: String): String? = if (isNull(key)) null else optString(key)
 
 data class DataTestAttempt(val number: Int, val startedAtMs: Long, val elapsedRealtimeMs: Long,
-    val outcome: AttemptOutcome, val measurement: AttemptMeasurement) {
+    val outcome: AttemptOutcome, val measurement: AttemptMeasurement, val radio: RadioReference? = null) {
     fun toJson() = JSONObject().put("number", number).put("startedAtMs", startedAtMs)
         .put("elapsedRealtimeMs", elapsedRealtimeMs).put("outcome", outcome.name).put("measurement", measurement.toJson())
+        .put("radio", radio?.toJson() ?: JSONObject.NULL)
     companion object {
         fun fromJson(j: JSONObject) = DataTestAttempt(j.getInt("number"), j.getLong("startedAtMs"),
-            j.getLong("elapsedRealtimeMs"), AttemptOutcome.valueOf(j.getString("outcome")), AttemptMeasurement.fromJson(j.getJSONObject("measurement")))
+            j.getLong("elapsedRealtimeMs"), AttemptOutcome.valueOf(j.getString("outcome")), AttemptMeasurement.fromJson(j.getJSONObject("measurement")),
+            j.optJSONObject("radio")?.let(RadioReference::fromJson))
     }
 }
 
@@ -231,13 +304,20 @@ data class DataTestReport(
     val stopReason: String? = null,
     val environment: String = ""
 ) {
-    fun toJson(): JSONObject = JSONObject().put("schemaVersion", 1).put("id", id).put("config", config.toJson())
-        .put("reference", "NBTC standard 2565 + amendment no.2/2567; measurement guidelines 2567, effective 2025-01-01; reviewed 2026-10-20")
-        .put("timeZone", "Asia/Bangkok").put("byteConvention", "decimal MB; Mbps = 1000000 bits/s")
+    fun toJson(): JSONObject = JSONObject().put("schemaVersion", 2).put("id", id).put("config", config.toJson())
+        .put("reference", when (config.effectiveRegime) {
+            TestRegime.NBTC -> "NBTC standard 2565 + amendment no.2/2567; measurement guidelines 2567, effective 2025-01-01; reviewed 2026-10-20"
+            TestRegime.MIC -> "MIC Japan July 2015 mobile effective-speed guideline 001056443.pdf; study report 000371343.pdf appendix 3; independent methodology implementation; reviewed 2026-10-20"
+            TestRegime.CUSTOM -> "Custom diagnostic configuration"
+        })
+        .put("timeZone", if (config.isMic) "Asia/Tokyo" else "Asia/Bangkok").put("byteConvention", "decimal MB; Mbps = 1000000 bits/s")
         .put("effectiveParameters", JSONObject().put("timeoutSeconds", config.effectiveTimeoutSeconds)
             .put("transferBytes", config.effectiveTransferBytes).put("pingPayloadBytes", config.effectivePingPayloadBytes)
             .put("videoHeight", config.effectiveVideoHeight).put("videoMinimumSeconds", config.effectiveVideoMinimumSeconds)
-            .put("parallelSessions", 1).put("minimumSamplesForArea", config.minimumSamples))
+            .put("parallelSessions", if (config.kind.mic) config.effectiveParallelConnections else 1).put("minimumSamplesForArea", config.minimumSamples)
+            .put("repetitions", config.effectiveRepetitions).put("warmupSeconds", config.effectiveWarmupSeconds)
+            .put("warmupBytes", config.effectiveWarmupBytes).put("measureSeconds", config.effectiveMeasureSeconds).put("measureBytes", config.effectiveMeasureBytes)
+            .put("udpCount", config.effectiveUdpCount).put("udpIntervalMs", config.effectiveUdpIntervalMs).put("udpTimeoutMs", config.effectiveUdpTimeoutMs))
         .put("startedAtMs", startedAtMs).put("endedAtMs", endedAtMs ?: JSONObject.NULL).put("network", network)
         .put("environment", environment).put("stopReason", stopReason ?: JSONObject.NULL)
         .put("attempts", JSONArray(attempts.map { it.toJson() }))
@@ -250,25 +330,30 @@ data class DataTestReport(
             "attempt", "started_utc", "elapsed_realtime_ms", "outcome", "bytes", "duration_ms", "mbps", "rtt_ms", "http_status",
             "playback_started", "playback_completed", "media_duration_seconds", "quality", "freeze_ms", "playback_ms", "content_verified", "error", "detail",
             "timeout_seconds", "expected_bytes", "ping_payload_bytes", "interval_seconds", "requested_repetitions", "endpoint", "limitations",
-            "service_accessed", "startup_delay_ms", "measurement_available")
+            "service_accessed", "startup_delay_ms", "measurement_available", "campaign_id", "point_id", "mic_area", "declared_technology",
+            "upload_endpoint", "udp_endpoint", "download_mbps", "upload_mbps", "udp_sent", "udp_received", "udp_lost", "udp_mean_rtt_ms", "radio_reference_json", "mic_measurement_json")
         val endpoint = when (config.kind) {
             DataTestKind.PING -> config.host
             DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD -> "${config.host}:${config.port}${config.path}"
             DataTestKind.STREAMING -> "https://www.youtube.com/watch?v=${config.videoId}"
+            DataTestKind.UDP_LATENCY -> "${config.host}:${config.port}"
+            DataTestKind.PARALLEL_UPLOAD -> config.uploadUrl
             else -> config.url
         }
         return (listOf(header) + attempts.map { a -> with(a.measurement) {
-            listOf(id, config.kind.name, if (config.isNbtc) "NBTC" else "CUSTOM", config.profile.name, network,
+            listOf(id, config.kind.name, config.effectiveRegime.name, if (config.isMic) config.declaredTechnology else config.profile.name, network,
                 config.operator, config.locationLabel, config.sessionLabel, a.number, Instant.ofEpochMilli(a.startedAtMs),
                 a.elapsedRealtimeMs, a.outcome.name, bytes, durationMs, throughputMbps, rttMs, httpStatus, playbackStarted,
                 playbackCompleted, mediaDurationSeconds, observedQuality, freezeDurationMs, playbackDurationMs,
                 contentVerified, error, detail, config.effectiveTimeoutSeconds, config.effectiveTransferBytes,
-                config.effectivePingPayloadBytes, config.intervalSeconds, config.repetitions, endpoint, limitations().joinToString("; "),
-                serviceAccessed, startupDelayMs, measurementAvailable)
+                config.effectivePingPayloadBytes, config.intervalSeconds, config.effectiveRepetitions, endpoint, limitations().joinToString("; "),
+                serviceAccessed, startupDelayMs, measurementAvailable, config.campaignId, config.pointId, config.micArea.name, config.declaredTechnology,
+                config.uploadUrl, "${config.host}:${config.port}", mic?.download?.aggregateMbps, mic?.upload?.aggregateMbps,
+                mic?.udp?.sent, mic?.udp?.received, mic?.udp?.lost, mic?.udp?.averageRttMs, a.radio?.toJson()?.toString(), mic?.toJson()?.toString())
         }}).joinToString("\r\n", postfix = "\r\n") { row -> row.joinToString(",") { csvCell(it) } }
     }
 
-    fun limitations(): List<String> = buildList {
+    fun limitations(): List<String> = if (config.isMic) micLimitations(this) else buildList {
         add("Device session screening only; not an operator compliance certification. RAT/band profile is operator-declared.")
         add("No GPS, route coverage, operator-wide outage statistics or quarterly aggregation.")
         if (!config.isNbtc) add("Custom configuration: no NBTC verdict.")
@@ -316,6 +401,7 @@ data class DataTestMetric(val name: String, val value: Double?, val unit: String
 
 /** Denominators are intentional: FTP bitrate ratios use successful transfers; failure ratios use attempted tests. */
 fun DataTestReport.assess(): List<DataTestMetric> {
+    if (config.isMic) return micSessionMetrics(this)
     val eligible = attempts.filter { it.outcome != AttemptOutcome.CANCELLED }
     val successes = eligible.filter { it.outcome == AttemptOutcome.SUCCESS }
     val c = config
@@ -335,6 +421,14 @@ fun DataTestReport.assess(): List<DataTestMetric> {
     fun ratio(n: Int, d: Int): Double? = if (d == 0) null else n * 100.0 / d
     if (!c.isNbtc) {
         fun custom(name: String, value: Double?, unit: String) = DataTestMetric(name, value, unit, "", "CUSTOM")
+        if (c.kind.mic) {
+            val udp = eligible.mapNotNull { it.measurement.mic?.udp }.filter { it.error == null }
+            return listOf(custom("Completed rounds", ratio(successes.size, eligible.size), "%"),
+                custom("Mean download speed (valid trials)", eligible.mapNotNull { it.measurement.mic?.download?.aggregateMbps }.averageOrNull(), "Mbps"),
+                custom("Mean upload speed (valid trials)", eligible.mapNotNull { it.measurement.mic?.upload?.aggregateMbps }.averageOrNull(), "Mbps"),
+                custom("UDP mean RTT (replies)", udp.flatMap { it.rttsMs }.averageOrNull(), "ms"),
+                custom("UDP loss", ratio(udp.sumOf { it.lost }, udp.sumOf { it.sent }), "%"))
+        }
         return when (c.kind) {
             DataTestKind.PING -> listOf(
                 custom("Replies", ratio(successes.size, eligible.size), "%"),

@@ -8,6 +8,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
 import java.net.HttpURLConnection
+import java.net.DatagramSocket
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.Socket
@@ -20,6 +21,8 @@ interface TestIo {
     fun openSocket(host: String, port: Int, timeoutMs: Int): Socket
     fun openHttp(url: URL): HttpURLConnection
     fun resolve(host: String): InetAddress
+    /** Android implementations bind this socket to the same cellular Network as HTTP/TCP. */
+    fun openDatagram(): DatagramSocket = DatagramSocket()
     val interfaceName: String
 }
 

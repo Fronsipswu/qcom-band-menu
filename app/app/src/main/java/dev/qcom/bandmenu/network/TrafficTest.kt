@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -42,7 +43,7 @@ class TrafficTest private constructor(context: Context) {
     private val manager = app.getSystemService(ConnectivityManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val reportDir = File(app.filesDir, "data-tests")
-    private val passwords = mutableMapOf<DataTestKind, String>()
+    private val passwords = mutableMapOf<String, String>()
     private val lock = Any()
     private val _config = MutableStateFlow(loadSelectedConfig())
     val config: StateFlow<DataTestConfig> = _config
@@ -55,7 +56,7 @@ class TrafficTest private constructor(context: Context) {
     private var session: Session? = null
     val activeSessionId: String? get() = synchronized(lock) { session?.initialReport?.id }
 
-    private class Session(val network: Network, val config: DataTestConfig) {
+    private class Session(val network: Network, val config: DataTestConfig, val radioProvider: (() -> RadioReference?)?) {
         val initialReport = DataTestReport(UUID.randomUUID().toString(), config.copy(password = ""), System.currentTimeMillis())
         lateinit var job: Job
         @Volatile var control: AttemptControl? = null
@@ -68,30 +69,43 @@ class TrafficTest private constructor(context: Context) {
     init {
         scope.launch {
             val saved = reportDir.listFiles().orEmpty().filter { it.extension == "json" }
-                .sortedByDescending { it.name }.take(20).mapNotNull { file ->
+                .sortedByDescending { it.name }.mapNotNull { file ->
                     runCatching { DataTestReport.fromJson(JSONObject(file.readText())) }.getOrNull()
                 }
             synchronized(lock) {
-                _reports.value = (_reports.value + saved).distinctBy { it.id }.sortedByDescending { it.startedAtMs }.take(20)
+                _reports.value = retainedDataTestReports(_reports.value + saved)
             }
         }
     }
 
-    private fun defaultFor(kind: DataTestKind): DataTestConfig = DataTestConfig(kind = kind, custom = !kind.nbtc,
-        timeoutSeconds = when (kind) {
-            DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD -> 600
-            DataTestKind.WEB_PAGE -> 60
-            DataTestKind.STREAMING -> 300
-            DataTestKind.HTTP_DOWNLOAD, DataTestKind.HTTP_UPLOAD -> 60
-            else -> 5
-        })
+    private fun defaultFor(kind: DataTestKind): DataTestConfig = defaultDataTestConfig(if (kind.nbtc) TestRegime.NBTC else TestRegime.CUSTOM, kind)
 
     private fun loadSelectedConfig(): DataTestConfig {
         migrateLegacyConfigs()
-        val selected = enumValueOr(prefs.getString("selected_kind", null).orEmpty(), DataTestKind.PING)
-        val saved = prefs.getString("config_${selected.name}", null)
-        if (saved != null) return runCatching { DataTestConfig.fromJson(JSONObject(saved)) }.getOrElse { defaultFor(selected) }
-        return defaultFor(selected)
+        val updates = migrateRegimeConfigurations(prefs.all.mapNotNull { (key, value) -> (value as? String)?.let { key to it } }.toMap())
+        if (updates.isNotEmpty()) prefs.edit().also { edit -> updates.forEach { (key, value) -> edit.putString(key, value) } }.apply()
+        val regime = enumValueOr(prefs.getString("selected_regime", null).orEmpty(), TestRegime.NBTC)
+        return loadConfig(regime, selectedKind(regime))
+    }
+
+    private fun selectedKind(regime: TestRegime): DataTestKind {
+        val fallback = if (regime == TestRegime.MIC) DataTestKind.MIC_POINT else DataTestKind.PING
+        return enumValueOr(prefs.getString("selected_kind_${regime.name}", null).orEmpty(), fallback).takeIf { supports(regime, it) } ?: fallback
+    }
+
+    private fun loadConfig(regime: TestRegime, kind: DataTestKind): DataTestConfig {
+        val key = configurationKey(regime, kind)
+        val raw = prefs.getString(key, null)
+        return (raw?.let { runCatching { DataTestConfig.fromJson(JSONObject(it)) }.getOrNull() }
+            ?: defaultDataTestConfig(regime, kind)).copy(regime = regime, custom = regime == TestRegime.CUSTOM, password = passwords[key].orEmpty())
+    }
+
+    fun selectRegime(regime: TestRegime) {
+        synchronized(lock) {
+            if (session != null) return
+            _config.value = loadConfig(regime, selectedKind(regime))
+            prefs.edit().putString("selected_regime", regime.name).apply()
+        }
     }
 
     private fun migrateLegacyConfigs() {
@@ -114,10 +128,10 @@ class TrafficTest private constructor(context: Context) {
     fun select(kind: DataTestKind) {
         synchronized(lock) {
             if (session != null) return
-            val raw = prefs.getString("config_${kind.name}", null)
-            _config.value = (raw?.let { runCatching { DataTestConfig.fromJson(JSONObject(it)) }.getOrNull() }
-                ?: defaultFor(kind)).copy(password = passwords[kind].orEmpty())
-            prefs.edit().putString("selected_kind", kind.name).apply()
+            val regime = _config.value.effectiveRegime
+            if (!supports(regime, kind)) return
+            _config.value = loadConfig(regime, kind)
+            prefs.edit().putString("selected_kind_${regime.name}", kind.name).apply()
         }
     }
 
@@ -125,14 +139,16 @@ class TrafficTest private constructor(context: Context) {
         require(config.validationErrors().isEmpty()) { config.validationErrors().joinToString(" ") }
         synchronized(lock) {
             if (session != null) return
-            passwords[config.kind] = config.password
+            val regime = config.effectiveRegime
+            val key = configurationKey(regime, config.kind)
+            passwords[key] = config.password
             _config.value = config
-            prefs.edit().putString("selected_kind", config.kind.name)
-                .putString("config_${config.kind.name}", config.toJson().toString()).apply()
+            prefs.edit().putString("selected_regime", regime.name).putString("selected_kind_${regime.name}", config.kind.name)
+                .putString(key, config.toJson().toString()).apply()
         }
     }
 
-    fun start(): Boolean = synchronized(lock) {
+    fun start(radioProvider: (() -> RadioReference?)? = null): Boolean = synchronized(lock) {
         if (session != null) return true
         val c = config.value
         val errors = c.validationErrors()
@@ -145,9 +161,9 @@ class TrafficTest private constructor(context: Context) {
             _run.value = Run(error = "Use mobile data as the default connection; disconnect Wi-Fi and VPN first.")
             return false
         }
-        val s = Session(network, c)
+        val s = Session(network, c, radioProvider)
         session = s
-        _run.value = Run(running = true, upload = c.upload, title = c.kind.title, total = c.repetitions, phase = "Preparing")
+        _run.value = Run(running = true, upload = c.upload, title = c.kind.title, total = c.effectiveRepetitions, phase = "Preparing")
         s.job = scope.sessionJob(onNeverStarted = { finishSession(s, s.initialReport) }) { execute(s) }
         try { TrafficTestService.start(app, s.initialReport.id) } catch (e: Exception) {
             s.reason = "Could not start test service: ${e.message}"
@@ -223,7 +239,7 @@ class TrafficTest private constructor(context: Context) {
             registered = true
             check(manager.activeNetwork == s.network && isCellular(s.network)) { "Mobile data connection changed before start" }
             s.storageError = publish(report)
-            repeat(c.repetitions) { index ->
+            repeat(c.effectiveRepetitions) { index ->
                 currentCoroutineContext().ensureActive()
                 wakeLock.acquire((c.effectiveTimeoutSeconds.toLong() + c.intervalSeconds + 30L) * 1000L)
                 val control = AttemptControl()
@@ -238,9 +254,14 @@ class TrafficTest private constructor(context: Context) {
                         return socket
                     }
                     override fun openHttp(url: URL): HttpURLConnection = control.track(s.network.openConnection(url) as HttpURLConnection)
+                    override fun openDatagram(): DatagramSocket = control.track(DatagramSocket(null)).also {
+                        s.network.bindSocket(it)
+                        it.bind(InetSocketAddress(0))
+                    }
                 }
                 val started = System.currentTimeMillis()
                 val monotonic = SystemClock.elapsedRealtime()
+                val radio = runCatching { s.radioProvider?.invoke() }.getOrNull()
                 val state = AttemptState(monotonic + c.effectiveTimeoutSeconds * 1000L)
                 synchronized(lock) {
                     s.attempt = state
@@ -249,7 +270,7 @@ class TrafficTest private constructor(context: Context) {
                 }
                 var measurement = AttemptMeasurement()
                 var outcome = AttemptOutcome.FAILED
-                _run.value = Run(true, c.upload, title = c.kind.title, attempt = index + 1, total = c.repetitions, phase = "Measuring")
+                _run.value = Run(true, c.upload, title = c.kind.title, attempt = index + 1, total = c.effectiveRepetitions, phase = "Measuring")
                 val browserTask = if (c.kind in listOf(DataTestKind.WEB_PAGE, DataTestKind.STREAMING)) BrowserTestTask(c, io, control, state) else null
                 if (browserTask != null) _browser.value = browserTask
                 val watchdog = scope.launch {
@@ -274,7 +295,11 @@ class TrafficTest private constructor(context: Context) {
                         measurement = result.first
                         outcome = result.second
                     } else {
-                        measurement = DataTestTransport.execute(c, io, control)
+                        measurement = when {
+                            c.kind == DataTestKind.MIC_POINT -> runMicPoint(c, io, control, onPhase = { phase -> _run.value = _run.value.copy(phase = phase) })
+                            c.kind.mic -> MicDataTransport.execute(c, io, control)
+                            else -> DataTestTransport.execute(c, io, control)
+                        }
                         outcome = if (measurement.error == null) AttemptOutcome.SUCCESS else AttemptOutcome.FAILED
                     }
                     state.complete(outcome, SystemClock.elapsedRealtime())
@@ -297,10 +322,10 @@ class TrafficTest private constructor(context: Context) {
                     s.control = null
                     s.attempt = null
                     if (measurement.durationMs == 0.0) measurement = measurement.copy(durationMs = (SystemClock.elapsedRealtime() - monotonic).toDouble())
-                    report = report.copy(attempts = report.attempts + DataTestAttempt(index + 1, started, monotonic, outcome, measurement))
+                    report = report.copy(attempts = report.attempts + DataTestAttempt(index + 1, started, monotonic, outcome, measurement, radio))
                     s.storageError = publish(report)
                 }
-                if (index + 1 < c.repetitions) {
+                if (index + 1 < c.effectiveRepetitions) {
                     _run.value = _run.value.copy(phase = "Waiting", remaining = c.intervalSeconds,
                         mbps = measurement.throughputMbps ?: 0.0, error = measurement.error)
                     delay(c.intervalSeconds * 1000L)
@@ -329,7 +354,7 @@ class TrafficTest private constructor(context: Context) {
             if (session !== s) return
             session = null
             _run.value = Run(error = s.storageError ?: s.reason, title = s.config.kind.title,
-                attempt = ended.attempts.size, total = s.config.repetitions,
+                attempt = ended.attempts.size, total = s.config.effectiveRepetitions,
                 phase = if (s.reason == null) "Complete — results available" else "Stopped — results available")
             TrafficTestService.stop(app, s.initialReport.id)
         }
@@ -337,14 +362,19 @@ class TrafficTest private constructor(context: Context) {
 
     /** Each attempt is durable; a killed process leaves an explicitly unfinished report. */
     private fun publish(report: DataTestReport): String? {
-        synchronized(lock) { _reports.value = (listOf(report) + _reports.value.filter { it.id != report.id }).take(20) }
+        val evicted = synchronized(lock) {
+            val combined = listOf(report) + _reports.value.filter { it.id != report.id }
+            val retained = retainedDataTestReports(combined)
+            _reports.value = retained
+            combined.filter { old -> retained.none { it.id == old.id } }.map { "${it.startedAtMs}-${it.id}.json" }.toSet()
+        }
         try {
             reportDir.mkdirs()
             val target = File(reportDir, "${report.startedAtMs}-${report.id}.json")
             val temp = File(reportDir, "${target.name}.tmp")
             temp.writeText(report.toJson().toString(2))
             java.nio.file.Files.move(temp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            reportDir.listFiles().orEmpty().filter { it.extension == "json" }.sortedByDescending { it.name }.drop(20).forEach { it.delete() }
+            evicted.forEach { File(reportDir, it).delete() }
             return null
         } catch (e: Exception) {
             val error = "Result storage failed; export this session before closing the app: ${e.message}"

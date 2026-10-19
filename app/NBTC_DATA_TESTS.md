@@ -15,8 +15,8 @@ numbers, starting at 1, unless an annex page is explicitly identified.
 1. Enable the intended Android default-data SIM and select the desired modem RAT
    and band using the existing controls. Test traffic uses the available cellular
    network; the modem's displayed SIM tab does not select the data subscription.
-2. Open **Test script**, choose a function, then an **NBTC preset** and radio profile
-   or **Custom**. Each function has independently saved settings. Configure the
+2. Open **Test script**, select **NBTC** and a function/radio profile, or select
+   **Custom**. Each regime/function has independently saved settings. Configure the
    endpoint, repetitions, idle interval and optional operator/site/session labels.
    Custom exposes payload size, deadline and protocol-specific parameters.
 3. For an NBTC measurement, obtain the designated reference server IP, FTP account
@@ -35,7 +35,7 @@ numbers, starting at 1, unless an annex page is explicitly identified.
    sample rows and context. FTP passwords are excluded from preferences and
    reports and must be entered again after the app restarts.
 
-The latest **20 sessions** are retained in private app storage across restarts.
+The latest **20 NBTC/Custom sessions** are retained in private app storage across restarts.
 Export evidence needed for longer campaigns before that history rolls over.
 The app does not submit or publish an operator's quarterly report.
 

@@ -4,11 +4,13 @@ Qualcomm Android app for locking bands, RAT and NR mode
 
 ## Mobile data tests
 
-Open **Test script** on the network screen and choose ICMP latency, FTP download,
-FTP upload, browser webpage loading, YouTube streaming, HTTP download or HTTP
-upload. The first five provide NBTC presets and Custom settings; generic HTTP
-transfers use Custom settings. Save the selected function, then use the start/stop
-control. Each function remembers its own configuration.
+Open **Test script** on the network screen and select **NBTC**, **MIC** or **Custom**.
+NBTC provides ICMP latency, FTP download/upload, browser webpage loading and YouTube
+streaming. MIC provides a three-trial point sequence of parallel HTTP download,
+upload and UDP latency/loss, plus individual component functions. Custom exposes
+all functions, including generic HTTP GET/POST and editable parallel/UDP settings.
+Save the selected function, then use the start/stop control. Each regime and
+function remembers its own configuration.
 
 NBTC presets follow the 2022 standard as amended in 2024 and the **2024 replacement
 measurement guidelines**, effective 1 January 2025. Configure your campaign's
@@ -18,13 +20,21 @@ network, independently of the modem screen's SIM tab.
 
 Results include success ratios, latency, transfer rates, browser loading and
 streaming observations, with per-attempt evidence and CSV/JSON export. The latest
-20 sessions survive app restarts. FTP passwords remain in memory only. FTP upload
+20 NBTC/Custom sessions survive app restarts; MIC campaign records are retained
+without that pruning limit. FTP passwords remain in memory only. FTP upload
 files use unique names and remain on the server for campaign administrators to
 clean up. Browser/streaming tests require the player to stay in the foreground;
 YouTube quality is verified manually per attempt.
 
-See [NBTC_DATA_TESTS.md](NBTC_DATA_TESTS.md) for endpoint preparation, exact profile
-values, source/page references, sampling requirements and measurement limits.
+MIC follows the published July 2015 Japanese mobile effective-speed method as an
+independent client. It reports three-trial point means and distributions of
+comparable point means, with min/Q1/median/Q3/max boxplots and campaign exports.
+It does not apply minimum-speed pass/fail thresholds or claim to replace MIC's
+designated common software, servers and geographic campaign process.
+
+See [NBTC_DATA_TESTS.md](NBTC_DATA_TESTS.md) and [MIC_DATA_TESTS.md](MIC_DATA_TESTS.md)
+for endpoint preparation, exact parameters, source/page references, sampling
+requirements and measurement limits.
 GPS/maps, calls, SMS/MMS and operator-wide quarterly certification are outside the
 data-test implementation.
 
