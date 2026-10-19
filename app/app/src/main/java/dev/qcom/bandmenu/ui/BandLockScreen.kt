@@ -14,7 +14,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.captionBar
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +27,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
@@ -41,7 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.alpha
@@ -52,6 +61,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -72,8 +82,6 @@ import dev.qcom.bandmenu.SimBandFilter
 import dev.qcom.bandmenu.SimState
 import dev.qcom.bandmenu.UsageMode
 import dev.qcom.bandmenu.copyForOtherSim
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -89,13 +97,14 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.icon.extended.Reset
+import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.LocalDismissState
@@ -147,7 +156,8 @@ fun BandLockScreen(
 ) {
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
-    val applyResetSpace = 72.dp
+    // Clearance for the floating action button at the content's bottom.
+    val fabSpace = 72.dp
     // Match the overlay SmallTopAppBar's own inset source (systemBars top) so
     // the content offset equals the bar's real height in every window mode.
     // statusBars alone is equal in full screen but diverges in a floating /
@@ -216,7 +226,7 @@ fun BandLockScreen(
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(top = topBarHeight)
-                            .padding(bottom = navbarSpace + applyResetSpace)
+                            .padding(bottom = navbarSpace + fabSpace)
                     ) {
                         TabRowWithContour(
                             tabs = simLabels,
@@ -364,56 +374,39 @@ fun BandLockScreen(
                 }
             }
 
-            if (!(selectedSim == 1 && modemState?.sim2Available == false)) Row(
+            if (!(selectedSim == 1 && modemState?.sim2Available == false)) BandLockActionsFab(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp)
                     .padding(bottom = floatingControlBottom(24.dp)),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TextButton(
-                    text = "Reset",
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                        onReset(selectedSim)
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(16.dp))
-                )
-                Button(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val s = slotStates[selectedSim]
-                        val f = SimBandFilter.effectiveFilter(bandFilter, hardware, selectedSim)
-                        val visibleGsm = SimBandFilter.visibleBands(hardware.gsm, f.gsm)
-                        val visibleWcdma = SimBandFilter.visibleBands(hardware.wcdma, f.wcdma)
-                        val visibleLte = SimBandFilter.visibleBands(hardware.lte, f.lte)
-                        val visibleNsa = SimBandFilter.visibleBands(hardware.nr, f.nrNsa)
-                        val visibleSa = SimBandFilter.visibleBands(hardware.nr, f.nrSa)
-                        val visibleNr = SimBandFilter.visibleBands(hardware.nr, f.nrNsa + f.nrSa)
-                        val nrBands = s.nrChecked.filterValues { it }.keys.intersect(visibleNr)
-                        val state = SimState(
-                            ratMask = s.ratChecked.filterValues { it }.keys,
-                            gsmBands = s.gsmChecked.filterValues { it }.keys.intersect(visibleGsm),
-                            wcdmaBands = s.wcdmaChecked.filterValues { it }.keys.intersect(visibleWcdma),
-                            lteBands = s.lteChecked.filterValues { it }.keys.intersect(visibleLte),
-                            nrNsaBands = if (useIndependentLock) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
-                            nrSaBands = if (useIndependentLock) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
-                            nrMode = s.nrMode,
-                            usageMode = s.usageMode
-                        )
-                        onApply(selectedSim, state)
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(16.dp)),
-                    colors = ButtonDefaults.buttonColorsPrimary()
-                ) {
-                    Text("Apply")
+                onApply = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    val s = slotStates[selectedSim]
+                    val f = SimBandFilter.effectiveFilter(bandFilter, hardware, selectedSim)
+                    val visibleGsm = SimBandFilter.visibleBands(hardware.gsm, f.gsm)
+                    val visibleWcdma = SimBandFilter.visibleBands(hardware.wcdma, f.wcdma)
+                    val visibleLte = SimBandFilter.visibleBands(hardware.lte, f.lte)
+                    val visibleNsa = SimBandFilter.visibleBands(hardware.nr, f.nrNsa)
+                    val visibleSa = SimBandFilter.visibleBands(hardware.nr, f.nrSa)
+                    val visibleNr = SimBandFilter.visibleBands(hardware.nr, f.nrNsa + f.nrSa)
+                    val nrBands = s.nrChecked.filterValues { it }.keys.intersect(visibleNr)
+                    val state = SimState(
+                        ratMask = s.ratChecked.filterValues { it }.keys,
+                        gsmBands = s.gsmChecked.filterValues { it }.keys.intersect(visibleGsm),
+                        wcdmaBands = s.wcdmaChecked.filterValues { it }.keys.intersect(visibleWcdma),
+                        lteBands = s.lteChecked.filterValues { it }.keys.intersect(visibleLte),
+                        nrNsaBands = if (useIndependentLock) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
+                        nrSaBands = if (useIndependentLock) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
+                        nrMode = s.nrMode,
+                        usageMode = s.usageMode
+                    )
+                    onApply(selectedSim, state)
+                },
+                onReset = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    onReset(selectedSim)
                 }
-            }
+            )
 
             BandFilterSheet(
                 show = showFilterSheet,
@@ -426,6 +419,156 @@ fun BandLockScreen(
                     showFilterSheet = false
                 }
             )
+        }
+    }
+}
+
+/**
+ * The band-lock actions as one round button floating at the screen's bottom
+ * right (as on KernelSU's modules page). Tapping it expands two smaller
+ * circles above it — Reset, then Apply nearest the button — each labelled;
+ * tapping an action runs it and collapses the group. The circles fade, scale
+ * and slide in staggered, the one nearest the button first.
+ */
+@Composable
+private fun BandLockActionsFab(
+    onApply: () -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val hapticFeedback = LocalHapticFeedback.current
+    var expanded by remember { mutableStateOf(false) }
+    // 0 = collapsed, 1 = expanded; the circles follow it with a per-index lag.
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(expanded) {
+        progress.animateTo(
+            if (expanded) 1f else 0f,
+            spring(dampingRatio = 0.85f, stiffness = 350f)
+        )
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        BandLockActionCircle(
+            label = "Reset",
+            icon = MiuixIcons.Reset,
+            container = MiuixTheme.colorScheme.surface,
+            content = MiuixTheme.colorScheme.onBackground,
+            bordered = true,
+            expanded = expanded,
+            index = 1,
+            progress = progress,
+            onClick = {
+                expanded = false
+                onReset()
+            }
+        )
+        BandLockActionCircle(
+            label = "Apply",
+            icon = MiuixIcons.Ok,
+            container = MiuixTheme.colorScheme.primary,
+            content = MiuixTheme.colorScheme.onPrimary,
+            bordered = false,
+            expanded = expanded,
+            index = 0,
+            progress = progress,
+            onClick = {
+                expanded = false
+                onApply()
+            }
+        )
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(MiuixTheme.colorScheme.primary)
+                .clickable(
+                    interactionSource = null,
+                    indication = null
+                ) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    expanded = !expanded
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Crossfade(
+                targetState = expanded,
+                animationSpec = tween(150),
+                label = "BandLockFabIcon"
+            ) { open ->
+                Icon(
+                    imageVector = if (open) MiuixIcons.Close else MiuixIcons.Tune,
+                    contentDescription = if (open) "Collapse actions" else "Band lock actions",
+                    tint = MiuixTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
+    }
+}
+
+/** One expandable action of the band-lock FAB: a labelled pill and a round
+ *  button. [index] 0 is nearest the main button and animates first. */
+@Composable
+private fun BandLockActionCircle(
+    label: String,
+    icon: ImageVector,
+    container: Color,
+    content: Color,
+    bordered: Boolean,
+    expanded: Boolean,
+    index: Int,
+    progress: Animatable<Float, AnimationVector1D>,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .graphicsLayer {
+                val p = ((progress.value - index * 0.25f) / (1f - index * 0.25f)).coerceIn(0f, 1f)
+                alpha = p
+                val scale = 0.6f + 0.4f * p
+                scaleX = scale
+                scaleY = scale
+                translationY = (1f - p) * 12.dp.toPx()
+                transformOrigin = TransformOrigin(1f, 1f)   // grow from the FAB's corner
+            }
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                enabled = expanded,
+                role = Role.Button,
+                onClick = onClick
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(container)
+                .then(
+                    if (bordered) Modifier.border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(50))
+                    else Modifier
+                )
+                .padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
+            Text(label, fontSize = 12.sp, color = content, fontWeight = FontWeight.Medium)
+        }
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(container)
+                .then(
+                    if (bordered) Modifier.border(1.dp, MiuixTheme.colorScheme.outline, CircleShape)
+                    else Modifier
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = content, modifier = Modifier.size(22.dp))
         }
     }
 }
