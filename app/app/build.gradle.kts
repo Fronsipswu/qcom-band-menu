@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "dev.qcom.bandmenu"
-        minSdk = 30
+        minSdk = 29
         targetSdk = 37
         versionCode = 67
         versionName = "6.0.0"
