@@ -279,9 +279,15 @@ class DiagClient(private val context: Context) {
         // aren't patched or slowed down on every round.
         if (!ruleTried && allowRootSocket().also { ruleTried = true }) {
             if (waitConnect(4)) return
-            Shell.cmd(launch).to(mutableListOf(), shellErr).exec()
-            if (waitConnect(12)) return
+            // Relaunch only a helper that has exited: a second one next to a
+            // running one fails with "Address already in use", hiding why the
+            // connection was refused.
+            if (!helperRunning()) {
+                Shell.cmd(launch).to(mutableListOf(), shellErr).exec()
+                if (waitConnect(12)) return
+            }
         }
+        if (helperRunning()) throw IOException("The DIAG helper is running, but the app can't connect to it")
         val stderr = if (err.exists()) err.readText().trim() else shellErr.joinToString("\n").trim()
         throw IOException(stderr.ifEmpty { "The DIAG helper didn't start" })
     }
@@ -293,6 +299,8 @@ class DiagClient(private val context: Context) {
         }
         return false
     }
+
+    private fun helperRunning(): Boolean = Shell.cmd("pidof $BINARY_NAME >/dev/null").exec().isSuccess
 
     /** False when the app's root shell runs without effective capabilities. */
     private fun rootHasCapabilities(): Boolean {
