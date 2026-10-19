@@ -23,6 +23,22 @@ class ThroughputScaleTest {
     }
 
     @Test
+    fun cursorAtTheRightEdgeOnTheNewestSample() {
+        assertEquals(1_000_000L - 120_000, windowStart(1_000_000, 1_000_000))
+        // The newest sample before the cursor (a round without throughput): still the edge.
+        assertEquals(1_000_000L - 120_000, windowStart(1_000_000, 995_000))
+    }
+
+    @Test
+    fun scrubbingBackSlidesTheCursorToTheMiddle() {
+        // 10 s back: the window ends at the newest sample, the cursor 10 s from the edge.
+        assertEquals(1_010_000L - 120_000, windowStart(1_000_000, 1_010_000))
+        // Over half a window back: centred.
+        assertEquals(1_000_000L - 60_000, windowStart(1_000_000, 1_060_000))
+        assertEquals(1_000_000L - 60_000, windowStart(1_000_000, 1_500_000))
+    }
+
+    @Test
     fun peakAtTheHeadroomStaysOnTheLowerStep() {
         assertEquals(10, niceStep(40.0))
         assertEquals(20, niceStep(40.0001))

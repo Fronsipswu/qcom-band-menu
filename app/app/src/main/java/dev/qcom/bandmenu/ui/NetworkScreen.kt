@@ -200,7 +200,7 @@ fun NetworkScreen(
                     val last = s.size - 1
                     s.round(last)?.snapshot()
                     val t = s.elapsedAt(last)
-                    s.thputBetween(t - 62_000, t + 62_000)
+                    s.thputBetween(t - THPUT_BEFORE_MS, t + THPUT_AFTER_MS)
                 }
             }
         }
@@ -241,7 +241,7 @@ fun NetworkScreen(
                         else s.indexAt(old.elapsedAt(curPos.coerceIn(0, old.size - 1)))
                     s.round(target)?.snapshot()
                     val t = s.elapsedAt(target)
-                    s.thputBetween(t - 62_000, t + 62_000)
+                    s.thputBetween(t - THPUT_BEFORE_MS, t + THPUT_AFTER_MS)
                 }
                 s
             } ?: return@launch
@@ -385,11 +385,11 @@ fun NetworkScreen(
                             snap == null -> NoticeCard(pageState.error!!)
                             else -> {
                                 // Throughput chart: the replay's window when scrubbing,
-                                // else the live history, centred on the reading shown.
+                                // else the live history, around the reading shown.
                                 val center = snap.takenAtElapsedMs
                                 val r = replay
                                 val points = if (sim == state.sim && replayRound != null && r != null)
-                                    remember(r, center) { r.thputBetween(center - 62_000, center + 62_000) }
+                                    remember(r, center) { r.thputBetween(center - THPUT_BEFORE_MS, center + THPUT_AFTER_MS) }
                                 else state.thputBySim[sim].orEmpty()
                                 val pageGnbBits = if (sim == 2) gnbBitsSim2 else gnbBitsSim1
                                 androidx.compose.runtime.CompositionLocalProvider(
