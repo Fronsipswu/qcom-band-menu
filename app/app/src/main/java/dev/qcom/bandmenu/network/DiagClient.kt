@@ -173,7 +173,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.19"
+        private const val EXPECTED_VERSION = "1.23.0"
         /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
         private val ROOT_DOMAINS = listOf("su", "magisk")
     }
@@ -214,6 +214,29 @@ class DiagClient(private val context: Context) {
         }
         lastStatsJson = resp
         return DiagStats.parse(resp)
+    }
+
+    /** Packet capture uses the existing serialized RPC connection, never a second native client. */
+    @Synchronized
+    fun capture(enabled: Boolean): JSONObject {
+        if (socket == null) ensureRunning()
+        val command = JSONObject().put("cmd", "capture").put("enabled", enabled).toString()
+        var response = request(command)
+        if (response.optString("version") != EXPECTED_VERSION) {
+            stopHelper(); ensureRunning(); response = request(command)
+        }
+        if (!response.optBoolean("ok") || response.optString("version") != EXPECTED_VERSION)
+            throw IOException("Packet capture requires DIAG helper $EXPECTED_VERSION")
+        return response
+    }
+
+    @Synchronized
+    fun events(limit: Int = 256): JSONObject {
+        if (socket == null) throw IOException("Packet capture connection was lost")
+        val response = request(JSONObject().put("cmd", "events").put("limit", limit.coerceIn(1, 256)).toString())
+        if (!response.optBoolean("ok") || response.optString("version") != EXPECTED_VERSION)
+            throw IOException("Packet capture helper changed or returned an invalid response")
+        return response
     }
 
     /** Unsubscribes and stops the helper. Blocking; safe when not running. */

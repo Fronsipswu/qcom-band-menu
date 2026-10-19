@@ -252,6 +252,16 @@ fun NetworkScreen(
             Toast.makeText(context, "Could not prepare export: ${prepared.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
         }
     }
+    var showArchiveLogs by remember { mutableStateOf(false) }
+    val archiveStatus = monitor.archive?.status?.collectAsState()?.value
+    LaunchedEffect(archiveStatus?.error) {
+        archiveStatus?.error?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
+    }
+    LaunchedEffect(servingHidden, thputHidden, endcSeparate, gnbBitsSim1, gnbBitsSim2) {
+        monitor.archive?.updatePresentation(org.json.JSONObject().put("servingHidden", servingHidden)
+            .put("thputHidden", thputHidden).put("endcSeparate", endcSeparate)
+            .put("gnbBitsSim1", gnbBitsSim1).put("gnbBitsSim2", gnbBitsSim2))
+    }
 
     // Replay of the recorded rounds while frozen: the slider picks the sample
     // shown in place of the live reading; unfreezing drops it.
@@ -477,7 +487,12 @@ fun NetworkScreen(
 
         // The test script's status line is blue while it runs.
         val testColor = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
-        val status = testStatus(testRun)
+        val status = testStatus(testRun).ifEmpty {
+            when { archiveStatus?.error != null -> "Log error: ${archiveStatus.error}"
+                archiveStatus?.active == true -> "Saving logs · ${archiveStatus.segments} segments · ${archiveStatus.dropped} dropped"
+                archiveStatus?.busy == true -> archiveStatus.message
+                else -> "" }
+        }
         val statusContent: @Composable () -> Unit = {
             Box(Modifier.fillMaxWidth().height(statusLineHeight), contentAlignment = Alignment.Center) {
                 if (status.isNotEmpty()) Text(status, Modifier.padding(horizontal = 16.dp),
@@ -577,6 +592,7 @@ fun NetworkScreen(
             }
         )
         BrowserTestDialog(task = browserTask, onStop = { test.stop() })
+        if (showArchiveLogs) monitor.archive?.let { ArchiveLogDialog(it) { showArchiveLogs = false } }
         // Padlock (freeze), then the menu.
         Row(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = topBarInset + 8.dp, end = 8.dp),
@@ -610,6 +626,7 @@ fun NetworkScreen(
                         ),
                         DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
                         DropdownItem(text = "Test results", onClick = { showTestResults = true }),
+                        DropdownItem(text = "Save network logs", selected = archiveStatus?.active == true, onClick = { showArchiveLogs = true }),
                         DropdownItem(
                             text = "Keep screen on", selected = keepScreenOn,
                             onClick = { onKeepScreenOnToggle(!keepScreenOn) }

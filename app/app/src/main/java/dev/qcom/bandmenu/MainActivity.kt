@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
     // killing and relaunching it. Stopped in DaemonHolder.onCleared().
     private val daemonHolder by lazy {
         ViewModelProvider(this, viewModelFactory {
-            initializer { DaemonHolder(DaemonManager(applicationContext), DiagClient(applicationContext), java.io.File(cacheDir, "netreplay")) }
+            initializer { DaemonHolder(DaemonManager(applicationContext), DiagClient(applicationContext), java.io.File(cacheDir, "netreplay"), applicationContext) }
         })[DaemonHolder::class.java]
     }
     private val daemonManager get() = daemonHolder.daemonManager
@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
             override fun handleOnBackPressed() {
                 dev.qcom.bandmenu.network.TrafficTest.get(applicationContext).stop("App closed")
                 Thread {
+                    daemonHolder.networkMonitor.archive?.stopBlocking()
                     daemonHolder.networkMonitor.stopDiagBlocking()
                     daemonManager.stopBlocking()
                     runOnUiThread { finish() }
