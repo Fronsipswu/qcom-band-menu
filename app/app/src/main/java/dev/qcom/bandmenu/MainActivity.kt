@@ -1,5 +1,6 @@
 package dev.qcom.bandmenu
 
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -489,7 +490,8 @@ class MainActivity : ComponentActivity() {
                         scope.launch { BandPreferences.setDiagEnabled(bandDataStore, on) }
                     },
                     onReplayToggle = { on ->
-                        if (on && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                        if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         scope.launch { BandPreferences.setReplayEnabled(bandDataStore, on) }
                     },

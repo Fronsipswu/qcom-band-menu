@@ -22,15 +22,43 @@ import dev.qcom.bandmenu.network.ThputPoint
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** The window shown: [WINDOW_MS] centred on the cursor. */
+/** The window shown (see [ThroughputCard] for where the cursor sits in it). */
 private const val WINDOW_MS = 120_000L
 private const val GRID_MS = 10_000L
-/** The scale covers values this far either side of the cursor. */
-private const val SCALE_SPAN_MS = 30_000L
-/** The highest of those values may fill this much of the scale before the next step up. */
+/** The highest value on screen may fill this much of the scale before the next step up. */
 private const val HEADROOM = 0.8
 /** Longer gaps than this between samples break the line. */
 private const val GAP_MS = 2_500L
+/** The samples a chart at a cursor can draw: a window ending at the cursor
+ *  up to one centred on it, each with the sample held in from its edge. */
+internal const val THPUT_BEFORE_MS = WINDOW_MS + GAP_MS
+internal const val THPUT_AFTER_MS = WINDOW_MS / 2 + GAP_MS
+/** Five grid steps of at least this (Mbps): an idle link shows 0-5 Mbps. */
+private const val MIN_STEP = 1
+
+/**
+ * The grid step (Mbps) for a [peak]: the smallest 1-2-5 step (1, 2, 5, 10,
+ * 20, 50, ...) whose five steps keep [peak] under [HEADROOM] of the top.
+ */
+internal fun niceStep(peak: Double): Int {
+    var decade = MIN_STEP
+    while (true) {
+        for (m in intArrayOf(1, 2, 5)) {
+            val step = decade * m
+            if (step >= MIN_STEP && peak <= step * 5 * HEADROOM) return step
+        }
+        if (decade > Int.MAX_VALUE / 100) return decade * 10
+        decade *= 10
+    }
+}
+
+/**
+ * Where the window starts for a cursor at [centerMs] when the newest sample is
+ * at [newestMs]: the window ends at the newest sample, kept between the
+ * cursor (cursor at the right edge) and half a window after it (centred).
+ */
+internal fun windowStart(centerMs: Long, newestMs: Long): Long =
+    newestMs.coerceIn(centerMs, centerMs + WINDOW_MS / 2) - WINDOW_MS
 
 /** The downlink and uplink lines and their values (also the CA tables' PHY rows). */
 internal val DownlinkColor: Color get() = signalLevelColor(2)   // the "fair" signal yellow
@@ -39,15 +67,16 @@ internal val UplinkColor = Color(0xFF40E0D0)
 /**
  * Combined PHY downlink and uplink throughput (all LTE and NR carriers) over
  * two minutes.
- * The cursor stays in the middle at [centerMs], the sample shown; the window
- * moves under it. Five grid steps; the step is the smallest of [steps]
- * (Mbps) that keeps every DL and UL value within [SCALE_SPAN_MS] of the
- * cursor under [HEADROOM] of the top, so the scale doesn't flip on single
- * samples near a step, and a spike only sets it while near the cursor.
- * Above the largest top the line clips.
+ * The cursor marks [centerMs], the sample shown; the window moves under it.
+ * The window follows [windowStart]: on the newest sample (live, or a replay
+ * at its end) the cursor is at the right edge and the whole window is
+ * history; scrubbing back slides it towards the middle, where it stays once
+ * there are newer samples to fill the right half. Five grid steps; the step autoscales ([niceStep]) to
+ * keep every DL and UL value on screen under [HEADROOM] of the top, so the
+ * scale doesn't flip on single samples near a step and no line is clipped.
  */
 @Composable
-fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
+fun ThroughputCard(points: List<ThputPoint>, centerMs: Long) {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         val grid = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.12f)
         val label = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -57,28 +86,25 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
         // The card's own colour: the box only hides the lines behind the values.
         val boxColor = MiuixTheme.colorScheme.surfaceContainer
         val measurer = rememberTextMeasurer()
-        val (atCursor, scaleStep) = remember(points, centerMs, steps) {
+        val (atCursor, scaleStep, start) = remember(points, centerMs) {
             val cur = points.lastOrNull { it.t <= centerMs && centerMs - it.t <= GAP_MS }
-            // The highest DL or UL sample drawn within SCALE_SPAN_MS of the cursor,
-            // the one held in from just before the span included.
+            val from = windowStart(centerMs, points.lastOrNull()?.t ?: centerMs)
+            // The highest DL or UL sample drawn, the one held in from just
+            // before the window included.
             var peak = 0.0
-            val minT = centerMs - SCALE_SPAN_MS - GAP_MS
-            val maxT = centerMs + SCALE_SPAN_MS
             for (p in points) {
-                if (p.t in minT..maxT) {
+                if (p.t in from - GAP_MS..from + WINDOW_MS) {
                     val m = maxOf(p.mbps, p.ulMbps)
                     if (m > peak) peak = m
                 }
             }
-            val step = steps.firstOrNull { peak <= it * 5 * HEADROOM } ?: steps.last()
-            cur to step
+            Triple(cur, niceStep(peak), from)
         }
         val scaleLabels = remember(measurer, scaleStep, labelStyle) {
             (1..5).map { i -> measurer.measure("${scaleStep * i}", labelStyle) }
         }
         val ulPath = remember { Path() }
         val dlPath = remember { Path() }
-        val start = centerMs - WINDOW_MS / 2
         Canvas(Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 12.dp, vertical = 10.dp)) {
             val w = size.width
             val h = size.height
@@ -126,7 +152,8 @@ fun ThroughputCard(points: List<ThputPoint>, centerMs: Long, steps: List<Int>) {
             }
 
             // The cursor: the sample on screen.
-            drawLine(cursor, Offset(w / 2, 0f), Offset(w / 2, h), strokeWidth = 1.5.dp.toPx())
+            val cx = x(centerMs).coerceAtMost(w - 0.75.dp.toPx())
+            drawLine(cursor, Offset(cx, 0f), Offset(cx, h), strokeWidth = 1.5.dp.toPx())
 
             // Its combined throughput, top right: DL over UL, each in its line's colour.
             atCursor?.let { p ->

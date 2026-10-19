@@ -173,7 +173,9 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.19"
+        private const val EXPECTED_VERSION = "1.22.20"
+        /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
+        private val ROOT_DOMAINS = listOf("su", "magisk")
     }
 
     private var socket: LocalSocket? = null
@@ -277,9 +279,15 @@ class DiagClient(private val context: Context) {
         // aren't patched or slowed down on every round.
         if (!ruleTried && allowRootSocket().also { ruleTried = true }) {
             if (waitConnect(4)) return
-            Shell.cmd(launch).to(mutableListOf(), shellErr).exec()
-            if (waitConnect(12)) return
+            // Relaunch only a helper that has exited: a second one next to a
+            // running one fails with "Address already in use", hiding why the
+            // connection was refused.
+            if (!helperRunning()) {
+                Shell.cmd(launch).to(mutableListOf(), shellErr).exec()
+                if (waitConnect(12)) return
+            }
         }
+        if (helperRunning()) throw IOException("The DIAG helper is running, but the app can't connect to it")
         val stderr = if (err.exists()) err.readText().trim() else shellErr.joinToString("\n").trim()
         throw IOException(stderr.ifEmpty { "The DIAG helper didn't start" })
     }
@@ -292,6 +300,8 @@ class DiagClient(private val context: Context) {
         return false
     }
 
+    private fun helperRunning(): Boolean = Shell.cmd("pidof $BINARY_NAME >/dev/null").exec().isSuccess
+
     /** False when the app's root shell runs without effective capabilities. */
     private fun rootHasCapabilities(): Boolean {
         val cap = Shell.cmd("grep CapEff /proc/self/status").exec().out.firstOrNull()
@@ -299,19 +309,24 @@ class DiagClient(private val context: Context) {
         return cap.trimStart('0').isNotEmpty()
     }
 
-    /** Adds `allow untrusted_app su unix_stream_socket connectto` through the
-     *  root solution's live policy tool; true if one of them accepted it. */
+    /** Lets the app connect to the helper's socket, `allow untrusted_app <root
+     *  domain> unix_stream_socket connectto`, through the root solution's live
+     *  policy tool; true if a rule was accepted. The helper runs in the root
+     *  shell's domain: "su" on KernelSU, "magisk" on Magisk (Magisk 26 on the
+     *  OnePlus Nord: the "su" rule is accepted but doesn't apply). */
     private fun allowRootSocket(): Boolean {
-        val rule = "allow untrusted_app su unix_stream_socket connectto"
-        // A subshell: libsu's root shell is persistent, so a bare exit would end it.
-        val r = Shell.cmd(
-            "(for t in ksud /data/adb/ksud /data/adb/ksu/bin/ksud; do " +
-                "command -v \$t >/dev/null 2>&1 && \$t sepolicy patch '$rule' >/dev/null 2>&1 && exit 0; done; " +
-            "for t in magiskpolicy /data/adb/magisk/magiskpolicy; do " +
-                "command -v \$t >/dev/null 2>&1 && \$t --live '$rule' >/dev/null 2>&1 && exit 0; done; exit 1)"
-        ).exec()
-        AppLog.i(TAG, "SELinux connectto rule: ${if (r.isSuccess) "added" else "no tool accepted it"}")
-        return r.isSuccess
+        val added = ROOT_DOMAINS.filter { domain ->
+            val rule = "allow untrusted_app $domain unix_stream_socket connectto"
+            // A subshell: libsu's root shell is persistent, so a bare exit would end it.
+            Shell.cmd(
+                "(for t in ksud /data/adb/ksud /data/adb/ksu/bin/ksud; do " +
+                    "command -v \$t >/dev/null 2>&1 && \$t sepolicy patch '$rule' >/dev/null 2>&1 && exit 0; done; " +
+                "for t in magiskpolicy /data/adb/magisk/magiskpolicy; do " +
+                    "command -v \$t >/dev/null 2>&1 && \$t --live '$rule' >/dev/null 2>&1 && exit 0; done; exit 1)"
+            ).exec().isSuccess
+        }
+        AppLog.i(TAG, "SELinux connectto rule: ${if (added.isEmpty()) "no tool accepted it" else "added for $added"}")
+        return added.isNotEmpty()
     }
 
     /** A helper that's exiting can keep the file busy (ETXTBSY) briefly. */
