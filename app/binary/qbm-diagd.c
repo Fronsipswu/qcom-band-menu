@@ -43,7 +43,9 @@
  * Checked on X55, X60, X65, X70 (SM8550), X75 and X85 logs, 2026-10-12.
  * Only C-RNTI and SPS-C-RNTI grants are counted (no paging/SI/RA).
  */
+#ifndef QBM_NATIVE_TEST
 #include <android/dlext.h>
+#endif
 #include <dlfcn.h>
 #include <math.h>
 #include <errno.h>
@@ -52,6 +54,9 @@
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <inttypes.h>
+#include <stdarg.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +68,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.20"
+#define HELPER_VERSION "1.23.0"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -113,6 +118,13 @@ struct slot {
 struct ca_cell { int known; uint32_t earfcn; int pci, band, bw_raw, state; };
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+/* Only touched while lock is held. Last-value/configuration records need an
+ * observation marker even when their new value equals the previous value. */
+static int capture_enabled;
+static struct { unsigned lte_config, lte_live, lte_tx, nr_live, nr_tb, nr_csf;
+    int nr_config, nr_serving, saw_lte_ta, saw_nr_ta, rrc; } capture_marks;
+#define CAP_MARK(field, slot) do { if (capture_enabled) capture_marks.field |= 1U << (slot); } while (0)
+#define CAP_FLAG(field) do { if (capture_enabled) capture_marks.field = 1; } while (0)
 
 /* Dual SIM: with the DCI extended header (diag_dci_set_version 1) every log
  * names its subscription (1 = SIM 1, 2 = SIM 2), and each SIM keeps its own
@@ -141,7 +153,17 @@ static volatile int stopping = 0;
 static volatile sig_atomic_t stop_flag = 0;
 
 static void on_signal(int s) { (void)s; stop_flag = 1; }
-static long now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000L + t.tv_nsec / 1000000; }
+#ifdef QBM_NATIVE_TEST
+static uint64_t test_mono_ns, test_boot_ns;
+#endif
+static uint64_t clock_ns(clockid_t clock) {
+#ifdef QBM_NATIVE_TEST
+    if (test_mono_ns) return clock == CLOCK_BOOTTIME ? test_boot_ns : test_mono_ns;
+#endif
+    struct timespec t; clock_gettime(clock, &t);
+    return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+}
+static long now_ms(void) { return (long)(clock_ns(CLOCK_MONOTONIC) / 1000000ULL); }
 static uint16_t le16(const uint8_t *p) { return p[0] | (p[1] << 8); }
 static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 
@@ -305,7 +327,7 @@ static void b126(const uint8_t *p, int n) {
         s->rank[at(rec, L->rank)]++;
         s->scheme[at(rec, L->scheme)]++;
         int tx = txmap[at(rec, L->tx)];
-        if (tx) s->tx = tx;
+        if (tx) { s->tx = tx; CAP_MARK(lte_tx, carrier); }
         s->rx = rxmap[at(rec, L->rx)];
     }
 }
@@ -342,6 +364,7 @@ static void b184(const uint8_t *p, int n) {
         ca[slot].state = (int)at(c, L->s_state) + L->state_add; /* normalized: 0 absent, 1 deactivated, 2 activated */
     }
     ca_seen = 1;
+    if (capture_enabled) capture_marks.lte_config = (1U << SLOTS) - 1;
 }
 
 /* ML1 measurement scales; null codes skipped. */
@@ -553,6 +576,7 @@ static void b193(const uint8_t *p, int n) {
             live[i].earfcn = pk[i].earfcn;
             live[i].pci = pk[i].pci;
             live[i].at_ms = now_ms();
+            CAP_MARK(lte_live, i);
         }
     }
 }
@@ -591,6 +615,8 @@ static void ta_store(struct ta *t, int value) {
     t->value = value;
     t->ms = now_ms();
     t->bound = 0;
+    if (t == &lte_ta) CAP_FLAG(saw_lte_ta);
+    if (t == &nr_ta) CAP_FLAG(saw_nr_ta);
 }
 
 /* Ties a stored TA to the current serving cell; returns whether it may be
@@ -697,6 +723,7 @@ static void b179(const uint8_t *p, int n) {
     live[slot].earfcn = earfcn;
     live[slot].pci = pci;
     live[slot].at_ms = now_ms();
+    CAP_MARK(lte_live, slot);
     if (slot > 0) b179_scells = 1;
 }
 
@@ -843,6 +870,7 @@ static void b825(const uint8_t *p, int n) {
     if (cc_n < 0 || cc_n > 32 || pos + cc_n * stride > n) return;
     memset(nrcc, 0, sizeof nrcc);
     nr_b825_seen = 1;
+    CAP_FLAG(nr_config);
     for (int i = 0; i < cc_n; i++, pos += stride) {
         const uint8_t *c = p + pos;
         /* The CC Id is only where the cell is kept (cells are matched to
@@ -878,6 +906,7 @@ static void b823(const uint8_t *p, int n) {
     nr_pcell_arfcn = at(p, L->dl_arfcn);
     nr_pcell_band = L->band.bits && fits(L->band, n) ? (int)at(p, L->band) : 0;
     nr_pcell_ms = now_ms();
+    CAP_FLAG(nr_serving);
 }
 
 /* The B825 cell with this PCI and NR-ARFCN (SSB or DL), or NULL. */
@@ -945,6 +974,7 @@ static void b887(const uint8_t *p, int n) {
              * Other FR2 codes are unconfirmed and left unknown. */
             if (L->band_type.bits && at(it, L->band_type)) nrtb[cc].bw_mhz = bwc == 1 ? 100 : 0;
             nrtb[cc].scs_khz = mu < 4 ? 15 << mu : 0;
+            CAP_MARK(nr_tb, cc);
             struct nr_slot *s = &nrwin[cc];
             int size = at(it, L->tb_size), crc = at(it, L->crc);
             s->tb++;
@@ -1073,6 +1103,7 @@ static void b97f(const uint8_t *p, int n) {
                 nrlive[cc].earfcn = arfcn;
                 nrlive[cc].pci = pci;
                 nrlive[cc].at_ms = now_ms();
+                CAP_MARK(nr_live, cc);
             }
             pos += cell_bytes + beams * beam_bytes;
         }
@@ -1279,18 +1310,29 @@ static void b8a7(const uint8_t *payload, int size) {
             nrwin[carrier].ri = at(report, layout->ri) + 1;
             nrwin[carrier].cqi = at(report, layout->cqi);
             nrwin[carrier].have_csf = 1;
+            CAP_MARK(nr_csf, carrier);
         }
     }
 }
+
+static double bw_mhz(int raw);
+static int scheme_to_tm(int s);
+static int argmax(const long *v, int n);
+static const char *MOD_NAMES[5];
+#include "qbm_capture.h"
 
 /* DCI log: [u16 len][u16 code][u64 timestamp][payload]. With the extended
  * header: [0x98][1][2 reserved][u32 subscription][i32 -1][log] (seen on
  * SM8550 with two SIMs; every log carries it). */
 static void on_log(unsigned char *ptr, int len) {
     if (len < 12 || stopping) return;
+    uint64_t received_boot_ns = clock_ns(CLOCK_BOOTTIME), received_mono_ns = clock_ns(CLOCK_MONOTONIC);
+    const unsigned char *raw = ptr;
+    int raw_len = len, tagged = 0;
     int sub = 1;
     if (len >= 24 && (int32_t)le32(ptr + 8) == -1 && le16(ptr + 12) + 12 == len) {
         sub = (int)le32(ptr + 4);
+        tagged = 1;
         ptr += 12;
         len -= 12;
     }
@@ -1301,6 +1343,11 @@ static void on_log(unsigned char *ptr, int len) {
     pthread_mutex_lock(&lock);
     sim = sub - 1;
     rrc_csi_select(sim);
+    struct capture_snapshot before;
+    if (capture_enabled) {
+        capture_snapshot_take(&before);
+        memset(&capture_marks, 0, sizeof capture_marks);
+    }
     last_log_ms = now_ms();
     n_logs++;
     if (code == 0xB173) b173(pl, pn);
@@ -1320,7 +1367,8 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB825) b825(pl, pn);
     else if (code == 0xB823) b823(pl, pn);
     else if (code == 0xB88A) b88a(pl, pn);
-    else if (code == 0xB821) rrc_csi_b821(pl, pn);
+    else if (code == 0xB821) { rrc_csi_b821(pl, pn); CAP_FLAG(rrc); }
+    if (capture_enabled) capture_packet(&before, raw, raw_len, ptr, code, tagged, received_boot_ns, received_mono_ns);
     pthread_mutex_unlock(&lock);
 }
 static void on_event(unsigned char *p, int len) { (void)p; (void)len; }
@@ -1391,7 +1439,7 @@ static int write_stats(char *out, size_t cap, int for_sim) {
     long now = now_ms(), ms = now - window_start;
     if (ms < 1) ms = 1;
     size_t o = 0;
-#define PUT(...) do { int k = snprintf(out + o, o < cap ? cap - o : 0, __VA_ARGS__); if (k > 0) o += (size_t)k; } while (0)
+#define PUT(...) do { int k = snprintf(out + (o < cap ? o : cap), o < cap ? cap - o : 0, __VA_ARGS__); if (k > 0) o += (size_t)k; } while (0)
     PUT("{\"ok\":true,\"version\":\"%s\",\"lib\":\"%s\",\"ms\":%ld,\"logs\":%ld,\"sim\":%d,\"sim_tags\":%s,\"ca_known\":%s,\"carriers\":[",
         HELPER_VERSION, lib_route, ms, n_logs, sim + 1, sim_tags ? "true" : "false", ca_seen ? "true" : "false");
     int first = 1;
@@ -1569,6 +1617,13 @@ static int write_stats(char *out, size_t cap, int for_sim) {
     /* The last random access's TA, as the raw index. */
     if (!silent && show_lte_ta) PUT(",\"lte_ta\":%d", lte_ta.value);
     if (!silent && show_nr_ta) PUT(",\"nr_ta\":%d", nr_ta.value);
+    if (capture_enabled) {
+        struct json_buffer aggregates = {0};
+        capture_window(&aggregates);
+        if (!aggregates.failed) PUT(",\"aggregates\":%s,\"windowStartMonoNs\":\"%" PRIu64 "\",\"windowEndMonoNs\":\"%" PRIu64 "\"",
+            aggregates.data, (uint64_t)(window_start * 1000000ULL), (uint64_t)(now * 1000000ULL));
+        free(aggregates.data);
+    }
     PUT("}\n");
 #undef PUT
     /* Every SIM's window restarts: the next answer for either SIM covers the
@@ -1618,6 +1673,7 @@ static int write_all(int fd, const char *s, size_t n) {
 #define LIBDIAG "/vendor/lib64/libdiag.so"
 typedef struct android_namespace_t *(*get_ns_t)(const char *);
 
+#ifndef QBM_NATIVE_TEST
 static void *open_libdiag(void) {
     char err1[512] = "skipped";
     const char *force = getenv("QBM_DIAG_FORCE_SPHAL");
@@ -1693,7 +1749,8 @@ int main(int argc, char **argv) {
     int cfd = -1;
     char in[512];
     size_t in_len = 0;
-    static char out[8192];
+    int discard_line = 0;
+    static char out[131072];
     while (!stop_flag && now_ms() - last_request < WATCHDOG_MS) {
         struct pollfd pf[2] = { { lfd, POLLIN, 0 }, { cfd, POLLIN, 0 } };
         if (poll(pf, cfd >= 0 ? 2 : 1, 500) < 0 && errno != EINTR) break;
@@ -1702,12 +1759,13 @@ int main(int argc, char **argv) {
             if (nfd >= 0) {
                 struct ucred cr;
                 socklen_t cl = sizeof cr;
-                if (getsockopt(nfd, SOL_SOCKET, SO_PEERCRED, &cr, &cl) < 0 || ((long)cr.uid != app_uid && cr.uid != 0)) {
+                if (getsockopt(nfd, SOL_SOCKET, SO_PEERCRED, &cr, &cl) < 0 || !capture_peer_allowed((long)cr.uid, app_uid)) {
                     close(nfd);
                 } else {
                     if (cfd >= 0) close(cfd);           /* newest client wins */
                     cfd = nfd;
                     in_len = 0;
+                    discard_line = 0;
                 }
             }
         }
@@ -1719,12 +1777,30 @@ int main(int argc, char **argv) {
             char *nl;
             while ((nl = strchr(in, '\n')) != NULL) {
                 *nl = 0;
-                if (strstr(in, "\"stats\"")) {
+                if (discard_line) {
+                    discard_line = 0; /* Drop the entire oversized request, not only its first chunk. */
+                } else {
+                struct capture_request request;
+                int valid = capture_parse_request(in, &request);
+                if (!valid) {
+                    write_all(cfd, "{\"ok\":false,\"error\":\"invalid_request\"}\n", 39);
+                } else if (!strcmp(request.cmd, "stats")) {
                     last_request = now_ms();
-                    const char *n_sim = strstr(in, "\"sim\":");
-                    int n = write_stats(out, sizeof out, n_sim ? atoi(n_sim + 6) : 1);
+                    int n = write_stats(out, sizeof out, request.sim);
                     if (n < 0 || write_all(cfd, out, (size_t)n) < 0) { close(cfd); cfd = -1; break; }
-                } else if (strstr(in, "\"stop\"")) {
+                } else if (!strcmp(request.cmd, "capture") || !strcmp(request.cmd, "events")) {
+                    last_request = now_ms();
+                    struct json_buffer response = {0};
+                    uint64_t reported_drops = 0;
+                    size_t drained = capture_command(&request, &response, &reported_drops);
+                    if (response.failed || write_all(cfd, response.data, response.length) < 0) {
+                        pthread_mutex_lock(&lock);
+                        capture_dropped += drained + reported_drops; capture_total_dropped += drained;
+                        pthread_mutex_unlock(&lock);
+                        free(response.data); close(cfd); cfd = -1; break;
+                    }
+                    free(response.data);
+                } else if (!strcmp(request.cmd, "stop")) {
                     write_all(cfd, "{\"ok\":true,\"stopping\":true}\n", 28);
                     stop_flag = 1;
                 } else {
@@ -1732,11 +1808,12 @@ int main(int argc, char **argv) {
                     int n = snprintf(msg, sizeof msg, "{\"ok\":true,\"version\":\"%s\"}\n", HELPER_VERSION);
                     write_all(cfd, msg, (size_t)n);
                 }
+                }
                 size_t used = (size_t)(nl - in) + 1;
                 memmove(in, nl + 1, in_len - used + 1);
                 in_len -= used;
             }
-            if (in_len >= sizeof in - 1) in_len = 0;    /* overlong line: drop */
+            if (in_len >= sizeof in - 1) { in_len = 0; discard_line = 1; }
         }
     }
 
@@ -1752,3 +1829,4 @@ int main(int argc, char **argv) {
     close(lfd);
     return 0;
 }
+#endif /* !QBM_NATIVE_TEST */

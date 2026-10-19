@@ -1,0 +1,7 @@
+{
+  "name": "qbm-offline-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline modem log replay, analysis and export. No runtime dependencies.",
+  "scripts": { "test": "node --test test/log-core.test.cjs test/test-core.test.cjs", "serve": "python -m http.server 8080 --bind 127.0.0.1" }
+}
