@@ -108,8 +108,11 @@ data class DataTestConfig(
                 if (username.isBlank()) add("Enter an FTP username.")
                 if (!path.startsWith('/')) add("Enter an absolute remote file path (download) or directory (upload).")
             }
-            DataTestKind.WEB_PAGE, DataTestKind.HTTP_DOWNLOAD, DataTestKind.HTTP_UPLOAD ->
+            DataTestKind.WEB_PAGE, DataTestKind.HTTP_DOWNLOAD, DataTestKind.HTTP_UPLOAD -> {
                 if (!validHttpUrl(url)) add("Enter an HTTP(S) URL without embedded credentials or a fragment.")
+                if (kind == DataTestKind.WEB_PAGE && isNbtc && !url.startsWith("http://"))
+                    add("The NBTC reference webpage uses HTTP. Use Custom for HTTPS pages.")
+            }
             DataTestKind.STREAMING -> {
                 if (!Regex("[A-Za-z0-9_-]{11}").matches(videoId)) add("Enter the 11-character YouTube video ID.")
                 if (effectiveVideoHeight !in listOf(144, 240, 360, 480, 720, 1080, 1440, 2160)) add("Select a valid video height.")
@@ -179,7 +182,11 @@ data class AttemptMeasurement(
     val playbackDurationMs: Long = 0,
     val contentVerified: Boolean = true,
     val error: String? = null,
-    val detail: String? = null
+    val detail: String? = null,
+    val serviceAccessed: Boolean = false,
+    val startupDelayMs: Double? = null,
+    /** False for unsupported/broken instrumentation; network failures remain valid observations. */
+    val measurementAvailable: Boolean = true
 ) {
     fun toJson(): JSONObject = JSONObject().put("bytes", bytes).put("durationMs", durationMs)
         .put("throughputMbps", throughputMbps ?: JSONObject.NULL).put("rttMs", rttMs ?: JSONObject.NULL)
@@ -188,13 +195,16 @@ data class AttemptMeasurement(
         .put("observedQuality", observedQuality ?: JSONObject.NULL).put("freezeDurationMs", freezeDurationMs)
         .put("playbackDurationMs", playbackDurationMs).put("contentVerified", contentVerified)
         .put("error", error ?: JSONObject.NULL).put("detail", detail ?: JSONObject.NULL)
+        .put("serviceAccessed", serviceAccessed).put("startupDelayMs", startupDelayMs ?: JSONObject.NULL)
+        .put("measurementAvailable", measurementAvailable)
 
     companion object {
         fun fromJson(j: JSONObject) = AttemptMeasurement(j.optLong("bytes"), j.optDouble("durationMs", 0.0),
             j.numberOrNull("throughputMbps"), j.numberOrNull("rttMs"), if (j.isNull("httpStatus")) null else j.getInt("httpStatus"),
             j.optBoolean("playbackStarted"), j.optBoolean("playbackCompleted"), j.numberOrNull("mediaDurationSeconds"),
             j.stringOrNull("observedQuality"), j.optLong("freezeDurationMs"), j.optLong("playbackDurationMs"),
-            j.optBoolean("contentVerified", true), j.stringOrNull("error"), j.stringOrNull("detail"))
+            j.optBoolean("contentVerified", true), j.stringOrNull("error"), j.stringOrNull("detail"),
+            j.optBoolean("serviceAccessed"), j.numberOrNull("startupDelayMs"), j.optBoolean("measurementAvailable", true))
     }
 }
 
@@ -222,6 +232,12 @@ data class DataTestReport(
     val environment: String = ""
 ) {
     fun toJson(): JSONObject = JSONObject().put("schemaVersion", 1).put("id", id).put("config", config.toJson())
+        .put("reference", "NBTC standard 2565 + amendment no.2/2567; measurement guidelines 2567, effective 2025-01-01; reviewed 2026-10-20")
+        .put("timeZone", "Asia/Bangkok").put("byteConvention", "decimal MB; Mbps = 1000000 bits/s")
+        .put("effectiveParameters", JSONObject().put("timeoutSeconds", config.effectiveTimeoutSeconds)
+            .put("transferBytes", config.effectiveTransferBytes).put("pingPayloadBytes", config.effectivePingPayloadBytes)
+            .put("videoHeight", config.effectiveVideoHeight).put("videoMinimumSeconds", config.effectiveVideoMinimumSeconds)
+            .put("parallelSessions", 1).put("minimumSamplesForArea", config.minimumSamples))
         .put("startedAtMs", startedAtMs).put("endedAtMs", endedAtMs ?: JSONObject.NULL).put("network", network)
         .put("environment", environment).put("stopReason", stopReason ?: JSONObject.NULL)
         .put("attempts", JSONArray(attempts.map { it.toJson() }))
@@ -233,7 +249,8 @@ data class DataTestReport(
         val header = listOf("session_id", "function", "mode", "declared_profile", "network", "operator", "location", "session_label",
             "attempt", "started_utc", "elapsed_realtime_ms", "outcome", "bytes", "duration_ms", "mbps", "rtt_ms", "http_status",
             "playback_started", "playback_completed", "media_duration_seconds", "quality", "freeze_ms", "playback_ms", "content_verified", "error", "detail",
-            "timeout_seconds", "expected_bytes", "ping_payload_bytes", "interval_seconds", "requested_repetitions", "endpoint", "limitations")
+            "timeout_seconds", "expected_bytes", "ping_payload_bytes", "interval_seconds", "requested_repetitions", "endpoint", "limitations",
+            "service_accessed", "startup_delay_ms", "measurement_available")
         val endpoint = when (config.kind) {
             DataTestKind.PING -> config.host
             DataTestKind.FTP_DOWNLOAD, DataTestKind.FTP_UPLOAD -> "${config.host}:${config.port}${config.path}"
@@ -246,7 +263,8 @@ data class DataTestReport(
                 a.elapsedRealtimeMs, a.outcome.name, bytes, durationMs, throughputMbps, rttMs, httpStatus, playbackStarted,
                 playbackCompleted, mediaDurationSeconds, observedQuality, freezeDurationMs, playbackDurationMs,
                 contentVerified, error, detail, config.effectiveTimeoutSeconds, config.effectiveTransferBytes,
-                config.effectivePingPayloadBytes, config.intervalSeconds, config.repetitions, endpoint, limitations().joinToString("; "))
+                config.effectivePingPayloadBytes, config.intervalSeconds, config.repetitions, endpoint, limitations().joinToString("; "),
+                serviceAccessed, startupDelayMs, measurementAvailable)
         }}).joinToString("\r\n", postfix = "\r\n") { row -> row.joinToString(",") { csvCell(it) } }
     }
 
@@ -264,7 +282,11 @@ data class DataTestReport(
             add("YouTube quality is manually verified; automatic resolution control is unavailable. Keep the player visible and avoid other traffic during measurement.")
         if (config.isNbtc && config.profile == NbtcProfile.UMTS)
             add("2024 guideline: 3G measurement is exempt where the operator provides a higher technology in the prescribed areas.")
-        if (attempts.any { !it.measurement.contentVerified }) add("Some content sizes or video resolutions could not be verified; corresponding results are unverified.")
+        if (attempts.any { it.outcome != AttemptOutcome.CANCELLED &&
+                (it.outcome == AttemptOutcome.SUCCESS || (config.kind == DataTestKind.STREAMING && it.measurement.playbackStarted)) && !it.measurement.contentVerified })
+            add("Some content sizes or video resolutions could not be verified; corresponding results are unverified.")
+        if (attempts.any { it.outcome != AttemptOutcome.CANCELLED && !it.measurement.measurementAvailable })
+            add("Some attempts could not be measured by the instrument; review their errors before interpreting the numerical results.")
         if (endedAtMs == null) add("Session has not finished.")
     }
 
@@ -299,7 +321,8 @@ fun DataTestReport.assess(): List<DataTestMetric> {
     val c = config
     val p = c.profile
     fun metric(name: String, value: Double?, unit: String, target: Double, atLeast: Boolean = true): DataTestMetric {
-        val unverified = eligible.any { !it.measurement.contentVerified }
+        val unverified = eligible.any { !it.measurement.measurementAvailable ||
+            ((it.outcome == AttemptOutcome.SUCCESS || (c.kind == DataTestKind.STREAMING && it.measurement.playbackStarted)) && !it.measurement.contentVerified) }
         val status = when {
             value == null -> "NO DATA"
             !c.isNbtc -> "CUSTOM"
@@ -310,6 +333,28 @@ fun DataTestReport.assess(): List<DataTestMetric> {
         return DataTestMetric(name, value, unit, (if (atLeast) ">= " else "<= ") + target + " " + unit, status)
     }
     fun ratio(n: Int, d: Int): Double? = if (d == 0) null else n * 100.0 / d
+    if (!c.isNbtc) {
+        fun custom(name: String, value: Double?, unit: String) = DataTestMetric(name, value, unit, "", "CUSTOM")
+        return when (c.kind) {
+            DataTestKind.PING -> listOf(
+                custom("Replies", ratio(successes.size, eligible.size), "%"),
+                custom("Mean RTT (replies)", successes.mapNotNull { it.measurement.rttMs }.averageOrNull(), "ms"),
+                custom("Packet loss", ratio(eligible.size - successes.size, eligible.size), "%"))
+            DataTestKind.WEB_PAGE -> listOf(
+                custom("Complete webpage loads", ratio(successes.size, eligible.size), "%"),
+                custom("Mean page load time (complete pages)", successes.map { it.measurement.durationMs }.averageOrNull(), "ms"))
+            DataTestKind.STREAMING -> {
+                val started = eligible.filter { it.measurement.playbackStarted }
+                val frozen = started.sumOf { it.measurement.freezeDurationMs }.toDouble()
+                val playing = started.sumOf { it.measurement.playbackDurationMs }.toDouble()
+                listOf(custom("Streaming accessibility", ratio(eligible.count { it.measurement.serviceAccessed || it.measurement.playbackStarted }, eligible.size), "%"),
+                    custom("Complete playback (started sessions)", ratio(started.count { it.measurement.playbackCompleted }, started.size), "%"),
+                    custom("Video freezing time", if (frozen + playing > 0) frozen * 100 / (frozen + playing) else null, "%"))
+            }
+            else -> listOf(custom("Completed transfers", ratio(successes.size, eligible.size), "%"),
+                custom("Mean transfer rate (successful transfers)", successes.mapNotNull { it.measurement.throughputMbps }.averageOrNull(), "Mbps"))
+        }
+    }
     return when (c.kind) {
         DataTestKind.PING -> listOf(
             metric("2.3.1 RTT < ${p.rttLimitMs.toInt()} ms", ratio(successes.count { (it.measurement.rttMs ?: Double.POSITIVE_INFINITY) < p.rttLimitMs }, eligible.size), "%", 80.0),
@@ -328,10 +373,11 @@ fun DataTestReport.assess(): List<DataTestMetric> {
             DataTestMetric("Mean page load time (complete pages)", successes.map { it.measurement.durationMs }.averageOrNull(), "ms", "", "MEASURED"))
         DataTestKind.STREAMING -> {
             val accessed = eligible.filter { it.measurement.playbackStarted }
+            val serviceAccessed = eligible.count { it.measurement.serviceAccessed || it.measurement.playbackStarted }
             val freeze = accessed.sumOf { it.measurement.freezeDurationMs }.toDouble()
             val playing = accessed.sumOf { it.measurement.playbackDurationMs }.toDouble()
-            listOf(metric("2.3.5 Streaming accessibility", ratio(accessed.size, eligible.size), "%", p.streamingTarget),
-                metric("2.3.6 Complete playback (accessed sessions)", ratio(accessed.count { it.measurement.playbackCompleted }, accessed.size), "%", p.streamingTarget),
+            listOf(metric("2.3.5 Streaming accessibility", ratio(serviceAccessed, eligible.size), "%", p.streamingTarget),
+                metric("2.3.6 Complete playback (started sessions)", ratio(accessed.count { it.measurement.playbackCompleted }, accessed.size), "%", p.streamingTarget),
                 metric("2.3.6/1 Video freezing time", if (freeze + playing > 0) freeze * 100 / (freeze + playing) else null, "%", 5.0, false))
         }
         else -> listOf(DataTestMetric("Completed transfers", ratio(successes.size, eligible.size), "%", "", "CUSTOM"),

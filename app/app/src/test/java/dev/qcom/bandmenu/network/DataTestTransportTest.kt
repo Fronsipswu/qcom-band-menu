@@ -262,6 +262,27 @@ class DataTestTransportTest {
         }
     }
 
+    @Test fun ftpUploadRateIncludesServerCompletionAcknowledgement() {
+        OneShotServer { s ->
+            val lines = ftpLogin(s)
+            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { passive ->
+                assertEquals("EPSV", lines.readLine())
+                reply(s, "229 Entering Extended Passive Mode (|||${passive.localPort}|)")
+                assertTrue(lines.readLine().startsWith("STOR /incoming/qbm-"))
+                reply(s, "150 Starting")
+                passive.accept().use { assertEquals(5, it.getInputStream().readBytes().size) }
+                Thread.sleep(150) // Payload can be buffered locally before a slow uplink delivers it.
+                reply(s, "226 Completed")
+                assertEquals("QUIT", lines.readLine())
+            }
+        }.use { server ->
+            val result = execute(config(DataTestKind.FTP_UPLOAD, server.port).copy(path = "/incoming"))
+            assertTrue("duration=${result.durationMs}", result.durationMs >= 140.0)
+            assertEquals(5 * 8.0 / (result.durationMs * 1000), result.throughputMbps!!, 0.00000001)
+            assertTrue(result.detail!!.contains("server completion reply"))
+        }
+    }
+
     @Test fun cancellingBlockedTransferClosesOwnedSocketsAndDoesNotAffectNextAttempt() {
         val waiting = CountDownLatch(1)
         val done = Executors.newSingleThreadExecutor()
@@ -325,6 +346,20 @@ class DataTestTransportTest {
         val failed = failed { DataTestTransport.parsePingOutput("ping: socket: Operation not permitted", 2, 32) }
         assertTrue(failed.error!!.contains("command failed"))
         assertFalse(failed.contentVerified)
+    }
+
+    @Test fun icmpArgumentsSupportLegacyIpv4AndBothIpv6Executables() {
+        val ipv4 = DataTestTransport.pingArguments("192.0.2.10", false, "rmnet_data0", 32, 5, false)
+        assertEquals("/system/bin/ping", ipv4.first())
+        assertFalse(ipv4.contains("-4"))
+        assertFalse(ipv4.contains("-6"))
+        assertEquals(listOf("-I", "rmnet_data0", "192.0.2.10"), ipv4.takeLast(3))
+        val dedicated = DataTestTransport.pingArguments("2001:db8::1", true, "rmnet_data0", 32, 5, true)
+        assertEquals("/system/bin/ping6", dedicated.first())
+        assertFalse(dedicated.contains("-6"))
+        val shared = DataTestTransport.pingArguments("2001:db8::1", true, "rmnet_data0", 32, 5, false)
+        assertEquals(listOf("/system/bin/ping", "-6"), shared.take(2))
+        assertEquals("2001:db8::1", shared.last())
     }
 
     private fun ftpLogin(socket: Socket): BufferedReader {

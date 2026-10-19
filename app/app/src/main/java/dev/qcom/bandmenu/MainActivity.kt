@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
         // even though onDestroy is not reliably called by the system.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                dev.qcom.bandmenu.network.TrafficTest.get(applicationContext).stop("App closed")
                 Thread {
                     daemonHolder.networkMonitor.stopDiagBlocking()
                     daemonManager.stopBlocking()
@@ -1231,6 +1232,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isFinishing) dev.qcom.bandmenu.network.TrafficTest.get(applicationContext).stop("App closed")
         // Closing the app ends the poller, so replay's background service too.
         if (isFinishing) ReplayService.stop(applicationContext)
         super.onDestroy()

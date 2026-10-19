@@ -3,6 +3,7 @@ package dev.qcom.bandmenu.network
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.Closeable
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.InterruptedIOException
@@ -213,7 +214,8 @@ object DataTestTransport {
             val transfer = control.track(io.openSocket(conn.inetAddress.hostAddress!!, port, timeout(c)))
             data = transfer
             transfer.soTimeout = timeout(c)
-            // Application approximation of ETSI Method B: successful data connect to final payload byte.
+            // Application approximation of ETSI Method B. UL waits for server acknowledgement:
+            // the last local socket write can precede delivery by an entire kernel send buffer.
             transferStart = System.nanoTime()
             protocol.expect(protocol.command("${if (upload) "STOR" else "RETR"} $remotePath"), setOf(125, 150), "transfer start")
             val buffer = ByteArray(BUFFER_SIZE)
@@ -247,15 +249,16 @@ object DataTestTransport {
             data = null
             if (bytes != expected) throw IOException("Incomplete FTP transfer: $bytes of $expected bytes")
             protocol.expect(protocol.readReply(), setOf(226, 250), "transfer completion")
+            val completedAt = System.nanoTime()
             control.check()
-            val duration = ((lastByteAt - transferStart) / 1e6).coerceAtLeast(0.001)
+            val duration = (((if (upload) completedAt else lastByteAt) - transferStart) / 1e6).coerceAtLeast(0.001)
             // QUIT is courtesy cleanup; its response cannot invalidate an acknowledged transfer.
             runCatching { protocol.send("QUIT") }
             return AttemptMeasurement(bytes = bytes, durationMs = duration,
-                throughputMbps = mbps(bytes, duration), detail = "Remote path: $remotePath; application Method B timing")
+                throughputMbps = mbps(bytes, duration), detail = "Remote path: $remotePath; application Method B timing; " +
+                    if (upload) "UL through server completion reply" else "DL through last payload byte")
         } catch (e: Exception) {
-            val duration = if (transferStart > 0 && lastByteAt >= transferStart)
-                ((lastByteAt - transferStart) / 1e6).coerceAtLeast(0.001) else elapsed(attemptStart)
+            val duration = elapsed(if (transferStart > 0) transferStart else attemptStart)
             throw MeasurementException(AttemptMeasurement(bytes = bytes, durationMs = duration,
                 detail = "Remote path: $remotePath; application Method B timing", error = safeError(e, c)), e)
         } finally {
@@ -270,9 +273,8 @@ object DataTestTransport {
             if (io.interfaceName.isBlank()) throw IOException("Cellular interface is unavailable for ICMP")
             val address = io.resolve(c.host)
             control.check()
-            val base = listOf("/system/bin/ping", if (address is Inet6Address) "-6" else "-4",
-                "-c", "1", "-s", c.effectivePingPayloadBytes.toString(),
-                "-W", c.effectiveTimeoutSeconds.toString(), "-I", io.interfaceName, address.hostAddress!!)
+            val base = pingArguments(address.hostAddress!!, address is Inet6Address, io.interfaceName,
+                c.effectivePingPayloadBytes, c.effectiveTimeoutSeconds, File("/system/bin/ping6").canExecute())
             var result = runPing(base.toMutableList().also { it.add(1, "-n") }, control)
             // Toybox variants omit -n; a literal destination still avoids reverse lookup configuration.
             if (result.first != 0 && unsupportedNumericOption(result.second)) result = runPing(base, control)
@@ -282,7 +284,7 @@ object DataTestTransport {
         } catch (e: MeasurementException) {
             throw MeasurementException(e.measurement.copy(durationMs = elapsed(start)), e)
         } catch (e: Exception) {
-            throw MeasurementException(AttemptMeasurement(durationMs = elapsed(start), contentVerified = false,
+            throw MeasurementException(AttemptMeasurement(durationMs = elapsed(start), contentVerified = false, measurementAvailable = false,
                 error = "ICMP execution failed: ${safeError(e, c)}"), e)
         }
     }
@@ -317,21 +319,29 @@ object DataTestTransport {
         val sent = counts?.groupValues?.get(1)?.toIntOrNull()
         val received = counts?.groupValues?.get(2)?.toIntOrNull()
         if (sent != 1 || received == null || received !in 0..1)
-            throw MeasurementException(AttemptMeasurement(contentVerified = false,
+            throw MeasurementException(AttemptMeasurement(contentVerified = false, measurementAvailable = false,
                 error = "ICMP command failed (exit $exit): ${output.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "no output"}"))
         if (received == 0)
             throw MeasurementException(AttemptMeasurement(error = "ICMP packet lost (1 sent, 0 received)"))
-        if (exit != 0) throw MeasurementException(AttemptMeasurement(contentVerified = false, error = "ICMP command failed (exit $exit)"))
+        if (exit != 0) throw MeasurementException(AttemptMeasurement(contentVerified = false, measurementAvailable = false, error = "ICMP command failed (exit $exit)"))
         val summary = Regex("(?:rtt|round-trip)[^=]*=\\s*[0-9.]+/([0-9.]+)/").find(output)
         val reply = Regex("time=\\s*([0-9.]+)\\s*ms").find(output)
         val rtt = (summary?.groupValues?.get(1) ?: reply?.groupValues?.get(1))?.toDoubleOrNull()
         if (rtt == null || !rtt.isFinite() || rtt < 0)
-            throw MeasurementException(AttemptMeasurement(contentVerified = false, error = "ICMP response has no measurable round-trip time"))
+            throw MeasurementException(AttemptMeasurement(contentVerified = false, measurementAvailable = false, error = "ICMP response has no measurable round-trip time"))
         return AttemptMeasurement(bytes = payload.toLong(), rttMs = rtt)
     }
 
     private fun unsupportedNumericOption(output: String): Boolean =
         Regex("(?i)(?:invalid|unknown|unrecognized|bad) option[^\\n]*['\" ]-?n(?:['\" :]|$)").containsMatchIn(output)
+
+    internal fun pingArguments(address: String, ipv6: Boolean, iface: String, payload: Int,
+        timeoutSeconds: Int, ping6Available: Boolean): List<String> = buildList {
+        add(if (ipv6 && ping6Available) "/system/bin/ping6" else "/system/bin/ping")
+        // Older Android iputils ping has no -4 switch. A literal IPv4 address is sufficient.
+        if (ipv6 && !ping6Available) add("-6")
+        addAll(listOf("-c", "1", "-s", payload.toString(), "-W", timeoutSeconds.toString(), "-I", iface, address))
+    }
 
     internal fun parseEpsvPort(reply: String): Int {
         val body = reply.substringAfterLast('(', "").substringBefore(')', "")

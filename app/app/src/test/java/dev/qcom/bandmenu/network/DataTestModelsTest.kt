@@ -177,6 +177,33 @@ class DataTestModelsTest {
     }
 
     @Test
+    fun serviceAccessAndPlaybackStartHaveSeparateDenominators() {
+        val metrics = report(defaultConfig.copy(kind = DataTestKind.STREAMING), listOf(
+            attempt(AttemptOutcome.TIMED_OUT, AttemptMeasurement(serviceAccessed = true)),
+            attempt(measurement = AttemptMeasurement(serviceAccessed = true, playbackStarted = true, playbackCompleted = true))
+        )).assess()
+        assertEquals(100.0, metrics[0].value!!, 0.0)
+        assertEquals(100.0, metrics[1].value!!, 0.0)
+    }
+
+    @Test
+    fun customMeasurementsNeverExportRegulatoryTargets() {
+        for (kind in DataTestKind.entries) {
+            val result = report(defaultConfig.copy(kind = kind, custom = true), listOf(attempt())).assess()
+            assertTrue(result.all { it.target.isEmpty() && it.status == "CUSTOM" && !it.name.startsWith("2.3.") })
+        }
+    }
+
+    @Test
+    fun measuredFailuresAreAssessedButInstrumentFailuresAreNot() {
+        val c = defaultConfig.copy(kind = DataTestKind.WEB_PAGE)
+        val failed = attempt(AttemptOutcome.FAILED, AttemptMeasurement(httpStatus = 500, contentVerified = false))
+        assertEquals("BELOW SESSION TARGET", report(c, listOf(failed)).assess().first().status)
+        val unsupported = failed.copy(measurement = failed.measurement.copy(measurementAvailable = false))
+        assertEquals("UNVERIFIED", report(c, listOf(unsupported)).assess().first().status)
+    }
+
+    @Test
     fun unverifiedContentAndCustomRunsCannotReceiveNbtcPassingStatus() {
         val sample = attempt(measurement = AttemptMeasurement(throughputMbps = 30.0, contentVerified = false))
         val config = defaultConfig.copy(kind = DataTestKind.FTP_DOWNLOAD, profile = NbtcProfile.NR_SA_2600)
@@ -261,7 +288,9 @@ class DataTestModelsTest {
             "https://example.com:0", "https://example.com:65536", "https:///file", "javascript:alert(1)")) {
             assertTrue(url, defaultConfig.copy(kind = DataTestKind.WEB_PAGE, url = url).validationErrors().isNotEmpty())
         }
-        assertTrue(defaultConfig.copy(kind = DataTestKind.WEB_PAGE, url = "https://example.com/page?q=1").validationErrors().isEmpty())
+        assertTrue(defaultConfig.copy(kind = DataTestKind.WEB_PAGE, url = "http://example.com/page?q=1").validationErrors().isEmpty())
+        assertTrue(defaultConfig.copy(kind = DataTestKind.WEB_PAGE, url = "https://example.com/page").validationErrors().isNotEmpty())
+        assertTrue(defaultConfig.copy(kind = DataTestKind.WEB_PAGE, custom = true, url = "https://example.com/page").validationErrors().isEmpty())
     }
 
     @Test

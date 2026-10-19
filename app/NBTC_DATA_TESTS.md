@@ -10,6 +10,51 @@ This reference was checked on 20 October 2026 against the supplied documents in
 `D:\Temp\NBTCRegulator` and the NBTC sources below. Page references are PDF page
 numbers, starting at 1, unless an annex page is explicitly identified.
 
+## Using the app
+
+1. Enable the intended Android default-data SIM and select the desired modem RAT
+   and band using the existing controls. Test traffic uses the available cellular
+   network; the modem's displayed SIM tab does not select the data subscription.
+2. Open **Test script**, choose a function, then an **NBTC preset** and radio profile
+   or **Custom**. Each function has independently saved settings. Configure the
+   endpoint, repetitions, idle interval and optional operator/site/session labels.
+   Custom exposes payload size, deadline and protocol-specific parameters.
+3. For an NBTC measurement, obtain the designated reference server IP, FTP account
+   and files, HTTP page, or reference YouTube video from the campaign organizer.
+   These documents contain no usable server addresses or credentials. Confirm the
+   reference-content checkbox only for the actual campaign assets. Check the
+   planned payload amount, especially 500 MB downloads repeated across a route.
+4. Save, then use the network screen's start button. Stop ends the run and retains
+   the partial session. Browser tests keep a visible page/player; leaving the app
+   interrupts the current browser measurement. Verify YouTube quality separately
+   for every attempt and play the entire video without pausing, seeking or changing
+   speed. Without quality confirmation, playback evidence remains unverified.
+5. Open **Test results** to browse sessions, numerical measurements, denominator
+   counts, errors and individual attempts. Export CSV or JSON through Android's
+   file picker. JSON includes settings, assessment and limitations; CSV contains
+   sample rows and context. FTP passwords are excluded from preferences and
+   reports and must be entered again after the app restarts.
+
+The latest **20 sessions** are retained in private app storage across restarts.
+Export evidence needed for longer campaigns before that history rolls over.
+The app does not submit or publish an operator's quarterly report.
+
+FTP upload creates a unique `qbm-<time>-<uuid>.bin` file inside the configured
+directory for each attempt. Files are **not deleted remotely**, including a
+possible partial file after interruption; arrange server-side cleanup. Custom
+HTTP downloads require the exact expected resource byte count, and HTTP uploads
+send a binary POST body to an endpoint that accepts it.
+
+Webpage mode measures a restricted, stable reference page and HTTP(S) GET
+subresources. Redirects, non-GET resource requests, workers and WebSockets are
+unsupported; compressed responses that ignore `Accept-Encoding: identity` fail
+verification. Configure the final HTTP URL for NBTC mode and final URLs for every
+resource. A general interactive website may fail these measurement restrictions
+even when it works in an ordinary browser. Browser timestamps and YouTube's
+buffering/loaded-fraction observations are application measurements, not a packet
+capture or frame-by-frame video analysis. Startup delay and later buffering are
+recorded separately.
+
 ## Sources and precedence
 
 | ID | Document | Relevant pages |
@@ -88,6 +133,8 @@ G2022 pp. 30/44 and N p. 6 print 1.25 **kilobits/s**. G2022 pp. 34/46 and N p. 8
 the average-download technology as non-2600 MHz. These are not silently adopted.
 The newer G pp. 32/34 and AIS pp. 14/16 correct the upload percentage and unit;
 AIS p. 20 also correctly restricts both average-bitrate targets to 5G on 2600 MHz.
+G pp. 38/50 still contain the incorrect non-2600 MHz label for the average-download
+row. The governing S definition and AIS's correctly labeled 2026 report are used.
 
 The documents specify Mbyte/kbyte without a binary/decimal definition. Presets use
 decimal MB (1,000,000 bytes); the operator must confirm the exact reference-object
@@ -137,10 +184,14 @@ Keep these calculations separate:
 
 For the G reference to E section 6.1.7 Method B, the start is completion of the
 FTP data socket TCP handshake and the finish is the last content packet. Socket
-API timestamps approximate these packet events; connection/login time must not
-be included in the reported data bitrate. Full request duration can be retained
-as a separate field. Packet-level certification requires an independently
-validated measurement chain.
+API timestamps approximate these packet events; connection/login time is not
+included in the reported data bitrate. Download timing ends at the last payload
+read. Upload timing conservatively ends at the server's successful completion
+reply: the last local socket write can merely enqueue bytes in the phone's send
+buffer and must not be treated as proof that the server has received them.
+The upload measurement therefore includes completion-reply overhead, which can
+understate packet-level throughput. Packet-level certification requires an
+independently validated measurement chain.
 
 KPI 2.3.11 formally averages rates at measurement positions. Without GPS and a
 campaign-wide position dataset, a run's sample mean is useful supporting evidence;
@@ -200,9 +251,8 @@ high demand are excluded. A profile selection records the intended technology;
 it does not prove that the modem stayed on that technology or band. RAT changes,
 roaming, Wi-Fi and VPN routing need to be accounted for in campaign review.
 
-The guideline also discusses computer tethering/WAN, TCP window settings and
-software affecting PC measurements. Those are campaign preparation instructions,
-not permission for this Android app to disable device security software.
+The guideline also discusses computer tethering/WAN and TCP window settings.
+Those are campaign preparation instructions for the applicable equipment.
 
 Sampling is geographic, not a universal minimum number per button press:
 
@@ -231,8 +281,8 @@ Exports should retain the selected profile or Custom settings, endpoints without
 passwords, timestamps/timezone, sample outcomes, bytes, durations, errors and
 aggregation denominators. Keep failed and cancelled observations distinguishable.
 Do not merge different technologies, directions, endpoints or reference-object
-settings into one unlabeled compliance percentage. Export raw evidence before
-starting another session if results are only kept for the current session.
+settings into one unlabeled compliance percentage. Export raw evidence before the
+20-session history limit removes older reports.
 
 Operator NMS outage statistics, activation time, billing complaints and call-centre
 service metrics require operator records and cannot be inferred from a handset

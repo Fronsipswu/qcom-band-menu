@@ -103,6 +103,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableIntStateOf
 import dev.qcom.bandmenu.network.TrafficTest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.saveable.rememberSaveable
+import android.net.Uri
+import android.widget.Toast
+import java.io.File
+import java.util.UUID
 import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -183,7 +190,61 @@ fun NetworkScreen(
     val test = remember { TrafficTest.get(context) }
     val testConfig by test.config.collectAsState()
     val testRun by test.run.collectAsState()
+    val testReports by test.reports.collectAsState()
+    val browserTask by test.browser.collectAsState()
     var showTestSetup by remember { mutableStateOf(false) }
+    var showTestResults by remember { mutableStateOf(false) }
+    var pendingExport by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingReportId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingJson by rememberSaveable { mutableStateOf(true) }
+    var exportPickerLaunched by rememberSaveable { mutableStateOf(false) }
+    fun finishExport(uri: Uri?) {
+        val name = pendingExport ?: return
+        pendingExport = null
+        pendingReportId = null
+        exportPickerLaunched = false
+        val appContext = context.applicationContext
+        reportExportScope.launch {
+            val error = withContext(Dispatchers.IO) {
+                val source = File(appContext.cacheDir, name)
+                try {
+                    if (uri != null) {
+                        appContext.contentResolver.openOutputStream(uri, "wt")?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                            ?: error("Could not open the selected document")
+                    }
+                    null
+                } catch (e: Exception) { e.message ?: "Export failed" }
+                finally { source.delete() }
+            }
+            if (uri != null) withContext(Dispatchers.Main) {
+                Toast.makeText(appContext, error ?: "Test report exported", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val exportJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), ::finishExport)
+    val exportCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv"), ::finishExport)
+    // Preparation restarts after rotation; an already-open document picker is never launched twice.
+    LaunchedEffect(pendingExport, testReports.isNotEmpty()) {
+        val name = pendingExport ?: return@LaunchedEffect
+        if (exportPickerLaunched) return@LaunchedEffect
+        val report = testReports.firstOrNull { it.id == pendingReportId } ?: return@LaunchedEffect
+        val prepared = withContext(Dispatchers.IO) {
+            runCatching { File(context.cacheDir, name).writeText(if (pendingJson) report.toJson().toString(2) else report.toCsv()) }
+        }
+        if (prepared.isSuccess) {
+            val filename = "data-test-${report.startedAtMs}.${if (pendingJson) "json" else "csv"}"
+            exportPickerLaunched = true
+            try {
+                if (pendingJson) exportJson.launch(filename) else exportCsv.launch(filename)
+            } catch (e: Exception) {
+                finishExport(null)
+                Toast.makeText(context, "Could not open the document picker: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            finishExport(null)
+            Toast.makeText(context, "Could not prepare export: ${prepared.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     // Replay of the recorded rounds while frozen: the slider picks the sample
     // shown in place of the live reading; unfreezing drops it.
@@ -447,7 +508,10 @@ fun NetworkScreen(
         IconButton(
             onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                if (testRun.running) test.stop() else if (!test.start()) showTestSetup = true
+                if (testRun.running) test.stop() else if (!test.start()) {
+                    showTestSetup = true
+                    test.run.value.error?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+                }
             },
             modifier = Modifier.align(Alignment.TopStart).padding(top = topBarInset + 8.dp, start = 8.dp)
         ) {
@@ -460,9 +524,25 @@ fun NetworkScreen(
         TestScriptDialog(
             show = showTestSetup,
             config = testConfig,
+            running = testRun.running,
+            onSelect = { test.select(it) },
             onDismiss = { showTestSetup = false },
             onSave = { test.save(it); showTestSetup = false }
         )
+        DataTestResultsDialog(
+            show = showTestResults,
+            reports = testReports,
+            onDismiss = { showTestResults = false },
+            onExport = { report, json ->
+                if (pendingExport == null) {
+                    pendingReportId = report.id
+                    pendingJson = json
+                    exportPickerLaunched = false
+                    pendingExport = "test-export-${UUID.randomUUID()}.tmp"
+                }
+            }
+        )
+        BrowserTestDialog(task = browserTask, onStop = { test.stop() })
         // Padlock (freeze), then the menu.
         Row(
             modifier = Modifier.align(Alignment.TopEnd).padding(top = topBarInset + 8.dp, end = 8.dp),
@@ -495,6 +575,7 @@ fun NetworkScreen(
                             onClick = { onReplayToggle(!state.replayEnabled) }
                         ),
                         DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
+                        DropdownItem(text = "Test results", onClick = { showTestResults = true }),
                         DropdownItem(
                             text = "Keep screen on", selected = keepScreenOn,
                             onClick = { onKeepScreenOnToggle(!keepScreenOn) }
@@ -561,16 +642,19 @@ private fun ReplayBar(
     }
 }
 
+/** Document copies continue if the user rotates or navigates away after choosing a destination. */
+private val reportExportScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
 /** Top-bar subtitle while the test script runs (or after it failed to). */
 private fun testStatus(r: TrafficTest.Run): String = when {
     r.running -> buildString {
-        append(if (r.upload) "Upload" else "Download")
-        append(" | ").append(if (r.mbps >= 100) "%.0f".format(r.mbps) else "%.1f".format(r.mbps)).append(" Mbps")
+        append(r.title).append(" ").append(r.attempt).append("/").append(r.total)
+        append(" | ").append(r.phase)
         r.remaining?.let { append(" | %d:%02d".format(it / 60, it % 60)) }
         r.error?.let { append(" | ").append(it) }
     }
     r.error != null -> "Test stopped: ${r.error}"
-    else -> ""
+    else -> r.phase
 }
 
 @Composable
