@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Open, replay, explore and export Qualcomm Band Menu recordings locally in your browser.">
+  <title>QBM · Log Viewer</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="test-core.js" defer></script>
+  <script src="log-core.js" defer></script>
+  <script src="log-client.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="QBM Log Viewer home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>QBM <span class="brand-sub">Log Viewer</span></span></a>
+    <div class="header-actions"><span class="local-badge"><span></span> Local workspace</span><button id="demoButton" class="button quiet">Try demo</button><button id="openButton" class="button primary"><span aria-hidden="true">＋</span> Open files</button><button id="clearButton" class="button quiet" hidden>Clear</button></div>
+    <input id="fileInput" type="file" accept=".gz,.jsonl,.ndjson,.json,.csv,application/gzip,application/json,text/csv" multiple hidden>
+  </header>
+  <main>
+    <div id="errorBanner" class="notice error" role="alert" hidden><span id="errorMessage"></span><button id="dismissError" aria-label="Dismiss error">×</button></div>
+    <div id="loadingBanner" class="notice loading" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="loadingMessage">Reading and indexing your files…</span><button id="cancelLoad">Cancel</button></div>
+    <section id="welcome" class="welcome">
+      <div class="welcome-copy"><span class="eyebrow">QUALCOMM BAND MENU</span><h1>Your recording.<br><span>Every network detail.</span></h1><p>Replay a drive test, inspect individual metrics and take just the data you need. Everything stays in this browser.</p></div>
+      <button id="dropZone" class="drop-zone" aria-label="Open network recordings or test results">
+        <svg width="56" height="64" viewBox="0 0 56 64" fill="none" aria-hidden="true"><path d="M12 2h22l12 12v44a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4Z" stroke="currentColor" stroke-width="2"/><path d="M34 2v12h12M18 45V31m10 14V23m10 22V35" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+        <strong>Drop your log files here</strong><span>or click to browse</span><small>Compressed logs · JSON / NDJSON · test result JSON / CSV<br>Multiple recording segments can be opened together.</small>
+      </button>
+      <div class="welcome-features"><article><span class="feature-number">01</span><h2>Replay</h2><p>The recorded mobile view or packet updates, with a precise timeline.</p></article><article><span class="feature-number">02</span><h2>Explore</h2><p>Select metrics, compare carriers and zoom into the interval that matters.</p></article><article><span class="feature-number">03</span><h2>Export</h2><p>Choose fields and a time window. Download JSON, CSV or NDJSON.</p></article></div>
+    </section>
+    <section id="workspace" hidden>
+      <div class="recording-heading"><div><div class="eyebrow" id="recordingTag">RECORDING</div><h1 id="recordingName">Network recording</h1><p id="recordingDate" class="muted"></p></div><div class="recording-stats"><div><strong id="durationStat">—</strong><span>duration</span></div><div><strong id="uiStat">—</strong><span>UI records</span></div><div><strong id="packetStat">—</strong><span>packets</span></div></div></div>
+      <div id="warnings" class="notice warning" hidden></div>
+      <nav class="tabs" aria-label="Workspace views" role="tablist">
+        <button class="tab active" role="tab" aria-selected="true" aria-controls="replayPanel" id="replayTab" data-tab="replay">Replay</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="explorePanel" id="exploreTab" data-tab="explore">Explore</button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="testsPanel" id="testsTab" data-tab="tests">Test results <span id="testCount" class="count">0</span></button>
+        <button class="tab" role="tab" aria-selected="false" aria-controls="exportPanel" id="exportTab" data-tab="export">Export</button>
+      </nav>
+      <section class="filterbar" aria-label="Recording and time filters">
+        <label>Source<select id="sourceMode"><option value="ui">Original UI cadence</option><option value="packet">Packet updates</option></select></label>
+        <label>Session<select id="sessionFilter"><option value="">All sessions</option></select></label>
+        <label>SIM<select id="simFilter"><option value="0">All SIMs</option></select></label>
+        <label>Carrier / group<select id="entityFilter"><option value="">All groups</option></select></label>
+        <div class="time-filters"><label>From <span class="muted">(seconds)</span><input id="rangeStart" type="number" min="0" step="0.001" value="0"></label><span class="range-separator" aria-hidden="true">→</span><label>To <span class="muted">(seconds)</span><input id="rangeEnd" type="number" min="0" step="0.001" value="0"></label><button id="resetRange" class="icon-button" title="Reset to the full recording" aria-label="Reset time window">↺</button></div>
+      </section>
+      <div class="window-caption"><span id="windowCaption"></span><span id="queryState" role="status"></span></div>
+      <section id="replayPanel" class="tab-panel" role="tabpanel" aria-labelledby="replayTab">
+        <div class="replay-grid"><div class="replay-main">
+          <div class="section-heading"><h2>Network at cursor</h2><span id="replayModeBadge" class="pill">UI snapshot</span></div>
+          <div id="snapshotView" class="snapshot-view"></div>
+        </div><aside class="replay-aside"><div class="card cursor-card"><span class="eyebrow">CURSOR</span><strong id="cursorTime">00:00.000</strong><span id="cursorDate" class="muted"></span><dl id="eventDetails"></dl></div><div class="section-heading"><h2>Selected readings</h2><button id="editReadings" class="text-button">Choose metrics →</button></div><div id="readingsView" class="reading-list"></div></aside></div>
+        <div class="transport card"><div class="transport-top"><div class="transport-buttons"><button id="stepBack" class="icon-button" title="Back one second" aria-label="Back one second">−1s</button><button id="playButton" class="play-button" aria-label="Play recording" title="Play / pause · Space">▶</button><button id="stepForward" class="icon-button" title="Forward one second" aria-label="Forward one second">+1s</button><span id="transportPosition" class="mono">00:00 / 00:00</span></div><div class="transport-options"><label for="speedSelect">Speed</label><select id="speedSelect"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select><span class="keyboard-hint">Space to play · ← → to seek</span></div></div><input id="scrubber" type="range" min="0" max="1000" value="0" step="1" aria-label="Replay position"><div class="timeline-labels"><span id="timelineStart"></span><span id="timelineEnd"></span></div></div>
+      </section>
+      <section id="explorePanel" class="tab-panel" role="tabpanel" aria-labelledby="exploreTab" hidden>
+        <div class="analysis-grid"><aside class="card metric-sidebar"><div class="section-heading"><h2>Metrics</h2><span id="selectedCount" class="count">0</span></div><input id="metricSearch" type="search" placeholder="Search metrics or carriers" aria-label="Search metrics"><div class="small-actions"><button id="selectVisible" class="text-button">Select visible</button><button id="clearMetrics" class="text-button">Clear</button></div><div id="metricList" class="metric-list"></div></aside><div class="plot-area"><div class="plot-toolbar"><div><h2>Explore the recording</h2><p class="muted">Drag to select a time window. Scroll to zoom. Double-click to reset.</p></div><div class="plot-settings"><label>Sampling interval<select id="intervalSelect"><option value="0">Recorded timestamps</option><option value="100">100 ms</option><option value="250">250 ms</option><option value="500">500 ms</option><option value="1000">1 second</option><option value="5000">5 seconds</option></select></label><label>Calculation<select id="aggregationSelect"><option value="mobile">Mobile calculations</option><option value="locf">Last known value</option></select></label></div></div><div id="seriesNotes" class="muted notes"></div><div id="plots" class="plots"></div><div class="card table-card"><div class="section-heading"><h2>Selected interval statistics</h2><span class="muted">Selected output rows; carried values may repeat</span></div><div id="statsTable" class="table-scroll"></div></div></div></div>
+      </section>
+      <section id="testsPanel" class="tab-panel" role="tabpanel" aria-labelledby="testsTab" hidden>
+        <div id="testsEmpty" class="card empty-state"><h2>No test results in these files</h2><p>Open a test-result JSON or CSV exported by the mobile app. You can select it together with recording segments.</p><button id="openTestsButton" class="button">Open result files</button></div>
+        <div id="testsContent" hidden><div class="test-toolbar"><label>Test session<select id="reportSelect"></select></label><button id="fitTestRange" class="button quiet">Fit session interval</button></div><div id="testSummary" class="summary-grid"></div><div class="card table-card"><div class="section-heading"><h2>Measurements and targets</h2><span id="testRegime" class="pill"></span></div><p class="muted">Numerical session checks use the full report; they do not certify an operator. Trial charts follow the selected time window.</p><div id="testMetrics" class="table-scroll"></div></div><details id="userTargetPanel" class="card"><summary>User-defined comparison</summary><p>Compare a full-session mean with your own target. This does not change any NBTC or MIC requirement.</p><div class="export-options user-target-controls"><label>Measurement<select id="userTargetField"></select></label><label>Comparison<select id="userTargetComparator"><option value=">=">At least</option><option value="<=">At most</option></select></label><label>Target value<input id="userTargetValue" type="number" step="any" placeholder="Enter a target"></label><button id="applyUserTarget" class="button">Compare mean</button><button id="clearUserTarget" class="button quiet" hidden>Remove comparison</button></div></details><div class="card test-plot-options"><h2>Trial measurements</h2><div id="testFieldChoices" class="inline-choices"></div></div><div id="testPlots" class="plots"></div><details id="testNotes" class="card"><summary>Measurement notes</summary><div></div></details><div class="card table-card"><h2>Attempt evidence</h2><div id="testRows" class="table-scroll"></div></div></div>
+      </section>
+      <section id="exportPanel" class="tab-panel" role="tabpanel" aria-labelledby="exportTab" hidden>
+        <div class="export-grid"><aside class="card metric-sidebar"><div class="section-heading"><h2>Export fields</h2><span id="exportSelectedCount" class="count">0</span></div><input id="exportSearch" type="search" placeholder="Search fields" aria-label="Search export fields"><div class="small-actions"><button id="exportSelectVisible" class="text-button">Select visible</button><button id="exportClearFields" class="text-button">Clear</button></div><div id="exportFieldList" class="metric-list"></div></aside><div><div class="card export-config"><div><span class="eyebrow">EXPORT THE SELECTED INTERVAL</span><h2>Only the fields you need.</h2><p id="exportDescription" class="muted"></p></div><div class="export-options"><label>Dataset<select id="exportDataset"><option value="recording">Recording metrics</option><option value="test">Selected test session</option></select></label><label>Format<select id="exportFormat"><option value="csv">CSV · spreadsheet</option><option value="json">JSON · structured document</option><option value="ndjson">NDJSON · one record per line</option></select></label><label>Sampling interval <span class="muted">(ms)</span><input id="exportInterval" type="number" min="0" step="1" value="0"></label><button id="downloadButton" class="button primary" disabled>Download CSV</button></div><p class="muted small">0 keeps recorded timestamps. Null stays unavailable. Exports use full data, independent of chart display sampling.</p></div><div class="card table-card"><div class="section-heading"><h2>Preview</h2><span id="exportRowCount" class="count">0 rows</span></div><div id="exportNotes" class="muted notes"></div><div id="exportPreview" class="table-scroll"></div></div></div></div>
+      </section>
+    </section>
+    <footer><span>QBM Log Viewer</span><span>Offline by design · no uploads</span></footer>
+  </main>
+  <div id="dropOverlay" class="drop-overlay" hidden><div><strong>Drop files to open</strong><span>Logs and test results are processed locally.</span></div></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p class="notice error">Enable JavaScript to open and replay local recordings.</p></noscript>
+</body>
+</html>
