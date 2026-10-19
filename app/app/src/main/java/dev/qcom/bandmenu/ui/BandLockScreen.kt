@@ -1,7 +1,6 @@
 package dev.qcom.bandmenu.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
@@ -423,6 +422,9 @@ fun BandLockScreen(
     }
 }
 
+/** The Reset action's light red (no red token in the miuix scheme). */
+private val ResetRed = Color(0xFFEF5350)
+
 /**
  * The band-lock actions as one round button floating at the screen's bottom
  * right (as on KernelSU's modules page). Tapping it expands two smaller
@@ -455,9 +457,8 @@ private fun BandLockActionsFab(
         BandLockActionCircle(
             label = "Reset",
             icon = MiuixIcons.Reset,
-            container = MiuixTheme.colorScheme.surface,
-            content = MiuixTheme.colorScheme.onBackground,
-            bordered = true,
+            container = ResetRed,
+            content = Color.White,
             expanded = expanded,
             index = 1,
             progress = progress,
@@ -471,7 +472,6 @@ private fun BandLockActionsFab(
             icon = MiuixIcons.Ok,
             container = MiuixTheme.colorScheme.primary,
             content = MiuixTheme.colorScheme.onPrimary,
-            bordered = false,
             expanded = expanded,
             index = 0,
             progress = progress,
@@ -518,7 +518,6 @@ private fun BandLockActionCircle(
     icon: ImageVector,
     container: Color,
     content: Color,
-    bordered: Boolean,
     expanded: Boolean,
     index: Int,
     progress: Animatable<Float, AnimationVector1D>,
@@ -528,6 +527,9 @@ private fun BandLockActionCircle(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
+            // End padding shifts the 44 dp circle 6 dp left, so its centre
+            // sits on the 56 dp main button's axis (the Column is end-aligned).
+            .padding(end = 6.dp)
             .graphicsLayer {
                 val p = ((progress.value - index * 0.25f) / (1f - index * 0.25f)).coerceIn(0f, 1f)
                 alpha = p
@@ -549,10 +551,6 @@ private fun BandLockActionCircle(
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
                 .background(container)
-                .then(
-                    if (bordered) Modifier.border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(50))
-                    else Modifier
-                )
                 .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
             Text(label, fontSize = 12.sp, color = content, fontWeight = FontWeight.Medium)
@@ -561,11 +559,7 @@ private fun BandLockActionCircle(
             modifier = Modifier
                 .size(44.dp)
                 .clip(CircleShape)
-                .background(container)
-                .then(
-                    if (bordered) Modifier.border(1.dp, MiuixTheme.colorScheme.outline, CircleShape)
-                    else Modifier
-                ),
+                .background(container),
             contentAlignment = Alignment.Center
         ) {
             Icon(imageVector = icon, contentDescription = null, tint = content, modifier = Modifier.size(22.dp))
