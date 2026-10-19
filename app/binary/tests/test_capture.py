@@ -26,6 +26,11 @@ class CaptureTest(unittest.TestCase):
                         "-lm", "-ldl", "-pthread", "-o", str(binary)], check=True)
         run = subprocess.run([str(binary)], check=True, text=True, capture_output=True)
         cls.cases = {row["case"]: row["data"] for row in map(json.loads, run.stdout.splitlines())}
+        fixture = os.environ.get("QBM_CAPTURE_FIXTURE")
+        if fixture:
+            Path(fixture).write_text(json.dumps({"synthetic": True,
+                "description": "Actual native decoder output from synthetic DIAG packets; regenerate with test_capture.py harness",
+                "packets": cls.cases["packets"]["events"], "stats": cls.cases["stats_on"]}, indent=2) + "\n")
 
     @classmethod
     def tearDownClass(cls):

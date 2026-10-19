@@ -1,0 +1,921 @@
+{
+  "synthetic": true,
+  "description": "Actual native decoder output from synthetic DIAG packets; regenerate with test_capture.py harness",
+  "packets": [
+    {
+      "type": "packet",
+      "seq": 1,
+      "tNs": "8000000000",
+      "monoNs": "1000000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB184",
+      "raw": "9801000001000000ffffffff2c0084b1efcdab89674523011900010000000000720600000b00036400000000a40600001600033202000000",
+      "updates": [
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": 1650
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 11
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "state",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 2
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "band",
+          "unit": "band",
+          "aggregation": "last",
+          "value": 3
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "bw",
+          "unit": "MHz",
+          "aggregation": "last",
+          "value": 20
+        },
+        {
+          "entity": "lte:1",
+          "identity": "1700:22",
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": 1700
+        },
+        {
+          "entity": "lte:1",
+          "identity": "1700:22",
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 22
+        },
+        {
+          "entity": "lte:1",
+          "identity": "1700:22",
+          "metric": "state",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 2
+        },
+        {
+          "entity": "lte:1",
+          "identity": "1700:22",
+          "metric": "band",
+          "unit": "band",
+          "aggregation": "last",
+          "value": 3
+        },
+        {
+          "entity": "lte:1",
+          "identity": "1700:22",
+          "metric": "bw",
+          "unit": "MHz",
+          "aggregation": "last",
+          "value": 10
+        },
+        {
+          "entity": "lte:2",
+          "identity": null,
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:2",
+          "identity": null,
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:3",
+          "identity": null,
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:3",
+          "identity": null,
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:4",
+          "identity": null,
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:4",
+          "identity": null,
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:5",
+          "identity": null,
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:5",
+          "identity": null,
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:6",
+          "identity": null,
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:6",
+          "identity": null,
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:7",
+          "identity": null,
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": null
+        },
+        {
+          "entity": "lte:7",
+          "identity": null,
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": null
+        }
+      ],
+      "resets": [
+        "lte:2",
+        "lte:3",
+        "lte:4",
+        "lte:5",
+        "lte:6",
+        "lte:7"
+      ]
+    },
+    {
+      "type": "packet",
+      "seq": 2,
+      "tNs": "8005000000",
+      "monoNs": "1005000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB173",
+      "raw": "9801000001000000ffffffff280073b1efcdab8967452301060100000000000202008000e8030a0a02000000d007141404000000",
+      "updates": [
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "mcs",
+          "unit": "index",
+          "aggregation": "mean",
+          "value": 15,
+          "sum": 30,
+          "count": 2
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "mcs_all",
+          "unit": "index",
+          "aggregation": "mean",
+          "value": 15,
+          "sum": 30,
+          "count": 2
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "rbs",
+          "unit": "RB",
+          "aggregation": "mean",
+          "value": 15,
+          "sum": 30,
+          "count": 2
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "layers",
+          "unit": "layers",
+          "aggregation": "mean",
+          "value": 2,
+          "sum": 2,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "dl_bytes",
+          "unit": "bytes",
+          "aggregation": "sum",
+          "value": 3000
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "dl_good_bytes",
+          "unit": "bytes",
+          "aggregation": "sum",
+          "value": 1000
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "tb",
+          "unit": "count",
+          "aggregation": "sum",
+          "value": 2
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "fail",
+          "unit": "count",
+          "aggregation": "sum",
+          "value": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "bler",
+          "unit": "%",
+          "aggregation": "ratio",
+          "value": 50,
+          "numerator": 1,
+          "denominator": 2,
+          "scale": 100
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "mod",
+          "unit": "modulation",
+          "aggregation": "mode",
+          "value": "QPSK",
+          "counts": {
+            "QPSK": 1,
+            "16QAM": 1
+          },
+          "order": [
+            "QPSK",
+            "16QAM",
+            "64QAM",
+            "256QAM",
+            "1024QAM"
+          ]
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 3,
+      "tNs": "8025000000",
+      "monoNs": "1025000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB173",
+      "raw": "9801000001000000ffffffff280073b1efcdab8967452301060100000000000101008000f4010408020000000000000000000000",
+      "updates": [
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "mcs",
+          "unit": "index",
+          "aggregation": "mean",
+          "value": 4,
+          "sum": 4,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "mcs_all",
+          "unit": "index",
+          "aggregation": "mean",
+          "value": 4,
+          "sum": 4,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "rbs",
+          "unit": "RB",
+          "aggregation": "mean",
+          "value": 8,
+          "sum": 8,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "layers",
+          "unit": "layers",
+          "aggregation": "mean",
+          "value": 1,
+          "sum": 1,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "dl_bytes",
+          "unit": "bytes",
+          "aggregation": "sum",
+          "value": 500
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "dl_good_bytes",
+          "unit": "bytes",
+          "aggregation": "sum",
+          "value": 500
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "tb",
+          "unit": "count",
+          "aggregation": "sum",
+          "value": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "bler",
+          "unit": "%",
+          "aggregation": "ratio",
+          "value": 0,
+          "numerator": 0,
+          "denominator": 1,
+          "scale": 100
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "mod",
+          "unit": "modulation",
+          "aggregation": "mode",
+          "value": "QPSK",
+          "counts": {
+            "QPSK": 1
+          },
+          "order": [
+            "QPSK",
+            "16QAM",
+            "64QAM",
+            "256QAM",
+            "1024QAM"
+          ]
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 4,
+      "tNs": "8030000000",
+      "monoNs": "1030000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB8D8",
+      "raw": "9801000001000000ffffffff2400d8b8efcdab8967452301000002000000000400280000000000000000000000000000",
+      "updates": [
+        {
+          "entity": "nr:1",
+          "identity": null,
+          "metric": "sinr",
+          "unit": "dB",
+          "aggregation": "mean",
+          "value": 10,
+          "sum": 10,
+          "count": 1
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 5,
+      "tNs": "8035000000",
+      "monoNs": "1035000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB8D8",
+      "raw": "9801000001000000ffffffff2400d8b8efcdab8967452301000002000000000400900100000000000000000000000000",
+      "updates": [
+        {
+          "entity": "nr:1",
+          "identity": null,
+          "metric": "sinr",
+          "unit": "dB",
+          "aggregation": "mean",
+          "value": 20,
+          "sum": 20,
+          "count": 1
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 6,
+      "tNs": "8040000000",
+      "monoNs": "1040000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 2,
+      "simTagged": true,
+      "code": "0xB8A7",
+      "raw": "9801000002000000ffffffff4c00a7b8efcdab896745230100000200000000000000000000000001000000000100000020000000000000009001000000000000000000000000000000000000000000000000000000000000",
+      "updates": [
+        {
+          "entity": "nr:2",
+          "identity": null,
+          "metric": "cqi",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 12
+        },
+        {
+          "entity": "nr:2",
+          "identity": null,
+          "metric": "ri",
+          "unit": "layers",
+          "aggregation": "last",
+          "value": 3
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 7,
+      "tNs": "8045000000",
+      "monoNs": "1045000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 2,
+      "simTagged": true,
+      "code": "0xB8A7",
+      "raw": "9801000002000000ffffffff4c00a7b8efcdab896745230100000200000000000000000000000001000000000100000020000000000000009001000000000000000000000000000000000000000000000000000000000000",
+      "updates": [
+        {
+          "entity": "nr:2",
+          "identity": null,
+          "metric": "cqi",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 12
+        },
+        {
+          "entity": "nr:2",
+          "identity": null,
+          "metric": "ri",
+          "unit": "layers",
+          "aggregation": "last",
+          "value": 3
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 8,
+      "tNs": "8050000000",
+      "monoNs": "1050000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB193",
+      "raw": "9801000001000000ffffffffa00093b1efcdab8967452301010100001928900072060000010000000b10000000000000000000000000000000601300000000000000000000000000008025000000000040010000000000004001000000000000000000000000000000000000000000000000000000000000000000002c0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "updates": [
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "rsrp",
+          "unit": "dBm",
+          "aggregation": "mean",
+          "value": -102.5,
+          "sum": -102.5,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "rsrq",
+          "unit": "dB",
+          "aggregation": "mean",
+          "value": -10,
+          "sum": -10,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "sinr",
+          "unit": "dB",
+          "aggregation": "mean",
+          "value": 10,
+          "sum": 10,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": 1650
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 11
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 9,
+      "tNs": "8055000000",
+      "monoNs": "1055000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": true,
+      "code": "0xB193",
+      "raw": "9801000001000000ffffffffa00093b1efcdab8967452301010100001928900072060000010000000b10000000000000000000000000000000001400000000000000000000000000000028000000000040010000000000004001000000000000000000000000000000000000000000000000000000000000000000002c0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "updates": [
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "rsrp",
+          "unit": "dBm",
+          "aggregation": "mean",
+          "value": -100,
+          "sum": -100,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "rsrq",
+          "unit": "dB",
+          "aggregation": "mean",
+          "value": -10,
+          "sum": -10,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "sinr",
+          "unit": "dB",
+          "aggregation": "mean",
+          "value": 10,
+          "sum": 10,
+          "count": 1
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "earfcn",
+          "unit": "channel",
+          "aggregation": "last",
+          "value": 1650
+        },
+        {
+          "entity": "lte:0",
+          "identity": "1650:11",
+          "metric": "pci",
+          "unit": "index",
+          "aggregation": "last",
+          "value": 11
+        }
+      ],
+      "resets": []
+    },
+    {
+      "type": "packet",
+      "seq": 10,
+      "tNs": "8060000000",
+      "monoNs": "1060000000",
+      "modemTs": "0123456789abcdef",
+      "sim": 1,
+      "simTagged": false,
+      "code": "0xBEEE",
+      "raw": "1000eebeefcdab8967452301ff000000",
+      "updates": [],
+      "resets": []
+    }
+  ],
+  "stats": {
+    "ok": true,
+    "version": "1.23.0",
+    "lib": "default",
+    "ms": 100,
+    "logs": 10,
+    "sim": 1,
+    "sim_tags": true,
+    "ca_known": true,
+    "carriers": [
+      {
+        "slot": 0,
+        "earfcn": 1650,
+        "pci": 11,
+        "state": 2,
+        "band": 3,
+        "bw": 20.0,
+        "rsrp": -101.25,
+        "rsrq": -10.0,
+        "sinr": 10.0,
+        "tb": 3,
+        "mbps": 0.12,
+        "mbps_sched": 0.28,
+        "bler": 33.33,
+        "mcs": 11.33,
+        "mcs_all": 11.33,
+        "rbs": 12.67,
+        "mod": "QPSK",
+        "layers": 1.5
+      },
+      {
+        "slot": 1,
+        "earfcn": 1700,
+        "pci": 22,
+        "state": 2,
+        "band": 3,
+        "bw": 10.0,
+        "tb": 0,
+        "mbps": 0.0,
+        "mbps_sched": 0.0
+      }
+    ],
+    "nr": [],
+    "aggregates": [
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "rsrp",
+        "unit": "dBm",
+        "aggregation": "mean",
+        "value": -101.25,
+        "sum": -202.5,
+        "count": 2
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "rsrq",
+        "unit": "dB",
+        "aggregation": "mean",
+        "value": -10,
+        "sum": -20,
+        "count": 2
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "sinr",
+        "unit": "dB",
+        "aggregation": "mean",
+        "value": 10,
+        "sum": 20,
+        "count": 2
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "mcs",
+        "unit": "index",
+        "aggregation": "mean",
+        "value": 11.33333333,
+        "sum": 34,
+        "count": 3
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "mcs_all",
+        "unit": "index",
+        "aggregation": "mean",
+        "value": 11.33333333,
+        "sum": 34,
+        "count": 3
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "rbs",
+        "unit": "RB",
+        "aggregation": "mean",
+        "value": 12.66666667,
+        "sum": 38,
+        "count": 3
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "layers",
+        "unit": "layers",
+        "aggregation": "mean",
+        "value": 1.5,
+        "sum": 3,
+        "count": 2
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "dl_bytes",
+        "unit": "bytes",
+        "aggregation": "sum",
+        "value": 3500
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "dl_good_bytes",
+        "unit": "bytes",
+        "aggregation": "sum",
+        "value": 1500
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "ul_bytes",
+        "unit": "bytes",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "tb",
+        "unit": "count",
+        "aggregation": "sum",
+        "value": 3
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "fail",
+        "unit": "count",
+        "aggregation": "sum",
+        "value": 1
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "ul_tb",
+        "unit": "count",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "bler",
+        "unit": "%",
+        "aggregation": "ratio",
+        "value": 33.33333333,
+        "numerator": 1,
+        "denominator": 3,
+        "scale": 100
+      },
+      {
+        "entity": "lte:0",
+        "identity": "1650:11",
+        "metric": "mod",
+        "unit": "modulation",
+        "aggregation": "mode",
+        "value": "QPSK",
+        "counts": {
+          "QPSK": 2,
+          "16QAM": 1
+        },
+        "order": [
+          "QPSK",
+          "16QAM",
+          "64QAM",
+          "256QAM",
+          "1024QAM"
+        ]
+      },
+      {
+        "entity": "lte:1",
+        "identity": "1700:22",
+        "metric": "dl_bytes",
+        "unit": "bytes",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:1",
+        "identity": "1700:22",
+        "metric": "dl_good_bytes",
+        "unit": "bytes",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:1",
+        "identity": "1700:22",
+        "metric": "ul_bytes",
+        "unit": "bytes",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:1",
+        "identity": "1700:22",
+        "metric": "tb",
+        "unit": "count",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:1",
+        "identity": "1700:22",
+        "metric": "fail",
+        "unit": "count",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "lte:1",
+        "identity": "1700:22",
+        "metric": "ul_tb",
+        "unit": "count",
+        "aggregation": "sum",
+        "value": 0
+      },
+      {
+        "entity": "nr:1",
+        "identity": null,
+        "metric": "sinr",
+        "unit": "dB",
+        "aggregation": "mean",
+        "value": 15,
+        "sum": 30,
+        "count": 2
+      }
+    ],
+    "windowStartMonoNs": "1000000000",
+    "windowEndMonoNs": "1100000000"
+  }
+}

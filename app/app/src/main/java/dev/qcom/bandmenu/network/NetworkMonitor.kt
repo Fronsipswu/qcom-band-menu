@@ -10,6 +10,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -34,7 +36,8 @@ class NetworkMonitor(
     private val daemon: DaemonManager,
     private val diag: DiagClient,
     private val scope: CoroutineScope,
-    private val recorder: ReplayRecorder? = null
+    private val recorder: ReplayRecorder? = null,
+    val archive: NetworkArchive? = null
 ) {
     data class State(
         val sim: Int = 1,
@@ -79,9 +82,34 @@ class NetworkMonitor(
     private val cachedName = arrayOfNulls<String>(2)
     /** Per SIM: NR columns' CSI-RS ports and LTE columns' Tx antennas held while idle. */
     private val portHold = Array(2) { PortHold() }
+    private var archiveEnabledDiag = false
+    private var archiveWasRunning = false
 
-    fun setVisible(v: Boolean) { visible = v; reschedule() }
-    fun setResumed(v: Boolean) { resumed = v; reschedule() }
+    init {
+        archive?.let { log -> scope.launch {
+            log.status.map { Triple(it.active, it.busy, it.packetCapture) }.distinctUntilChanged().collect { (active, busy, packets) ->
+                if (active) archiveWasRunning = true
+                if (active && packets && !_state.value.diagEnabled) {
+                    archiveEnabledDiag = true
+                    _state.update { it.copy(diagEnabled = true, diagError = null) }
+                }
+                if (!active && !busy && archiveWasRunning) {
+                    archiveWasRunning = false
+                    if (archiveEnabledDiag) { archiveEnabledDiag = false; setDiagEnabled(false) }
+                    else if (!_state.value.diagEnabled) scope.launch(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
+                }
+                reschedule()
+                if (active) log.recordUi(_state.value, visible, resumed)
+            }
+        } }
+    }
+
+    fun setVisible(v: Boolean) { visible = v; recordPresentation("visibility"); reschedule() }
+    fun setResumed(v: Boolean) { resumed = v; recordPresentation("lifecycle"); reschedule() }
+    private fun recordPresentation(reason: String) {
+        archive?.recordState(reason, JSONObject().put("sim", _state.value.sim).put("visible", visible).put("resumed", resumed).put("frozen", _state.value.frozen))
+        archive?.recordUi(_state.value, visible, resumed)
+    }
 
     /** Turns DIAG on (the next round starts the helper) or off (unsubscribes
      *  and stops it; the CA table goes back to QMI only). */
@@ -90,12 +118,15 @@ class NetworkMonitor(
         if (on) {
             if (visible && resumed) scope.launch { round() }
         } else {
+            archiveEnabledDiag = false
             scope.launch {
-                withContext(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
+                if (archive?.packetCapture != true && archive?.status?.value?.busy != true)
+                    withContext(Dispatchers.IO) { roundLock.withLock { diag.stop() } }
                 // Drop the DIAG rows at once instead of waiting for the next round.
                 if (visible && resumed) round()
             }
         }
+        recordPresentation("diag")
     }
 
     /** Stops the DIAG helper if it runs. Blocking; for app shutdown. */
@@ -114,6 +145,7 @@ class NetworkMonitor(
 
     fun setFrozen(f: Boolean) {
         _state.update { it.copy(frozen = f) }
+        recordPresentation("freeze")
         reschedule()
     }
 
@@ -122,6 +154,7 @@ class NetworkMonitor(
         // Drop the other SIM's data at once; never show SIM 1 under SIM 2. The
         // new SIM's own last reading (if any) shows until its round lands.
         _state.update { val last = it.lastBySim[sim]; it.copy(sim = sim, snapshot = last?.snapshot, operatorName = last?.operatorName, error = null) }
+        recordPresentation("sim")
         if (visible && resumed) scope.launch { round(fresh = true) }
         reschedule()
     }
@@ -135,7 +168,7 @@ class NetworkMonitor(
     }
 
     private fun reschedule() {
-        val run = (visible && resumed && !_state.value.frozen) || _state.value.replayEnabled
+        val run = (visible && resumed && !_state.value.frozen) || _state.value.replayEnabled || archive?.active == true
         if (run && loop?.isActive != true) {
             loop = scope.launch {
                 while (isActive) {
@@ -156,7 +189,10 @@ class NetworkMonitor(
         val result = withContext(Dispatchers.IO) { readRound(sim, fresh, withDiag) }
         // A SIM switch during the round makes its result stale. Frozen (replay
         // keeps polling), only pull-to-refresh and SIM switches are shown.
-        if (_state.value.sim != sim) return@withLock
+        if (_state.value.sim != sim) {
+            archive?.recordState("poll-not-published-sim-changed", JSONObject().put("sim", sim))
+            return@withLock
+        }
         // The chart's history follows the rounds, frozen or not.
         result.getOrNull()?.takeIf { it.mbps != null }?.let { r ->
             val t = r.snapshot.takenAtElapsedMs
@@ -167,6 +203,7 @@ class NetworkMonitor(
             }
         }
         if (_state.value.frozen && !fresh) {
+            val before = _state.value
             result.getOrNull()?.let { r ->
                 if (withDiag) {
                     _state.update {
@@ -175,6 +212,8 @@ class NetworkMonitor(
                     }
                 }
             }
+            if (before != _state.value) archive?.recordUi(_state.value, visible, resumed)
+            archive?.recordState("poll-not-published-frozen", JSONObject().put("sim", sim))
             return@withLock
         }
         result.fold(
@@ -198,10 +237,12 @@ class NetworkMonitor(
             },
             onFailure = { e -> _state.update { it.copy(error = e.message ?: "Read failed") } }
         )
+        val raw = result.getOrNull()?.takeIf { it.snapshot.takenAtElapsedMs == _state.value.snapshot?.takenAtElapsedMs }?.raw
+        archive?.recordUi(_state.value, visible, resumed, raw)
     }
 
     private class RoundResult(val snapshot: NetworkSnapshot, val name: String?, val diagError: String?, val diagFailed: Boolean,
-        val mbps: Double? = null, val ulMbps: Double? = null)
+        val mbps: Double? = null, val ulMbps: Double? = null, val raw: JSONObject? = null)
 
     private fun readRound(sim: Int, fresh: Boolean, withDiag: Boolean): Result<RoundResult> = runCatching {
         if (!daemon.isReady.value && !daemon.hasConnectedOnce) throw IllegalStateException("Waiting for the daemon…")
@@ -227,12 +268,20 @@ class NetworkMonitor(
             namedPlmn[sim - 1] = key
         }
         val name = cachedName[sim - 1].takeIf { key != null && key == namedPlmn[sim - 1] }
+        val archiveReads = JSONObject()
+        NetworkReads.ROUND.forEachIndexed { index, key ->
+            val read = rawReads.getJSONObject(index)
+            archiveReads.put(key, if (read.optString("status") == "ok") read.optString("rx") else "!${read.optString("status")}")
+        }
+        val archiveRaw = JSONObject().put("r", archiveReads).put("reads", rawReads).put("diagMode", withDiag)
+            .put("d", if (diagStats != null) diag.lastStatsJson else JSONObject.NULL)
+        archive?.recordPoll(sim, archiveRaw, snap)
         if (_state.value.replayEnabled) recorder?.let {
             val elapsed = SystemClock.elapsedRealtime()
             it.append(elapsed, ReplayFormat.encode(sim, elapsed, snap.roundMs, name, nrHardwareBands,
                 NetworkReads.ROUND, rawReads, if (diagStats != null) diag.lastStatsJson else null))
         }
-        RoundResult(snap, name, diagError, withDiag && diagStats == null, diagStats?.totalMbps, diagStats?.totalUlMbps)
+        RoundResult(snap, name, diagError, withDiag && diagStats == null, diagStats?.totalMbps, diagStats?.totalUlMbps, archiveRaw)
     }
 
     /** The recording of [sim] so far, for the replay while frozen. Blocking. */

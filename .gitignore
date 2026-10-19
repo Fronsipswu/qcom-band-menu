@@ -10,3 +10,5 @@
 **/local.properties
 **/node_modules/
 web/.qa/
+**/__pycache__/
+*.pyc
