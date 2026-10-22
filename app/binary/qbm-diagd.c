@@ -68,7 +68,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.23"
+#define HELPER_VERSION "1.22.24"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -1565,20 +1565,51 @@ static int write_stats(char *out, size_t cap, int for_sim) {
      * only), its SCell list belongs to the old PCell. */
     int live0 = live[0].at_ms && now - live[0].at_ms < LIVE_MS;
     int b184_current = !live0 || (ca[0].known && ca[0].earfcn == live[0].earfcn && ca[0].pci == live[0].pci);
-    for (int i = 0; i < SLOTS && !silent; i++) {
+    /* Which carrier each slot is: B193's live serving record first (it
+     * follows handovers and reconfigurations even without a B184), then the
+     * last B184. Band, bandwidth and state come from B184 only when it names
+     * the same carrier. Shown HOLD_MS after its last record. */
+    int lte_live[SLOTS], lte_b184[SLOTS], lte_show[SLOTS], lte_gone[SLOTS];
+    uint32_t lte_ch[SLOTS];
+    for (int i = 0; i < SLOTS; i++) {
         struct slot *s = &win[i];
-        /* Which carrier this slot is: B193's live serving record first (it
-         * follows handovers and reconfigurations even without a B184), then
-         * the last B184. Band, bandwidth and state come from B184 only when
-         * it names the same carrier. Shown HOLD_MS after its last record. */
-        int is_live = live[i].at_ms && now - live[i].at_ms < HOLD_MS;
-        int b184_ok = ca[i].known && b184_current && (!is_live || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
+        lte_live[i] = live[i].at_ms && now - live[i].at_ms < HOLD_MS;
+        lte_b184[i] = ca[i].known && b184_current && (!lte_live[i] || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
+        lte_ch[i] = lte_live[i] ? live[i].earfcn : lte_b184[i] ? ca[i].earfcn : 0;
         /* An SCell needs a measurement within SCELL_GONE_MS where B179
          * reports SCells (see b179_scells); otherwise B184's list is the
          * authority. */
         int configured = i > 0 && b179_scells ? live[i].at_ms && now - live[i].at_ms < SCELL_GONE_MS
-                                              : is_live || (b184_ok && (i == 0 || ca[i].state > 0));
-        if (!configured && s->tb == 0 && s->ul_tb == 0 && s->n126 == 0 && s->n_rsrp == 0) continue;
+                                              : lte_live[i] || (lte_b184[i] && (i == 0 || ca[i].state > 0));
+        lte_show[i] = configured || s->tb || s->ul_tb || s->n126 || s->n_rsrp;
+    }
+    /* A carrier frequency is served once. When the modem moves an SCell to
+     * another slot, the old slot's last measurement is still held for a few
+     * seconds and would show the carrier twice (frequent with intra-band CA,
+     * e.g. two band 3 carriers swapping slots). Of the shown slots naming the
+     * same EARFCN, the one measured this window wins (around a swap the
+     * measurements can still come under the old slot for a second), then
+     * the one the current B184 lists, then the latest measured; the PCell
+     * and a slot that carried data this window always stay. */
+    for (int i = 0; i < SLOTS; i++) {
+        lte_gone[i] = 0;
+        if (i == 0 || !lte_show[i] || !lte_ch[i] || win[i].tb || win[i].ul_tb) continue;
+        int mi = win[i].n_rsrp || win[i].n_frsrp, si = 2 * mi + lte_b184[i];
+        for (int j = 0; j < SLOTS; j++) {
+            if (j == i || !lte_show[j] || lte_ch[j] != lte_ch[i]) continue;
+            int mj = win[j].n_rsrp || win[j].n_frsrp, sj = 2 * mj + lte_b184[j];
+            if (j == 0 || win[j].tb || win[j].ul_tb || sj > si ||
+                (sj == si && (live[j].at_ms > live[i].at_ms || (live[j].at_ms == live[i].at_ms && j < i)))) {
+                lte_gone[i] = 1;
+                break;
+            }
+        }
+    }
+    for (int i = 0; i < SLOTS && !silent; i++) {
+        struct slot *s = &win[i];
+        if (lte_gone[i] || !lte_show[i]) continue;
+        int is_live = lte_live[i];
+        int b184_ok = lte_b184[i];
         PUT("%s{\"slot\":%d", first ? "" : ",", i);
         first = 0;
         if (is_live || b184_ok) {
