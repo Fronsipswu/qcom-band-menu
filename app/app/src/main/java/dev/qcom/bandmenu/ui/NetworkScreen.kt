@@ -619,6 +619,11 @@ private fun NetworkContent(
             ThroughputCard(thput, snap.takenAtElapsedMs)
         }
     }
+    // Below the chart (kept when the menu hides the chart).
+    if (state.diagEnabled && snap.mode != ServiceMode.WCDMA) {
+        val uplink = uplinkCarriers(snap)
+        if (uplink.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}uplink")) { UplinkCard(uplink) }
+    }
     if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top: once per
@@ -826,7 +831,7 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
 
 /** CA table: one column per carrier, one row per parameter. */
 @Composable
-private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false, endc: Boolean = false) = BoxWithConstraints {
+private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false, endc: Boolean = false, uplink: Boolean = false) = BoxWithConstraints {
     // Up to four carriers (P, S1, S2, S3) each column is fixed at the width
     // four columns share, and the columns sit from the left, so a lone PCell
     // isn't centred in empty space. From five carriers (S4) the columns share
@@ -864,6 +869,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
         text(it.role, color = if (it.role == "P" || it.role == "MCG" || it.role == "SCG") MiuixTheme.colorScheme.primary
             else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
+    if (uplink) { UplinkRows(::row, ::text, barMax, cellStyle); return@Column }
     if (nr) { NrRows(::row, ::text, barMax, cellStyle); return@Column }
     row("Band") { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
@@ -946,6 +952,76 @@ private fun NrRows(
     // Values coloured as the chart's lines.
     r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
     r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+}
+
+/** The uplink card: the CA table's columns with the PUSCH rows. */
+@Composable
+private fun UplinkCard(carriers: List<Carrier>) {
+    SmallTitle("Uplink", modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            CaTable(carriers, diag = true, uplink = true)
+        }
+    }
+}
+
+/**
+ * The uplink card's rows (DIAG), over the last round: LTE from B139 (RBs,
+ * modulation), B16D (MCS) and B16E (power); NR from B883 and B884. Layers
+ * and TX mode are NR only.
+ */
+@Composable
+private fun UplinkRows(
+    row: @Composable (String, Boolean, @Composable (Carrier) -> Unit) -> Unit,
+    text: @Composable (String?, Boolean, Color) -> Unit,
+    barMax: Dp,
+    cellStyle: TextStyle
+) {
+    val fg = MiuixTheme.colorScheme.onBackground
+    @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
+    @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
+    r("Band") { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
+    r("RBs") {
+        val (value, fill) = ulRbCell(it)
+        CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
+    }
+    r("MCS") {
+        val (value, fill) = ulMcsCell(it)
+        CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
+    }
+    r("Mod") { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
+    r("Layers") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+    r("TX mode") { t(it.nr?.ulTxMode) }
+    r("TX PWR") {
+        CellValueBar(it.diag?.ulPower ?: it.nr?.ulPower, MetricKind.TX_POWER, barMax,
+            if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
+    }
+    r("PHY UL") { t((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+}
+
+/**
+ * The uplink card's columns: the carriers of the CA, NR or ENDC table (one
+ * table for NSA, whatever the menu shows), the primaries (P, MCG, SCG)
+ * always and an SCell only in a round it sent something. Empty without DIAG.
+ */
+internal fun uplinkCarriers(snap: NetworkSnapshot): List<Carrier> {
+    val carriers = snap.endc?.carriers ?: snap.carrierGroups.filter { it.table }.flatMap { it.carriers }
+    if (carriers.none { it.diag != null || it.nr != null }) return emptyList()
+    return carriers.filter {
+        it.role == "P" || it.role == "MCG" || it.role == "SCG" || it.diag?.hasUplink == true || it.nr?.hasUplink == true
+    }
+}
+
+/** The uplink MCS cell of [c], as [mcsCell]. */
+internal fun ulMcsCell(c: Carrier): Pair<String?, Float?> {
+    val v = c.diag?.ulMcs ?: c.nr?.ulMcs ?: return null to null
+    return Math.round(v).toString() to fillFraction(v, 31.0)
+}
+
+/** The uplink RBs cell of [c], as [rbCell]. */
+internal fun ulRbCell(c: Carrier): Pair<String?, Float?> {
+    val v = c.diag?.ulRbs ?: c.nr?.ulRbs ?: return null to null
+    return Math.round(v).toString() to rbFraction(c.nr, v)
 }
 
 /**

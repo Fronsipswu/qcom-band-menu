@@ -24,6 +24,7 @@
  *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
  *       0xB139 PUSCH Tx Report: UL TB size, RBs, modulation, carrier slot
  *       0xB16E PUSCH Power Control: the actual PUSCH transmit power
+ *       0xB16D GM TX Report: PUSCH MCS
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
@@ -71,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.24"
+#define HELPER_VERSION "1.22.25"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -88,11 +89,11 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
-static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, /* LTE */
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, 0xB16D, /* LTE */
                             0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, 0xB884, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
                             0xB821 };                                   /* NR RRC */
-#define NCODES 20
+#define NCODES 21
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -104,9 +105,9 @@ struct slot {
     long recs, layers_sum;
     /* B139 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
-    /* The uplink card: B139 records with an RB count (RBs, modulation) and
-     * B16E's actual PUSCH power, means over the window */
-    long ul_recs, ul_rb_sum, ul_mod[6], n_ul_pwr;
+    /* The uplink card: B139 records with an RB count (RBs, modulation),
+     * B16D's PUSCH MCS and B16E's actual PUSCH power, means over the window */
+    long ul_recs, ul_rb_sum, ul_mod[6], ul_mcs_sum, ul_mcs_n, n_ul_pwr;
     double ul_pwr_sum;
     /* B126 */
     long n126, rank[4], scheme[16];
@@ -324,6 +325,35 @@ static void b16e(const uint8_t *p, int n) {
         int raw = (int)bits(r, 79, 8);
         win[carrier].ul_pwr_sum += raw >= 128 ? raw - 256 : raw;
         win[carrier].n_ul_pwr++;
+    }
+}
+
+/* LTE GM TX report (B16D v49 and v52, Airscreen 2.7.8's readers, every
+ * captured packet walking to its exact end): count at byte 3, records from
+ * byte 4 of 36 (v49) or 48 (v52) bytes plus 12 when CA (bit 57) is set.
+ * Channel type at bit 32 (1 PUSCH), carrier at 33/3; the PUSCH block starts
+ * at bit 96 (192 with CA), MCS at its bit 46/5. 29-31 only signal a
+ * retransmission's redundancy version. Walked completely first. */
+static void b16d(const uint8_t *p, int n) {
+    if (n < 4 || (p[0] != 49 && p[0] != 52)) return;
+    long add_mcs[SLOTS] = { 0 }, add_n[SLOTS] = { 0 };
+    int pos = 4;
+    for (int i = 0; i < p[3]; i++) {
+        if (pos + 8 > n) return;
+        const uint8_t *r = p + pos;
+        int with_ca = (int)bits(r, 57, 1);
+        int size = (p[0] == 49 ? 36 : 48) + 12 * with_ca;
+        if (size > n - pos) return;
+        pos += size;
+        int carrier = (int)bits(r, 33, 3), mcs = (int)bits(r, 96 + 96 * with_ca + 46, 5);
+        if (!bits(r, 32, 1) || carrier >= SLOTS || mcs > 28) continue;
+        add_mcs[carrier] += mcs;
+        add_n[carrier]++;
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        win[i].ul_mcs_sum += add_mcs[i];
+        win[i].ul_mcs_n += add_n[i];
     }
 }
 
@@ -1557,6 +1587,7 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB126) b126(pl, pn);
     else if (code == 0xB139) b139(pl, pn);
     else if (code == 0xB16E) b16e(pl, pn);
+    else if (code == 0xB16D) b16d(pl, pn);
     else if (code == 0xB184) b184(pl, pn);
     else if (code == 0xB193) b193(pl, pn);
     else if (code == 0xB168) b168(pl, pn);
@@ -1762,6 +1793,7 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             PUT(",\"ul_rbs\":%.2f", (double)s->ul_rb_sum / s->ul_recs);
             if (m >= 0) PUT(",\"ul_mod\":\"%s\"", UL_MOD_NAMES[m]);
         }
+        if (s->ul_mcs_n > 0) PUT(",\"ul_mcs\":%.2f", (double)s->ul_mcs_sum / s->ul_mcs_n);
         if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
