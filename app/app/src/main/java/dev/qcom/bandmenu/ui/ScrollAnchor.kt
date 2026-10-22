@@ -34,7 +34,10 @@ class ScrollAnchor(private val scroll: ScrollState) {
      * against it, and the bounce's clipped edge swept over the still cards.
      */
     var content: LayoutCoordinates? = null
-    /** The visible band in the scrolling container (below the top bar, above the navbar). */
+    /**
+     * The visible band (below the top bar, above the navbar) in [content]'s
+     * coordinates at scroll 0.
+     */
     var viewTop = 0f
     var viewBottom = 0f
 

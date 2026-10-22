@@ -336,15 +336,21 @@ fun NetworkScreen(
                         })
                     }
                     .onGloballyPositioned { c ->
-                        anchor.viewTop = topBarPx
-                        anchor.viewBottom = c.size.height - bottomPx
+                        // The visible band in the anchor's coordinates, which
+                        // start below the top bar's padding (see below).
+                        anchor.viewTop = 0f
+                        anchor.viewBottom = c.size.height - bottomPx - topBarPx
                     }
                     .verticalScroll(scrollState)
+                    .padding(top = topBarHeight)
+                    // Cards are measured below the top bar's padding: the bar
+                    // growing or shrinking (the test status line) moves the
+                    // page with it, as at the top, instead of the anchor
+                    // scrolling against the padding a frame late (a jump).
                     .onGloballyPositioned {
                         anchor.content = it
                         anchor.contentResized()
                     }
-                    .padding(top = topBarHeight)
                     .padding(bottom = navbarSpace + 16.dp + if (replayBar) 76.dp else 0.dp)
             ) {
                 TabRowWithContour(
