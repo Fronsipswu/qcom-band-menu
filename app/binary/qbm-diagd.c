@@ -877,15 +877,17 @@ static void b883(const uint8_t *p, int n) {
                 if (carrier < SLOTS) {
                     const uint8_t *b = p + pos;
                     int mcs = (int)at(b, L->mcs), mod = (int)at(b, L->mod), mode = (int)at(b, L->tx_mode);
+                    int table = (int)at(b, L->mcs_table);
                     add_tb[carrier]++;
                     add_bytes[carrier] += at(b, L->tb_size);
                     add_recs[carrier]++;
                     add_rbs[carrier] += at(b, L->rbs);
                     /* A DMRS port of 15 is unused. */
                     add_layers[carrier] += (at(b, L->ports[0]) != 15) + (at(b, L->ports[1]) != 15);
-                    /* 28-31 are reserved in the transform-precoding and
-                     * 256QAM tables (29-31 in the others): a retransmission. */
-                    if (mcs < 28) { add_mcs[carrier] += mcs; add_mcs_n[carrier]++; }
+                    /* Reserved indices only give a retransmission's
+                     * modulation: 29-31 in the 64QAM and low-SE tables,
+                     * 28-31 in the 256QAM and transform-precoding ones. */
+                    if (mcs <= (L->mcs28_tables >> table & 1 ? 28 : 27)) { add_mcs[carrier] += mcs; add_mcs_n[carrier]++; }
                     if (mod < 6) add_mod[carrier][mod]++;
                     if (mode < 3) last_mode[carrier] = mode + 1;
                 }
@@ -930,7 +932,7 @@ static void b883(const uint8_t *p, int n) {
 /* NR UL power control (B884 3.3 and 3.5): records of carriers of 16-byte
  * channel blocks. A PUSCH block (type 4) gives the carrier (bits 0-3), the
  * power-control transmit power (signed 12 bits at 8, 0.1 dB) and the
- * maximum transmit power (12 bits at 44, 0.1 dB); the power sent is the
+ * maximum transmit power (signed 12 bits at 44, 0.1 dB); the power sent is the
  * first capped at the second (matches the separate RF target log on every
  * checked block). Walked completely first, like B883. */
 static void b884(const uint8_t *p, int n) {
@@ -955,8 +957,9 @@ static void b884(const uint8_t *p, int n) {
                 int type = (int)bits(b, 4, 4), carrier = (int)bits(b, 0, 4);
                 if (type != 1 && type != 3 && type != 4 && type != 5) return;
                 if (type != 4 || carrier >= SLOTS) continue;
-                int raw = (int)bits(b, 8, 12);
-                double power = (raw >= 2048 ? raw - 4096 : raw) / 10.0, max = bits(b, 44, 12) / 10.0;
+                int raw = (int)bits(b, 8, 12), raw_max = (int)bits(b, 44, 12);
+                double power = (raw >= 2048 ? raw - 4096 : raw) / 10.0;
+                double max = (raw_max >= 2048 ? raw_max - 4096 : raw_max) / 10.0;
                 add_pwr[carrier] += power < max ? power : max;
                 add_n[carrier]++;
             }
