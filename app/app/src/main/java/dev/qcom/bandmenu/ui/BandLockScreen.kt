@@ -1304,7 +1304,7 @@ private fun FilterActiveHint() {
 }
 
 @Composable
-private fun FilterCheckboxGrid(
+internal fun FilterCheckboxGrid(
     bands: List<Int>,
     selected: Set<Int>,
     prefix: String,

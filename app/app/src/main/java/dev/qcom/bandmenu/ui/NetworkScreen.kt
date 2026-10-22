@@ -3,6 +3,8 @@ package dev.qcom.bandmenu.ui
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
@@ -31,7 +33,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
@@ -43,12 +44,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,7 +87,7 @@ import dev.qcom.bandmenu.network.Field
 import dev.qcom.bandmenu.network.formatNrNci
 import dev.qcom.bandmenu.network.Metric
 import dev.qcom.bandmenu.network.MetricKind
-import dev.qcom.bandmenu.network.Neighbor
+import dev.qcom.bandmenu.network.asLockTarget
 import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.nrFrequencyRange
@@ -162,6 +161,9 @@ fun NetworkScreen(
     gnbBitsSim1: Int = 22,
     gnbBitsSim2: Int = 22,
     onGnbBitsCycle: (Int) -> Unit = {},
+    /** The app-wide band filter (the Bands page's toggles); hides neighbours. */
+    bandFilter: dev.qcom.bandmenu.BandFilterState = dev.qcom.bandmenu.BandFilterState(),
+    hardware: dev.qcom.bandmenu.HardwareBands = dev.qcom.bandmenu.HardwareBands(),
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -264,7 +266,7 @@ fun NetworkScreen(
         if (replayBar) replay?.round(replayPos) else null
     }
 
-    LaunchedEffect(isActive) { monitor.setVisible(isActive) }
+    LaunchedEffect(isActive) { monitor.setVisible(NetworkMonitor.OWNER_NETWORK, isActive) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -278,7 +280,7 @@ fun NetworkScreen(
         monitor.setResumed(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            monitor.setVisible(false)
+            monitor.setVisible(NetworkMonitor.OWNER_NETWORK, false)
         }
     }
 
@@ -397,7 +399,12 @@ fun NetworkScreen(
                                     LocalSnapSignalBars provides (sim == state.sim && replayRound != null)
                                 ) {
                                     NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
-                                        endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
+                                        endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage },
+                                        // Same band filter as the Cell-Lock page: a band
+                                        // the user hid isn't listed as a neighbour here either.
+                                        neighbourFilter = if (bandFilter.enabled)
+                                            dev.qcom.bandmenu.SimBandFilter.effectiveFilter(bandFilter, hardware, sim - 1)
+                                        else null)
                                 }
                             }
                         }
@@ -577,7 +584,9 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 @Composable
 private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
-    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null
+    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null,
+    /** Bands to show in the neighbour list; null shows every band. */
+    neighbourFilter: dev.qcom.bandmenu.SimBandFilter? = null
 ) {
     val p = "${snap.sim}:"
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
@@ -628,12 +637,25 @@ private fun NetworkContent(
     }
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
+    val neighbours = if (neighbourFilter == null) snap.neighbors
+        else snap.neighbors.filter { neighbourFilter.allows(it.band) }
+    val hiddenNeighbours = snap.neighbors.size - neighbours.size
     if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}neighbours")) {
-        Expandable("Neighbour cells (${snap.neighbors.size})") {
-            if (snap.neighbors.isEmpty()) {
-                Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            } else NeighborRows(snap.neighbors)
+        Expandable("Neighbour cells (${neighbours.size})") {
+            if (neighbours.isEmpty()) {
+                Text(
+                    if (hiddenNeighbours > 0) "No neighbour cells on the selected bands."
+                    else "No neighbour cells reported.",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            } else NeighbourTable(neighbours.map { it.asLockTarget() })
+            if (hiddenNeighbours > 0) Text(
+                "$hiddenNeighbours hidden by the band filter.",
+                modifier = Modifier.padding(top = 6.dp),
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
         }
     }
     if (snap.failedReads.isNotEmpty()) {
@@ -961,12 +983,12 @@ private fun fittedCellStyle(carriers: List<Carrier>, columnWidth: Dp): TextStyle
 }
 
 /** Per-band display colour for a single LTE ("B3") or NR ("n41") band label. */
-private fun bandColor(band: String?): Color? {
+internal fun bandColor(band: String?): Color? {
     val n = band?.trimStart('B', 'n')?.toIntOrNull() ?: return null
     return BAND_COLORS[n]?.let(::Color)
 }
 
-private val BAND_COLORS = mapOf(
+internal val BAND_COLORS = mapOf(
     1 to 0xFFEE8700, 2 to 0xFF3F70EE, 3 to 0xFF81A83D, 4 to 0xFFFF01FC, 5 to 0xFFDFCA02, 6 to 0xFFBF9309,
     7 to 0xFFCB0481, 8 to 0xFFA96B2F, 9 to 0xFF5FEE1D, 10 to 0xFF077E1E, 11 to 0xFF49CDF0, 12 to 0xFF8B1CC3,
     13 to 0xFFCD6B95, 14 to 0xFF0FBB67, 15 to 0xFF510A3A, 16 to 0xFF93590C, 17 to 0xFFD5A8DE, 18 to 0xFF17F8B0,
@@ -993,7 +1015,7 @@ private val BAND_COLORS = mapOf(
 
 /** CA / NR table values: the bar values, and the emphasised rows (Band,
  *  PHY DL / UL). Both normal weight; were Medium and SemiBold. */
-private val TableValueWeight = FontWeight.Normal
+internal val TableValueWeight = FontWeight.Normal
 private val TableEmphasis = FontWeight.Normal
 
 /** A value with a level-coloured bar behind it. With [gradientFill] the fill
@@ -1001,7 +1023,7 @@ private val TableEmphasis = FontWeight.Normal
  *  MCS/RBs bars', whose colours read muted at their strength; the neighbour
  *  table's stays solid. */
 @Composable
-private fun CellValueBar(
+internal fun CellValueBar(
     v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
     style: TextStyle = MiuixTheme.textStyles.body2, trackWhenEmpty: Boolean = false,
     gradientFill: Boolean = false
@@ -1046,7 +1068,7 @@ private fun CellValueBar(
 /** The empty track pill with a grey dash: a bar cell with no value, kept at
  *  the filled bar's size. */
 @Composable
-private fun EmptyTrack(maxWidth: Dp, style: TextStyle) {
+internal fun EmptyTrack(maxWidth: Dp, style: TextStyle) {
     Box(
         Modifier.widthIn(max = maxWidth).fillMaxWidth().clip(RoundedCornerShape(4.dp))
             .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
@@ -1245,38 +1267,6 @@ private fun CarrierAntennaRows(a: AntennaGroup) = BoxWithConstraints {
                 CellValueBar(v[k], kinds[k], barMax, a.rat, style, trackWhenEmpty = true, gradientFill = true)
             }
         }
-    }
-}
-
-@Composable
-private fun NeighborRows(neighbors: List<Neighbor>) {
-    // Table: PCI | Band | EARFCN | RSRP bar | RSRQ bar, headers once,
-    // rows already sorted, best RSRQ first. Band is derived from the channel.
-    val first = neighbors.first()
-    val metricLabels = first.metrics.take(2).map { it.label }
-    val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
-
-    @Composable
-    fun cols(id: @Composable () -> Unit, band: @Composable () -> Unit, ch: @Composable () -> Unit, metrics: List<@Composable () -> Unit>) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(0.75f), Alignment.CenterStart) { id() }
-            Box(Modifier.weight(0.7f), Alignment.CenterStart) { band() }
-            Box(Modifier.weight(0.95f), Alignment.CenterStart) { ch() }
-            metrics.forEach { m -> Box(Modifier.weight(1.25f).padding(horizontal = 3.dp), Alignment.Center) { m() } }
-            repeat(2 - metrics.size) { Spacer(Modifier.weight(1.25f)) }
-        }
-    }
-    @Composable
-    fun head(t: String) = Text(t, style = MiuixTheme.textStyles.footnote1, color = grey, maxLines = 1)
-
-    cols({ head(first.idLabel) }, { head("Band") }, { head(first.channelLabel) }, metricLabels.map { l -> @Composable { head(l) } })
-    neighbors.forEach { n ->
-        cols(
-            { Text(n.id, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold) },
-            { Text(n.band?.label ?: "–", style = MiuixTheme.textStyles.body2, color = if (n.band == null) grey else MiuixTheme.colorScheme.onBackground) },
-            { Text(n.channel.toString(), style = MiuixTheme.textStyles.body2) },
-            n.metrics.take(2).map { m -> @Composable { CellValueBar(m.value, m.kind, rat = m.rat) } }
-        )
     }
 }
 

@@ -69,6 +69,7 @@ class NetworkMonitor(
     val state: StateFlow<State> = _state
 
     private var visible = false
+    private val visibleOwners = mutableSetOf<String>()
     private var resumed = false
     private var loop: Job? = null
     private val roundLock = Mutex()
@@ -80,7 +81,21 @@ class NetworkMonitor(
     /** Per SIM: NR columns' CSI-RS ports and LTE columns' Tx antennas held while idle. */
     private val portHold = Array(2) { PortHold() }
 
-    fun setVisible(v: Boolean) { visible = v; reschedule() }
+    /**
+     * Who needs rounds: the Network page and the Cell-Lock page's Live view.
+     * Both can be on screen at once (the pager keeps neighbouring pages
+     * composed), so each registers under its own name instead of overwriting
+     * the other's flag; polling runs while at least one of them is on.
+     */
+    fun setVisible(owner: String, v: Boolean) {
+        val was = visible
+        if (v) visibleOwners += owner else visibleOwners -= owner
+        if (visibleOwners.isNotEmpty() != was) {
+            visible = visibleOwners.isNotEmpty()
+            reschedule()
+        }
+    }
+
     fun setResumed(v: Boolean) { resumed = v; reschedule() }
 
     /** Turns DIAG on (the next round starts the helper) or off (unsubscribes
@@ -324,6 +339,10 @@ class NetworkMonitor(
     }
 
     companion object {
+        /** [setVisible] owners: the Network page and the Cell-Lock Live view. */
+        const val OWNER_NETWORK = "network"
+        const val OWNER_CELL_LOCK = "cell-lock"
+
         private const val TAG = "NetworkMonitor"
         private const val POLL_INTERVAL_MS = 1_000L
         private const val THPUT_KEEP_MS = 150_000L

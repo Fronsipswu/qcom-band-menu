@@ -111,6 +111,9 @@ data class NetworkSnapshot(
     val endc: CarrierGroup? = null,
     val neighbors: List<Neighbor>,
     val antennas: List<AntennaGroup>,
+    /** Cells the Cell-Lock page's Live view can pin: the serving cell first,
+     *  then the neighbours; see [LockTarget]. */
+    val lockTargets: List<LockTarget> = emptyList(),
     /** Reads that failed this round (shown in debug and as a footnote). */
     val failedReads: List<String>
 )
@@ -260,6 +263,7 @@ class SnapshotBuilder(
             endc = if (mode == ServiceMode.NR_NSA) endcCarriers(lteGroup) else null,
             neighbors = neighbors(),
             antennas = antennas(lteGroup, nrGroup),
+            lockTargets = lockTargets(),
             failedReads = failed
         )
     }
@@ -331,19 +335,25 @@ class SnapshotBuilder(
                 add(Field("DL / UL", "${fmt(f.downlinkMhz)} / ${f.uplinkMhz?.let(::fmt) ?: "—"} MHz"))
             }
         }
-        val s = sig
-        // RSRP/RSRQ: the PCell's CELL_LOCATION measurement, as in the CA
-        // table's P column (SIG_INFO only when it's missing). SINR exists only
-        // in SIG_INFO, for both. With DIAG on, all three come from the PCell's
-        // B193 values, as in the DIAG CA table (QMI only where DIAG has none).
+        val metrics = lteSignalMetrics(earfcn, pci)
+        if (fields.isEmpty() && metrics.all { it.value == null }) return null
+        return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
+    }
+
+    /**
+     * An LTE serving cell's three measurements: the PCell's DIAG values first,
+     * then its CELL_LOCATION measurement, then SIG_INFO (which describes the
+     * serving cell only, so this is never used for a neighbour).
+     */
+    private fun lteSignalMetrics(earfcn: Long?, pci: Int?): List<Metric> {
+        val d = if (earfcn != null && pci != null) diag?.forPcell(earfcn, pci) else null
         val m = if (earfcn != null && pci != null) lteMeas[earfcn to pci] else null
-        val metrics = listOf(
+        val s = sig
+        return listOf(
             Metric("RSRP", MetricKind.RSRP, Rat.LTE, d?.rsrp ?: m?.rsrp ?: s?.lteRsrp?.toDouble(), "dBm"),
             Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, d?.rsrq ?: m?.rsrq ?: s?.lteRsrq?.toDouble(), "dB"),
             Metric("SINR", MetricKind.SINR, Rat.LTE, d?.sinr ?: s?.lteSnr, "dB")
         )
-        if (fields.isEmpty() && metrics.all { it.value == null }) return null
-        return CellCard(if (mode == ServiceMode.NR_NSA) "LTE MCG" else "LTE primary cell", Rat.LTE, fields, metrics)
     }
 
     private fun primaryNrArfcn(): Long? = sys?.nrArfcn ?: loc?.nrArfcn ?: arfcn?.nrServing?.firstOrNull()
@@ -693,6 +703,120 @@ class SnapshotBuilder(
         Metric("RSRP", MetricKind.RSRP, Rat.LTE, m.rsrp, "dBm"),
         Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, m.rsrq, "dB")),
         band = lteBandForEarfcn(earfcn.toInt())?.let { Band(Rat.LTE, it, "B$it") })
+
+    // ── Live cell-lock targets ───────────────────────────────────────────
+
+    /**
+     * Rows for the Cell-Lock page's Live view: the cell the modem is on, then
+     * the neighbours it reports, best quality first (as on the Network page).
+     *
+     * Each row carries the lock command that pins it. LTE neighbours report
+     * EARFCN + PCI, so they get the cell lock. NR neighbours report a frequency
+     * only (QMI has no NR neighbour PCI), so they get the frequency lock with
+     * the serving cell's SCS when they share its band, else the band's usual
+     * one. WCDMA/GSM neighbours have no lock command and say so.
+     */
+    private fun lockTargets(): List<LockTarget> = buildList {
+        when (mode) {
+            ServiceMode.LTE, ServiceMode.NR_NSA -> lteServingTarget()?.let { add(it) }
+            ServiceMode.NR_SA -> nrServingTarget()?.let { add(it) }
+            else -> {}
+        }
+        // NSA's NR leg is a serving cell too: pin it to keep the SCG.
+        if (mode == ServiceMode.NR_NSA) nrServingTarget()?.let { add(it) }
+        addAll(neighborTargets())
+    }
+
+    private fun lteServingTarget(): LockTarget? {
+        val earfcn = loc?.lte?.earfcn ?: ca?.pcell?.earfcn ?: return null
+        val pci = loc?.lte?.pci ?: ca?.pcell?.pci ?: return null
+        val band = rfFor(NasRadioIf.LTE)?.bandEnum?.let(NasBands::decode)
+            ?: ca?.pcell?.bandEnum?.takeIf { it != 0 }?.let(NasBands::decode)
+            ?: lteBandForEarfcn(earfcn.toInt())?.let { Band(Rat.LTE, it, "B$it") }
+        return LockTarget(
+            rat = Rat.LTE, role = LockRole.SERVING,
+            idLabel = "PCI", id = pci.toString(),
+            channelLabel = "EARFCN", channel = earfcn,
+            band = band, metrics = lteSignalMetrics(earfcn, pci),
+            lock = LockRequest.LteCell(earfcn, pci)
+        )
+    }
+
+    /** The NR cell the modem is on: SA's PCell, or NSA's SCG. Null without one. */
+    private fun nrServingTarget(): LockTarget? {
+        val ch = primaryNrArfcn() ?: return null
+        val pci = sys?.nrPci ?: loc?.nr?.pci
+        val d = diag?.nr?.firstOrNull { it.pci == pci && (it.arfcn == ch || it.dlArfcn == ch) }
+        val rfBand = rfFor(NasRadioIf.NR5G)?.bandEnum?.let(NasBands::decode)
+        val band = rfBand
+            ?: d?.band?.takeIf { it > 0 && nrBandFitsArfcn(it, ch) }?.let { Band(Rat.NR, it, "n$it") }
+            ?: nrBandForArfcn(ch, nrHardwareBands)?.let { Band(Rat.NR, it, "n$it") }
+        val scs = sys?.nrScsKhz ?: d?.scsKhz ?: nrDefaultScsKhz(band?.number)
+        val metrics = listOf(
+            Metric("SS-RSRP", MetricKind.RSRP, Rat.NR, d?.rsrp ?: sig?.nrRsrp?.toDouble(), "dBm"),
+            Metric("SS-RSRQ", MetricKind.RSRQ, Rat.NR, d?.rsrq ?: sig?.nrRsrq?.toDouble(), "dB"),
+            Metric("SS-SINR", MetricKind.SINR, Rat.NR, d?.sinr ?: sig?.nrSnr, "dB")
+        )
+        return LockTarget(
+            rat = Rat.NR, role = LockRole.SERVING,
+            idLabel = "PCI", id = pci?.toString() ?: "—",
+            channelLabel = "NARFCN", channel = ch,
+            band = band, scsKhz = scs, metrics = metrics,
+            // Without a PCI only the frequency can be pinned.
+            lock = when {
+                pci != null && band != null -> LockRequest.NrCell(ch, pci, scs, band.number)
+                else -> LockRequest.NrFrequency(ch, scs)
+            }
+        )
+    }
+
+    private fun neighborTargets(): List<LockTarget> = buildList {
+        val l = loc
+        if (servingRat == Rat.LTE && l != null) {
+            neighbors().filter { it.rat == Rat.LTE }.forEach { n ->
+                val pci = n.id.toIntOrNull()
+                add(LockTarget(
+                    rat = Rat.LTE, role = LockRole.NEIGHBOUR,
+                    idLabel = n.idLabel, id = n.id,
+                    channelLabel = n.channelLabel, channel = n.channel,
+                    band = n.band, metrics = n.metrics,
+                    lock = if (pci != null) LockRequest.LteCell(n.channel, pci) else null,
+                    note = if (pci == null) "No PCI reported" else null
+                ))
+            }
+        }
+        // WCDMA/GSM neighbours: shown with their measurements, but the modem
+        // has no cell lock for them.
+        neighbors().filter { it.rat != Rat.LTE }.forEach { n ->
+            add(LockTarget(
+                rat = n.rat, role = LockRole.NEIGHBOUR,
+                idLabel = n.idLabel, id = n.id,
+                channelLabel = n.channelLabel, channel = n.channel,
+                band = n.band, metrics = n.metrics,
+                lock = null, note = "${n.rat.label} cell lock is not supported"
+            ))
+        }
+        // NR neighbours are frequencies only: no PCI, no measurement.
+        val servingScs = sys?.nrScsKhz ?: diag?.nr?.firstOrNull { it.arfcn == primaryNrArfcn() }?.scsKhz
+        val servingBand = nrServingTarget()?.band?.number
+        arfcn?.nrNeighbor.orEmpty()
+            .filter { it != primaryNrArfcn() && it !in arfcn?.nrServing.orEmpty() }
+            .distinct()
+            .forEach { f ->
+                val band = nrBandForArfcn(f, nrHardwareBands)
+                val scs = if (band != null && band == servingBand && servingScs != null) servingScs
+                    else nrDefaultScsKhz(band)
+                add(LockTarget(
+                    rat = Rat.NR, role = LockRole.NEIGHBOUR,
+                    idLabel = "NARFCN", id = "—",
+                    channelLabel = "NARFCN", channel = f,
+                    band = band?.let { Band(Rat.NR, it, "n$it") },
+                    scsKhz = scs,
+                    lock = LockRequest.NrFrequency(f, scs),
+                    note = "Frequency only: the modem reports no NR neighbour PCI"
+                ))
+            }
+    }
 
     /**
      * The antenna card. With DIAG, a group per serving carrier of the carrier

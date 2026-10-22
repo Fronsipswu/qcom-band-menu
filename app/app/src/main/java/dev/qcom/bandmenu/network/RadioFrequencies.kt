@@ -194,6 +194,19 @@ fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
     return candidates.first()
 }
 
+/**
+ * The SCS to assume for an NR frequency the modem reported without one
+ * (neighbour frequencies carry none). FR2 uses 120 kHz; in FR1 the TDD bands
+ * deployed with the wider numerology (n38/n40/n41/n48/n77/n78/n79/n90) use
+ * 30 kHz, the rest 15. Only a default: a lock made from a live row shows the
+ * SCS it used, and Manual mode takes any of them.
+ */
+fun nrDefaultScsKhz(band: Int?): Int = when {
+    band != null && band >= 257 -> 120
+    band != null && band in setOf(38, 40, 41, 48, 77, 78, 79, 90) -> 30
+    else -> 15
+}
+
 /** Maximum DL resource blocks per (frequency range, SCS kHz, bandwidth MHz):
  * TS 38.104 tables 5.3.2-1/2/3. 60 kHz appears in both ranges with different
  * values (50 MHz -> 65 in FR1 vs 66 in FR2; 100 MHz -> 135 vs 132). */
