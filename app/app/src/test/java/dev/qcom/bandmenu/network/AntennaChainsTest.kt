@@ -106,9 +106,10 @@ class AntennaChainsTest {
         assertTrue(snap.antennas.all { it.rat == Rat.NR })
         val pcell = snap.antennas[0]
         assertEquals(Triple("n78", "640000", 9), Triple(pcell.band, pcell.channel, pcell.pci))
-        assertEquals(listOf(-88.0, -89.5, -90.5, -91.25), pcell.chains.map { it.rsrp })
-        assertEquals(listOf(20.0, 10.0, 0.0, null), pcell.chains.map { it.sinr })
-        assertEquals(listOf(13.0, 10.0, null, null), pcell.chains.map { it.csiSinr })
+        // No RX count here: RX 3 has an RSRP but neither SINR, so it is left out.
+        assertEquals(listOf(-88.0, -89.5, -90.5), pcell.chains.map { it.rsrp })
+        assertEquals(listOf(20.0, 10.0, 0.0), pcell.chains.map { it.sinr })
+        assertEquals(listOf(13.0, 10.0, null), pcell.chains.map { it.csiSinr })
         assertEquals(listOf(-95.0, -97.0), snap.antennas[1].chains.map { it.rsrp })
     }
 
@@ -151,6 +152,27 @@ class AntennaChainsTest {
             val snap = build(mapOf(NetworkReads.SYS to nsaSys), stats(nr = nr.toString()))
             assertEquals((0 until rx).toList(), snap.antennas[0].chains.map { it.chain })
         }
+    }
+
+    @Test
+    fun idleNrRx2AndRx3NeedTheirOwnSinr() {
+        // Idle n28 (no RX count from PDSCH): RX 2 and 3 with an RSRP but neither SINR are left out.
+        val nr = org.json.JSONArray(nrCarriers)
+        nr.getJSONObject(1).apply {
+            put("rsrp_rx", org.json.JSONArray("[-95,-97,-101,-103]"))
+            put("sinr_rx", org.json.JSONArray("[10,11,null,null]"))
+            put("csinr_rx", org.json.JSONArray("[12,13,null,null]"))
+        }
+        val snap = build(mapOf(NetworkReads.SYS to frame(NasMsg.SYS_INFO, tlv(0x4A, 2, 2))), stats(nr = nr.toString()))
+        assertEquals(listOf(0, 1), snap.antennas[1].chains.map { it.chain })
+        // With an SS-SINR or a CSI-SINR of its own the chain stays.
+        nr.getJSONObject(1).put("csinr_rx", org.json.JSONArray("[12,13,null,7]"))
+        val withSinr = build(mapOf(NetworkReads.SYS to frame(NasMsg.SYS_INFO, tlv(0x4A, 2, 2))), stats(nr = nr.toString()))
+        assertEquals(listOf(0, 1, 3), withSinr.antennas[1].chains.map { it.chain })
+        // A known receiver count decides alone (4 in traffic: RX 2 without SINR stays).
+        nr.getJSONObject(1).put("rx", 4)
+        val inTraffic = build(mapOf(NetworkReads.SYS to frame(NasMsg.SYS_INFO, tlv(0x4A, 2, 2))), stats(nr = nr.toString()))
+        assertEquals(listOf(0, 1, 2, 3), inTraffic.antennas[1].chains.map { it.chain })
     }
 
     @Test

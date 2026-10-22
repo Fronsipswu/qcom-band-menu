@@ -740,9 +740,14 @@ class SnapshotBuilder(
         val csiSinr = c.nr?.csiSinrRx
         val count = listOfNotNull(rsrp, rsrq, sinr, csiSinr).maxOfOrNull { it.size } ?: return null
         // The CA receiver count overrides stale values in every per-chain metric.
-        val chains = (0 until minOf(count, c.rxCount() ?: count)).mapNotNull { i ->
+        val rxCount = c.rxCount()
+        val chains = (0 until minOf(count, rxCount ?: count)).mapNotNull { i ->
             val values = listOf(rsrp, rsrq, sinr, csiSinr).map { it?.getOrNull(i) }
             if (values.all { it == null }) return@mapNotNull null
+            // Without a receiver count (idle: no PDSCH), NR RX 2 and 3 need an
+            // SS-SINR or CSI-SINR of their own: a 2-receiver carrier can report
+            // an RSRP there for a moment.
+            if (rat == Rat.NR && rxCount == null && i >= 2 && values[2] == null && values[3] == null) return@mapNotNull null
             RxChain(
                 chain = i, tuned = true, rxPower = null, ecio = null, rscp = null, rsrp = values[0], phaseDeg = null,
                 rsrq = values[1], sinr = values[2], csiSinr = values[3]
