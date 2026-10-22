@@ -22,13 +22,16 @@
  *   LTE 0xB173 PDSCH Stat Indication: per TB MCS, modulation, RBs, layers,
  *          CRC, TB size, carrier slot
  *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
- *       0xB139 PUSCH Tx Report: UL TB size and carrier slot
+ *       0xB139 PUSCH Tx Report: UL TB size, RBs, modulation, carrier slot
+ *       0xB16E PUSCH Power Control: the actual PUSCH transmit power
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
  *       0xB168 Random Access MSG2: the RAR's timing advance (the "ta" of
  *          the stats JSON, raw index; see b168())
- *   NR  0xB883 UL physical channel schedule, 0xB887 PDSCH status, 0xB97F
+ *   NR  0xB883 UL physical channel schedule (TB size, RBs, MCS, modulation,
+ *       DMRS ports, TX mode), 0xB884 UL power control (PUSCH power),
+ *       0xB887 PDSCH status, 0xB97F
  *       measurements, 0xB8D8 SNR, 0xB8A7 CSF, 0xB825 RRC configuration,
  *       0xB823 serving cell (see below), 0xB88A RACH Attempt: the RAR's
  *       timing advance (the "nr_ta" of the stats JSON; see b88a())
@@ -85,11 +88,11 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 
-static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, /* LTE */
-                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, /* NR */
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, /* LTE */
+                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, 0xB884, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
                             0xB821 };                                   /* NR RRC */
-#define NCODES 18
+#define NCODES 20
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -101,6 +104,10 @@ struct slot {
     long recs, layers_sum;
     /* B139 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
+    /* The uplink card: B139 records with an RB count (RBs, modulation) and
+     * B16E's actual PUSCH power, means over the window */
+    long ul_recs, ul_rb_sum, ul_mod[6], n_ul_pwr;
+    double ul_pwr_sum;
     /* B126 */
     long n126, rank[4], scheme[16];
     int tx, rx;
@@ -287,10 +294,36 @@ static void b139(const uint8_t *p, int n) {
         if (carrier >= SLOTS || (L->drop.bits && at(record, L->drop))) continue;
         add_tb[carrier]++;
         add_bytes[carrier] += at(record, L->tb_size);
+        if (L->rbs.bits) {
+            struct slot *s = &win[carrier];
+            int mod = L->mod.bits ? (int)at(record, L->mod) : -1;
+            s->ul_recs++;
+            s->ul_rb_sum += at(record, L->rbs);
+            if (mod >= 0 && mod < 6) s->ul_mod[mod]++;
+        }
     }
     for (int i = 0; i < SLOTS; i++) {
         win[i].ul_tb += add_tb[i];
         win[i].ul_bytes += add_bytes[i];
+    }
+}
+
+/* LTE PUSCH power control (B16E): each record's actual transmit power, in
+ * dBm (signed 8 bits at record bit 79), and its carrier (bits 0-2). v48:
+ * 12-byte records; v51: 16-byte. Both start at byte 4 with the count at
+ * byte 3 (QCAT for v48; Airscreen 2.7.8's v48 and v51 readers). */
+static void b16e(const uint8_t *p, int n) {
+    if (n < 4) return;
+    int size = p[0] == 48 ? 12 : p[0] == 51 ? 16 : 0;
+    int count = p[3];
+    if (!size || 4 + count * size != n) return;
+    for (int i = 0; i < count; i++) {
+        const uint8_t *r = p + 4 + i * size;
+        int carrier = (int)bits(r, 0, 3);
+        if (carrier >= SLOTS) continue;
+        int raw = (int)bits(r, 79, 8);
+        win[carrier].ul_pwr_sum += raw >= 128 ? raw - 256 : raw;
+        win[carrier].n_ul_pwr++;
     }
 }
 
@@ -774,6 +807,13 @@ struct nr_slot {
     long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, layers_sum, mod[5], rx[4];
     /* B883 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
+    /* The uplink card, means over the window: B883 PUSCH blocks (RBs, DMRS
+     * ports = layers, modulation; MCS without the reserved indices that
+     * mark a retransmission; the last block's TX mode + 1, 0 = none) and
+     * B884's PUSCH power */
+    long ul_recs, ul_rb_sum, ul_layers_sum, ul_mcs_sum, ul_mcs_n, ul_mod[6], n_ul_pwr;
+    int ul_tx_mode;
+    double ul_pwr_sum;
     /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
      * of TRS records (CSI-SINR); B96A strongest beam's SNR: means over the
      * window */
@@ -814,6 +854,10 @@ static void b883(const uint8_t *p, int n) {
     int pos = L->rec_start / 8;
     long add_tb[SLOTS] = { 0 };
     long add_bytes[SLOTS] = { 0 };
+    /* The uplink card's per-carrier sums, published with the bytes. */
+    long add_recs[SLOTS] = { 0 }, add_rbs[SLOTS] = { 0 }, add_layers[SLOTS] = { 0 };
+    long add_mcs[SLOTS] = { 0 }, add_mcs_n[SLOTS] = { 0 }, add_mod[SLOTS][6] = { { 0 } };
+    int last_mode[SLOTS] = { 0 };
     for (int r = 0; r < records; r++) {
         int record = pos;
         if (record > n || !fits(L->carrier_count, n - record)) return;
@@ -831,8 +875,19 @@ static void b883(const uint8_t *p, int n) {
                 int size = L->pusch_bits / 8;
                 if (size > n - pos || !fits(L->tb_size, size)) return;
                 if (carrier < SLOTS) {
+                    const uint8_t *b = p + pos;
+                    int mcs = (int)at(b, L->mcs), mod = (int)at(b, L->mod), mode = (int)at(b, L->tx_mode);
                     add_tb[carrier]++;
-                    add_bytes[carrier] += at(p + pos, L->tb_size);
+                    add_bytes[carrier] += at(b, L->tb_size);
+                    add_recs[carrier]++;
+                    add_rbs[carrier] += at(b, L->rbs);
+                    /* A DMRS port of 15 is unused. */
+                    add_layers[carrier] += (at(b, L->ports[0]) != 15) + (at(b, L->ports[1]) != 15);
+                    /* 28-31 are reserved in the transform-precoding and
+                     * 256QAM tables (29-31 in the others): a retransmission. */
+                    if (mcs < 28) { add_mcs[carrier] += mcs; add_mcs_n[carrier]++; }
+                    if (mod < 6) add_mod[carrier][mod]++;
+                    if (mode < 3) last_mode[carrier] = mode + 1;
                 }
                 pos += size;
             }
@@ -859,8 +914,58 @@ static void b883(const uint8_t *p, int n) {
     }
     if (pos != n) return;
     for (int i = 0; i < SLOTS; i++) {
-        nrwin[i].ul_tb += add_tb[i];
-        nrwin[i].ul_bytes += add_bytes[i];
+        struct nr_slot *s = &nrwin[i];
+        s->ul_tb += add_tb[i];
+        s->ul_bytes += add_bytes[i];
+        s->ul_recs += add_recs[i];
+        s->ul_rb_sum += add_rbs[i];
+        s->ul_layers_sum += add_layers[i];
+        s->ul_mcs_sum += add_mcs[i];
+        s->ul_mcs_n += add_mcs_n[i];
+        for (int m = 0; m < 6; m++) s->ul_mod[m] += add_mod[i][m];
+        if (last_mode[i]) s->ul_tx_mode = last_mode[i];
+    }
+}
+
+/* NR UL power control (B884 3.3 and 3.5): records of carriers of 16-byte
+ * channel blocks. A PUSCH block (type 4) gives the carrier (bits 0-3), the
+ * power-control transmit power (signed 12 bits at 8, 0.1 dB) and the
+ * maximum transmit power (12 bits at 44, 0.1 dB); the power sent is the
+ * first capped at the second (matches the separate RF target log on every
+ * checked block). Walked completely first, like B883. */
+static void b884(const uint8_t *p, int n) {
+    if (n < 8) return;
+    uint32_t ver = nr_ver(p);
+    if (ver != 0x30003 && ver != 0x30005) return;
+    double add_pwr[SLOTS] = { 0 };
+    long add_n[SLOTS] = { 0 };
+    int pos = 8;
+    for (int r = 0; r < p[7]; r++) {
+        if (pos + 12 > n) return;
+        int carriers = p[pos + 4];
+        pos += 12;
+        for (int c = 0; c < carriers; c++) {
+            if (pos + 4 > n) return;
+            int channels = p[pos];
+            pos += 4;
+            for (int k = 0; k < channels; k++) {
+                if (pos + 16 > n) return;
+                const uint8_t *b = p + pos;
+                pos += 16;
+                int type = (int)bits(b, 4, 4), carrier = (int)bits(b, 0, 4);
+                if (type != 1 && type != 3 && type != 4 && type != 5) return;
+                if (type != 4 || carrier >= SLOTS) continue;
+                int raw = (int)bits(b, 8, 12);
+                double power = (raw >= 2048 ? raw - 4096 : raw) / 10.0, max = bits(b, 44, 12) / 10.0;
+                add_pwr[carrier] += power < max ? power : max;
+                add_n[carrier]++;
+            }
+        }
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        nrwin[i].ul_pwr_sum += add_pwr[i];
+        nrwin[i].n_ul_pwr += add_n[i];
     }
 }
 
@@ -1448,11 +1553,13 @@ static void on_log(unsigned char *ptr, int len) {
     if (code == 0xB173) b173(pl, pn);
     else if (code == 0xB126) b126(pl, pn);
     else if (code == 0xB139) b139(pl, pn);
+    else if (code == 0xB16E) b16e(pl, pn);
     else if (code == 0xB184) b184(pl, pn);
     else if (code == 0xB193) b193(pl, pn);
     else if (code == 0xB168) b168(pl, pn);
     else if (code == 0xB179) b179(pl, pn);
     else if (code == 0xB883) b883(pl, pn);
+    else if (code == 0xB884) b884(pl, pn);
     else if (code == 0xB887) b887(pl, pn);
     else if (code == 0xB97F) b97f(pl, pn);
     else if (code == 0xB8D8) b8d8(pl, pn);
@@ -1470,6 +1577,9 @@ static void on_event(unsigned char *p, int len) { (void)p; (void)len; }
 /* ── Stats ───────────────────────────────────────────────────────────────── */
 
 static const char *MOD_NAMES[5] = { "QPSK", "16QAM", "64QAM", "256QAM", "1024QAM" };
+/* Uplink modulation codes (B139, B883): 0 is (pi/2-)BPSK. */
+static const char *UL_MOD_NAMES[6] = { "BPSK", "QPSK", "16QAM", "64QAM", "256QAM", "1024QAM" };
+static const char *TX_MODES[3] = { "SISO", "SMSL", "SMDL" };
 
 /* Majority transmission scheme -> transmission mode. The scheme is per grant
  * (a TM4 cell can fall back to TX diversity), so the majority is used. Ports
@@ -1644,6 +1754,12 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
         if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
+        if (s->ul_recs > 0) {
+            int m = argmax(s->ul_mod, 6);
+            PUT(",\"ul_rbs\":%.2f", (double)s->ul_rb_sum / s->ul_recs);
+            if (m >= 0) PUT(",\"ul_mod\":\"%s\"", UL_MOD_NAMES[m]);
+        }
+        if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
             PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
@@ -1756,6 +1872,15 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
         if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
+        if (s->ul_recs > 0) {
+            int m = argmax(s->ul_mod, 6);
+            PUT(",\"ul_rbs\":%.2f,\"ul_layers\":%.2f", (double)s->ul_rb_sum / s->ul_recs,
+                (double)s->ul_layers_sum / s->ul_recs);
+            if (s->ul_mcs_n > 0) PUT(",\"ul_mcs\":%.2f", (double)s->ul_mcs_sum / s->ul_mcs_n);
+            if (m >= 0) PUT(",\"ul_mod\":\"%s\"", UL_MOD_NAMES[m]);
+        }
+        if (s->ul_tx_mode) PUT(",\"ul_tx_mode\":\"%s\"", TX_MODES[s->ul_tx_mode - 1]);
+        if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
             PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
