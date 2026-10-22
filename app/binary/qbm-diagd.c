@@ -68,7 +68,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.22"
+#define HELPER_VERSION "1.22.23"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -1112,12 +1112,12 @@ static int nr_slot_unconfigured(uint32_t arfcn) {
  * RX 2 and 3 ("ServingRSRP_Rx23", 0 when only two receivers measured: FR2
  * and some FR1 captures). Signed Q7. Positions checked on the real captures
  * in SCAT's tests (versions 2.6, 2.7, 2.9 and 2.10; n25, n28, n66, n78 and
- * FR2), where the serving SSB always names one of the serving cell's beams.
- * From 2.9 the serving cell's list index comes before the serving SSB. 3.0
- * and 3.1 keep the 2.10 beam and widen the layer's array to four values, of
- * which the first two are taken as RX 2 and 3 (no 3.x capture with a
- * serving cell checked yet). Before 2.6 the beam layout is not known: no
- * chains.
+ * FR2), where the serving SSB names one of the serving cell's beams, except
+ * on SCells from 2.9 (below). From 2.9 the serving cell's list index comes
+ * before the serving SSB. 3.0 and 3.1 keep the 2.10 beam and widen the
+ * layer's array to four values, of which the first two are RX 2 and 3
+ * (checked on 3.1 captures, n3 + n28 + n78). Before 2.6 the beam layout is
+ * not known: no chains.
  */
 struct b97f_chains { uint32_t ver; struct pos serving_ssb, rx23[2], beam_ssb, rx01[2]; };
 static const struct b97f_chains B97F_CHAINS[] = {
@@ -1147,9 +1147,10 @@ static void b97f_serving_chains(const struct b97f_chains *P, const uint8_t *laye
     for (int b = 0; b < count && beams + (b + 1) * beam_bytes <= n; b++) {
         const uint8_t *beam = p + beams + b * beam_bytes;
         int beam_ssb = (int)at(beam, P->beam_ssb);
-        /* 2.9 puts the main beam first when the serving SSB is unset. Keep
-         * both receivers on that beam, even if another beam is stronger. */
-        int main_beam = P->ver == 0x20009 && ssb == 255 && b == 0 && beam_ssb < 64;
+        /* From 2.9 an SCell's serving SSB is unset and its main beam comes
+         * first (2.9, 2.10 and 3.1 captures). Keep both receivers on that
+         * beam, even if another beam is stronger. */
+        int main_beam = P->ver >= 0x20009 && ssb == 255 && b == 0 && beam_ssb < 64;
         if (beam_ssb != ssb && !main_beam) continue;
         if (ssb == 255 && !main_beam) break;
         for (int i = 0; i < 2; i++) chains |= q7_rsrp(at(beam, P->rx01[i]), &v[i]) << i;
