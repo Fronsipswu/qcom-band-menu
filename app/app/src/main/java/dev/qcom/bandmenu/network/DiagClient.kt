@@ -185,7 +185,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.21"
+        private const val EXPECTED_VERSION = "1.22.22"
         /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
         private val ROOT_DOMAINS = listOf("su", "magisk")
     }

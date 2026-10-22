@@ -1211,10 +1211,10 @@ private fun CarrierAntennaRows(a: AntennaGroup) = BoxWithConstraints {
                     maxLines = 1,
                 )
             }
-            val detail = listOfNotNull(a.channel, a.pci?.let { "PCI $it" }).joinToString(" · ")
+            val detail = listOfNotNull(a.channel, a.pci?.let { "PCI $it" }).joinToString(" | ")
             if (detail.isNotEmpty())
                 Text(
-                    (if (a.band != null) " · " else "  ") + detail,
+                    (if (a.band != null) " | " else "  ") + detail,
                     style = MiuixTheme.textStyles.footnote1,
                     color = grey,
                     maxLines = 1,

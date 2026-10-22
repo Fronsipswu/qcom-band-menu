@@ -709,7 +709,11 @@ class SnapshotBuilder(
                 return
             }
             if (t == null || t.chains.none { it.tuned }) return
-            add(AntennaGroup(rat, t.chains, t.inTraffic, t.txPower))
+            // QMI describes the primary serving cell, so only its CA row can cap it.
+            val rxCount = carriers?.carriers?.firstOrNull { it.role == "P" }?.rxCount()
+            val chains = t.chains.filter { rxCount == null || it.chain < rxCount }
+            if (chains.none { it.tuned }) return
+            add(AntennaGroup(rat, chains, t.inTraffic, t.txPower))
         }
         when (mode) {
             ServiceMode.LTE -> add(Rat.LTE, txLte, lte)
@@ -721,6 +725,10 @@ class SnapshotBuilder(
         }
     }
 
+    /** The same receiver count shown in this carrier's CA table; absent means unknown. */
+    private fun Carrier.rxCount(): Int? =
+        (nr?.rxAntennas ?: diag?.rxAntennas)?.takeIf { it > 0 }
+
     /**
      * A DIAG carrier's RX chains (LTE B193; NR B97F RSRP and B8D8/B8DD SINR),
      * a chain for each index with any value; null when the carrier has none.
@@ -731,7 +739,8 @@ class SnapshotBuilder(
         val sinr = c.nr?.sinrRx ?: c.diag?.sinrRx
         val csiSinr = c.nr?.csiSinrRx
         val count = listOfNotNull(rsrp, rsrq, sinr, csiSinr).maxOfOrNull { it.size } ?: return null
-        val chains = (0 until count).mapNotNull { i ->
+        // The CA receiver count overrides stale values in every per-chain metric.
+        val chains = (0 until minOf(count, c.rxCount() ?: count)).mapNotNull { i ->
             val values = listOf(rsrp, rsrq, sinr, csiSinr).map { it?.getOrNull(i) }
             if (values.all { it == null }) return@mapNotNull null
             RxChain(

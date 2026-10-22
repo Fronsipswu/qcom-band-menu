@@ -121,4 +121,45 @@ class AntennaChainsTest {
             snap.antennas.map { it.rat to it.carrier }
         )
     }
+
+    @Test
+    fun nrCaRxCountCapsEachCarriersMetricsInNsaAndSa() {
+        val nr = org.json.JSONArray(nrCarriers)
+        nr.getJSONObject(0).put("rx", 4)
+        nr.getJSONObject(1).apply {
+            put("rx", 2)
+            put("rsrp_rx", org.json.JSONArray("[-95,-97,-80,-81]"))
+            put("sinr_rx", org.json.JSONArray("[10,11,20,21]"))
+            put("csinr_rx", org.json.JSONArray("[12,13,22,23]"))
+        }
+        for (sys in listOf(nsaSys, frame(NasMsg.SYS_INFO, tlv(0x4A, 2, 2)))) {
+            val snap = build(mapOf(NetworkReads.SYS to sys), stats(nr = nr.toString()))
+            val groups = snap.antennas.filter { it.rat == Rat.NR }
+            assertEquals(listOf(0, 1, 2, 3), groups[0].chains.map { it.chain })
+            assertEquals(listOf(0, 1), groups[1].chains.map { it.chain })
+            assertEquals(listOf(-95.0, -97.0), groups[1].chains.map { it.rsrp })
+            assertEquals(listOf(10.0, 11.0), groups[1].chains.map { it.sinr })
+            assertEquals(listOf(12.0, 13.0), groups[1].chains.map { it.csiSinr })
+        }
+    }
+
+    @Test
+    fun updatedRxCountImmediatelyCapsOldChainMeasurements() {
+        val nr = org.json.JSONArray(nrCarriers)
+        for (rx in listOf(4, 2, 1, 4)) {
+            nr.getJSONObject(0).put("rx", rx)
+            val snap = build(mapOf(NetworkReads.SYS to nsaSys), stats(nr = nr.toString()))
+            assertEquals((0 until rx).toList(), snap.antennas[0].chains.map { it.chain })
+        }
+    }
+
+    @Test
+    fun lteCaRxCountCapsRsrpRsrqAndSinr() {
+        val lte = org.json.JSONArray(lteCarriers)
+        lte.getJSONObject(0).put("rx", 2)
+        val snap = build(mapOf(NetworkReads.SYS to frame(NasMsg.SYS_INFO, lteInService)), stats(lte.toString()))
+        assertEquals(listOf(0, 1), snap.antennas[0].chains.map { it.chain })
+        assertEquals(listOf(-10.0, -12.0), snap.antennas[0].chains.map { it.rsrq })
+        assertEquals(listOf(15.0, 12.5), snap.antennas[0].chains.map { it.sinr })
+    }
 }

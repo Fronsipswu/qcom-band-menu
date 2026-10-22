@@ -68,7 +68,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.21"
+#define HELPER_VERSION "1.22.22"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -1146,7 +1146,12 @@ static void b97f_serving_chains(const struct b97f_chains *P, const uint8_t *laye
     int ssb = (int)at(layer, P->serving_ssb);
     for (int b = 0; b < count && beams + (b + 1) * beam_bytes <= n; b++) {
         const uint8_t *beam = p + beams + b * beam_bytes;
-        if ((int)at(beam, P->beam_ssb) != ssb) continue;
+        int beam_ssb = (int)at(beam, P->beam_ssb);
+        /* 2.9 puts the main beam first when the serving SSB is unset. Keep
+         * both receivers on that beam, even if another beam is stronger. */
+        int main_beam = P->ver == 0x20009 && ssb == 255 && b == 0 && beam_ssb < 64;
+        if (beam_ssb != ssb && !main_beam) continue;
+        if (ssb == 255 && !main_beam) break;
         for (int i = 0; i < 2; i++) chains |= q7_rsrp(at(beam, P->rx01[i]), &v[i]) << i;
         break;
     }
@@ -1189,7 +1194,13 @@ static void b97f(const uint8_t *p, int n) {
                     s->rsrp_sum += rsrp; s->n_rsrp++;
                     if (rsrq > -40 && rsrq < 10) { s->rsrq_sum += rsrq; s->n_rsrq++; }
                 }
-                if (chain_pos) b97f_serving_chains(chain_pos, L, p, n, pos + cell_bytes, beams, beam_bytes, s);
+                if (chain_pos) {
+                    b97f_serving_chains(chain_pos, L, p, n, pos + cell_bytes, beams, beam_bytes, s);
+                    /* Explicitly unmeasured receivers must not retain RSRP
+                     * from an earlier 4Rx period after returning to 2Rx. */
+                    for (int i = 0; i < 2; i++)
+                        if (at(L, chain_pos->rx23[i]) == 0) nr_chain_held[cc][0][2 + i].at_ms = 0;
+                }
                 nrlive[cc].earfcn = arfcn;
                 nrlive[cc].pci = pci;
                 nrlive[cc].at_ms = now_ms();
