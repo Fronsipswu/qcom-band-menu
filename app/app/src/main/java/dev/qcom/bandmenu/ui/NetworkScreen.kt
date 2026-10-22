@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalWindowInfo
 import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -169,21 +171,23 @@ fun NetworkScreen(
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
     val topBarInset = WindowInsets.systemBars.only(WindowInsetsSides.Top).asPaddingValues(density).calculateTopPadding()
-    // The bar always reserves the status line below the title (empty while no
-    // test runs), so its height — and with it the page's top ceiling — never
-    // changes: the tab row and the refresh indicator are never covered, and
-    // nothing repositions when a test starts or stops. The line is one line of
-    // the subtitle style, so a longer status is cut off, never taller.
+    val haptic = LocalHapticFeedback.current
+    val test = remember { TrafficTest.get(context) }
+    val testConfig by test.config.collectAsState()
+    val testRun by test.run.collectAsState()
+    // The test script's status line below the title, only while there is one
+    // (a run, or the reason it stopped): otherwise the bar is as tall as the
+    // other pages'. It opens and closes smoothly and the page's top follows,
+    // so the tab row and the refresh indicator are never covered. One line of
+    // the subtitle style: a longer status is cut off, never taller.
+    val status = testStatus(testRun)
     val statusMeasurer = rememberTextMeasurer()
     val body2 = MiuixTheme.textStyles.body2
     val statusLineHeight = with(density) {
         remember(statusMeasurer, body2) { statusMeasurer.measure("0", body2).size.height.toDp() } + 4.dp
     }
-    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight + statusLineHeight
-    val haptic = LocalHapticFeedback.current
-    val test = remember { TrafficTest.get(context) }
-    val testConfig by test.config.collectAsState()
-    val testRun by test.run.collectAsState()
+    val statusHeight by animateDpAsState(if (status.isNotEmpty()) statusLineHeight else 0.dp, label = "testStatus")
+    val topBarHeight = topBarInset + TopAppBarDefaults.CollapsedHeight + statusHeight
     var showTestSetup by remember { mutableStateOf(false) }
 
     // Replay of the recorded rounds while frozen: the slider picks the sample
@@ -410,9 +414,8 @@ fun NetworkScreen(
 
         // The test script's status line is blue while it runs.
         val testColor = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
-        val status = testStatus(testRun)
         val statusContent: @Composable () -> Unit = {
-            Box(Modifier.fillMaxWidth().height(statusLineHeight), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().height(statusHeight).clipToBounds(), contentAlignment = Alignment.Center) {
                 if (status.isNotEmpty()) Text(status, Modifier.padding(horizontal = 16.dp),
                     style = MiuixTheme.textStyles.body2, color = testColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
