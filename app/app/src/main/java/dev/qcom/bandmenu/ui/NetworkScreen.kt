@@ -95,6 +95,7 @@ import dev.qcom.bandmenu.network.nrFrequencyRange
 import dev.qcom.bandmenu.network.nrMaxResourceBlocks
 import dev.qcom.bandmenu.network.Rat
 import dev.qcom.bandmenu.network.ReplaySession
+import dev.qcom.bandmenu.network.RxChain
 import dev.qcom.bandmenu.network.ThputPoint
 import dev.qcom.bandmenu.network.ServiceMode
 import kotlinx.coroutines.Dispatchers
@@ -611,14 +612,18 @@ private fun NetworkContent(
     }
     if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
         Expandable("Antenna measurements") {
-            // UE transmit power (TX_RX_INFO, only while in traffic), on top.
-            snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.forEach {
+            // UE transmit power (TX_RX_INFO, only while in traffic), on top: once per
+            // RAT, from its first group (QMI's serving cell, or DIAG's first carrier).
+            snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.distinctBy { it.rat }.forEach {
                 SignalBar(Metric("TX PWR", MetricKind.TX_POWER, it.rat, it.txPower, "dBm"),
                     Modifier.padding(vertical = 3.dp), labelWidth = 64.dp)
             }
-            // Headings only when LTE and NR chains are shown together (NSA).
+            // QMI's chains have a heading only when LTE and NR are shown together
+            // (NSA); DIAG's carriers (PCell, SCells) always have theirs.
             val showHeadings = snap.antennas.size > 1
-            snap.antennas.forEach { AntennaRows(it, showHeadings) }
+            snap.antennas.forEach {
+                if (it.carrier != null) CarrierAntennaRows(it) else AntennaRows(it, showHeadings)
+            }
         }
     }
     // Kept whenever there's a serving cell, even when no neighbours are
@@ -1166,6 +1171,80 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
             else -> Metric(n, MetricKind.RSSI, a.rat, c.rxPower, "dBm")
         }
         SignalBar(m, Modifier.padding(vertical = 3.dp), labelWidth = 64.dp)
+    }
+}
+
+/**
+ * One DIAG carrier's RX chains: the carrier (RAT and role, band, channel and PCI), then a row per
+ * chain with its RSRP, RSRQ and SINR (LTE, B193) or RSRP, SS-SINR and CSI-SINR (NR: B97F,
+ * B8D8/B8DD), drawn as in the carrier tables.
+ */
+@Composable
+private fun CarrierAntennaRows(a: AntennaGroup) = BoxWithConstraints {
+    val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val nr = a.rat == Rat.NR
+    val labels = if (nr) listOf("RSRP", "SINR", "CSINR") else listOf("RSRP", "RSRQ", "SINR")
+    val kinds =
+        if (nr) listOf(MetricKind.RSRP, MetricKind.SINR, MetricKind.SINR)
+        else listOf(MetricKind.RSRP, MetricKind.RSRQ, MetricKind.SINR)
+    fun values(c: RxChain) = if (nr) listOf(c.rsrp, c.sinr, c.csiSinr) else listOf(c.rsrp, c.rsrq, c.sinr)
+    // The label column is the carrier tables' width, so the chains line up with their rows.
+    val colWidth = (maxWidth - 64.dp) / labels.size
+    val barMax = colWidth - 6.dp
+    val style = MiuixTheme.textStyles.body2.copy(fontFeatureSettings = "tnum")
+    Column {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "${a.rat.label} ${a.carrier}",
+                style = MiuixTheme.textStyles.footnote1,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
+            a.band?.let {
+                Text(
+                    "  $it",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = bandColor(it) ?: grey,
+                    maxLines = 1,
+                )
+            }
+            val detail = listOfNotNull(a.channel, a.pci?.let { "PCI $it" }).joinToString(" · ")
+            if (detail.isNotEmpty())
+                Text(
+                    (if (a.band != null) " · " else "  ") + detail,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = grey,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+        }
+        @Composable
+        fun row(label: String, cell: @Composable (Int) -> Unit) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    modifier = Modifier.width(64.dp),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = grey,
+                )
+                labels.indices.forEach { k ->
+                    Box(Modifier.width(colWidth).padding(horizontal = 3.dp), Alignment.Center) { cell(k) }
+                }
+            }
+        }
+        row("") { k -> Text(labels[k], style = MiuixTheme.textStyles.footnote1, color = grey, maxLines = 1) }
+        a.chains.forEach { c ->
+            val v = values(c)
+            row("RX${c.chain}") { k ->
+                CellValueBar(v[k], kinds[k], barMax, a.rat, style, trackWhenEmpty = true, gradientFill = true)
+            }
+        }
     }
 }
 

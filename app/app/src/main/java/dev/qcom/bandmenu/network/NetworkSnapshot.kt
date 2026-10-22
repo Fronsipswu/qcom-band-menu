@@ -85,7 +85,15 @@ data class Neighbor(
     val band: Band? = null
 )
 
-data class AntennaGroup(val rat: Rat, val chains: List<RxChain>, val inTraffic: Boolean?, val txPower: Double?)
+/**
+ * One receiver's chains. QMI (TX_RX_INFO) has only the serving cell's ([carrier] null). With DIAG
+ * every serving carrier has its own: [carrier] "PCell", "PSCell" (NSA's NR leg) or "SCell n", with
+ * the carrier table's band, channel and PCI.
+ */
+data class AntennaGroup(
+    val rat: Rat, val chains: List<RxChain>, val inTraffic: Boolean?, val txPower: Double?,
+    val carrier: String? = null, val band: String? = null, val channel: String? = null, val pci: Int? = null
+)
 
 data class NetworkSnapshot(
     val sim: Int,
@@ -237,6 +245,7 @@ class SnapshotBuilder(
         }
         val failed = (reads.filter { (_, o) -> o !is ReadOutcome.Ok }.keys + rejected + malformed).distinct()
         val lteGroup = lteCarriers()
+        val nrGroup = nrCarriers()
         return NetworkSnapshot(
             sim = sim,
             takenAtElapsedMs = takenAtElapsedMs,
@@ -247,10 +256,10 @@ class SnapshotBuilder(
             roaming = common?.roaming,
             rrc = rrcFields(),
             cells = cells,
-            carrierGroups = listOfNotNull(lteGroup, nrCarriers()),
+            carrierGroups = listOfNotNull(lteGroup, nrGroup),
             endc = if (mode == ServiceMode.NR_NSA) endcCarriers(lteGroup) else null,
             neighbors = neighbors(),
-            antennas = antennas(),
+            antennas = antennas(lteGroup, nrGroup),
             failedReads = failed
         )
     }
@@ -685,18 +694,57 @@ class SnapshotBuilder(
         Metric("RSRQ", MetricKind.RSRQ, Rat.LTE, m.rsrq, "dB")),
         band = lteBandForEarfcn(earfcn.toInt())?.let { Band(Rat.LTE, it, "B$it") })
 
-    private fun antennas(): List<AntennaGroup> = buildList {
-        fun add(rat: Rat, t: TxRxInfo?) {
+    /**
+     * The antenna card. With DIAG, a group per serving carrier of the carrier
+     * tables with chain values (PCell, SCells; NSA's NR PSCell and SCells), in
+     * the tables' order; else, per RAT, QMI's serving-cell chains. The UE
+     * transmit power (QMI only) goes with the RAT's first group.
+     */
+    private fun antennas(lte: CarrierGroup?, nr: CarrierGroup?): List<AntennaGroup> = buildList {
+        fun add(rat: Rat, t: TxRxInfo?, carriers: CarrierGroup? = null) {
+            val diag = carriers?.carriers.orEmpty().mapNotNull { carrierChains(rat, it) }
+            if (diag.isNotEmpty()) {
+                add(diag.first().copy(inTraffic = t?.inTraffic, txPower = t?.txPower))
+                addAll(diag.drop(1))
+                return
+            }
             if (t == null || t.chains.none { it.tuned }) return
             add(AntennaGroup(rat, t.chains, t.inTraffic, t.txPower))
         }
         when (mode) {
-            ServiceMode.LTE -> add(Rat.LTE, txLte)
-            ServiceMode.NR_NSA -> { add(Rat.LTE, txLte); add(Rat.NR, txNr) }
-            ServiceMode.NR_SA -> add(Rat.NR, txNr)
+            ServiceMode.LTE -> add(Rat.LTE, txLte, lte)
+            ServiceMode.NR_NSA -> { add(Rat.LTE, txLte, lte); add(Rat.NR, txNr, nr) }
+            ServiceMode.NR_SA -> add(Rat.NR, txNr, nr)
             ServiceMode.WCDMA -> add(Rat.WCDMA, txWcdma)
             ServiceMode.GSM -> add(Rat.GSM, txGsm)
             else -> {}
         }
+    }
+
+    /**
+     * A DIAG carrier's RX chains (LTE B193; NR B97F RSRP and B8D8/B8DD SINR),
+     * a chain for each index with any value; null when the carrier has none.
+     */
+    private fun carrierChains(rat: Rat, c: Carrier): AntennaGroup? {
+        val rsrp = c.nr?.rsrpRx ?: c.diag?.rsrpRx
+        val rsrq = c.diag?.rsrqRx
+        val sinr = c.nr?.sinrRx ?: c.diag?.sinrRx
+        val csiSinr = c.nr?.csiSinrRx
+        val count = listOfNotNull(rsrp, rsrq, sinr, csiSinr).maxOfOrNull { it.size } ?: return null
+        val chains = (0 until count).mapNotNull { i ->
+            val values = listOf(rsrp, rsrq, sinr, csiSinr).map { it?.getOrNull(i) }
+            if (values.all { it == null }) return@mapNotNull null
+            RxChain(
+                chain = i, tuned = true, rxPower = null, ecio = null, rscp = null, rsrp = values[0], phaseDeg = null,
+                rsrq = values[1], sinr = values[2], csiSinr = values[3]
+            )
+        }
+        if (chains.isEmpty()) return null
+        val name = when {
+            c.role == "P" && rat == Rat.NR && mode == ServiceMode.NR_NSA -> "PSCell"
+            c.role == "P" -> "PCell"
+            else -> "SCell ${c.role.removePrefix("S")}"
+        }
+        return AntennaGroup(rat, chains, null, null, carrier = name, band = c.band, channel = c.channel, pci = c.pci)
     }
 }

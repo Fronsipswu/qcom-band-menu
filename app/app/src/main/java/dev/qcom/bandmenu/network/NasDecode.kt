@@ -361,7 +361,10 @@ fun decodeLteCaInfo(f: QmiFrame): LteCaInfo {
 data class RxChain(
     val chain: Int, val tuned: Boolean,
     /** dBm / dB, already divided from tenths; null when not valid for the RAT. */
-    val rxPower: Double?, val ecio: Double?, val rscp: Double?, val rsrp: Double?, val phaseDeg: Double?
+    val rxPower: Double?, val ecio: Double?, val rscp: Double?, val rsrp: Double?, val phaseDeg: Double?,
+    /** DIAG carrier chains only (QMI has no per-chain RSRQ/SINR): LTE RSRQ and
+     *  SINR, NR SS-SINR and CSI-SINR. */
+    val rsrq: Double? = null, val sinr: Double? = null, val csiSinr: Double? = null
 )
 
 data class TxRxInfo(val radioIf: Int, val chains: List<RxChain>, val inTraffic: Boolean?, val txPower: Double?)

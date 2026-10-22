@@ -34,7 +34,9 @@ data class DiagCarrier(
     val modulation: String?,
     val rank: Int?, val transmissionMode: Int?, val txAntennas: Int?, val rxAntennas: Int?,
     /** Mean scheduled layers per TB (B173); null when the carrier had no TBs. */
-    val layers: Double? = null
+    val layers: Double? = null,
+    /** B193 per RX chain (index = chain, null = no value): the antenna card. */
+    val rsrpRx: List<Double?>? = null, val rsrqRx: List<Double?>? = null, val sinrRx: List<Double?>? = null
 )
 
 /** One NR carrier over the helper's last window (B825/B823/B887/B97F/B8D8/B8A7). */
@@ -70,7 +72,11 @@ data class DiagNrCarrier(
     val csiSinr: Double? = null,
     /** CSI-RS ports the network configured for CSI acquisition (NZP CSI-RS,
      *  from the RRC reconfiguration); null until the helper reports it. */
-    val csiPorts: Int? = null
+    val csiPorts: Int? = null,
+    /** Per RX chain (index = chain, null = no value), the antenna card: B97F
+     *  RSRP (RX 0-1 from the serving beam, RX 2-3 from the carrier's serving
+     *  values), B8D8/B8DD SS-SINR and CSI-SINR. */
+    val rsrpRx: List<Double?>? = null, val sinrRx: List<Double?>? = null, val csiSinrRx: List<Double?>? = null
 )
 
 data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr: List<DiagNrCarrier> = emptyList(),
@@ -104,6 +110,10 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
             val arr = o.getJSONArray("carriers")
             fun JSONObject.d(k: String) = if (has(k)) getDouble(k) else null
             fun JSONObject.i(k: String) = if (has(k)) getInt(k) else null
+            // One value per RX chain, null where the chain has none.
+            fun JSONObject.chains(k: String) = optJSONArray(k)?.let { a ->
+                (0 until a.length()).map { if (a.isNull(it)) null else a.getDouble(it) }
+            }
             // Scheduled TBs ("mbps" counts CRC-passed ones only).
             fun JSONObject.scheduledMbps() = optDouble("mbps_sched", optDouble("mbps", 0.0))
             val nrArr = o.optJSONArray("nr")
@@ -117,7 +127,8 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     transportBlocks = c.optInt("tb"), mbps = c.scheduledMbps(), ulMbps = c.d("ul_mbps"),
                     bler = c.d("bler"), mcs = c.d("mcs"), rbs = c.d("rbs"), layers = c.d("layers"),
                     modulation = c.optString("mod").ifEmpty { null }, rxAntennas = c.i("rx"),
-                    beamSinr = c.d("bsinr"), csiSinr = c.d("csinr"), csiPorts = c.i("csi_ports")
+                    beamSinr = c.d("bsinr"), csiSinr = c.d("csinr"), csiPorts = c.i("csi_ports"),
+                    rsrpRx = c.chains("rsrp_rx"), sinrRx = c.chains("sinr_rx"), csiSinrRx = c.chains("csinr_rx")
                 )
             }
             return DiagStats(o.optLong("ms"), (0 until arr.length()).map { n ->
@@ -132,7 +143,8 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     bler = c.d("bler"), mcs = c.d("mcs"), rbs = c.d("rbs"),
                     modulation = c.optString("mod").ifEmpty { null },
                     rank = c.i("rank"), transmissionMode = c.i("tm"),
-                    txAntennas = c.i("tx"), rxAntennas = c.i("rx"), layers = c.d("layers")
+                    txAntennas = c.i("tx"), rxAntennas = c.i("rx"), layers = c.d("layers"),
+                    rsrpRx = c.chains("rsrp_rx"), rsrqRx = c.chains("rsrq_rx"), sinrRx = c.chains("sinr_rx")
                 )
             }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"))
         }
@@ -173,7 +185,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.20"
+        private const val EXPECTED_VERSION = "1.22.21"
         /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
         private val ROOT_DOMAINS = listOf("su", "magisk")
     }

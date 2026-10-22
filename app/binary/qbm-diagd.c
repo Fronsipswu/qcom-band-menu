@@ -40,6 +40,11 @@
  * chain; matches the UE's own MeasurementReports), "csinr" is CSI-SINR
  * (TRS records, best RX chain), "bsinr" the strongest SSB beam's SNR (B96A,
  * X65).
+ * Per RX chain, for the antenna card, every carrier (PCell and SCells) has
+ * four-value arrays, null for a chain without a value: LTE "rsrp_rx",
+ * "rsrq_rx" and "sinr_rx" (B193's chain fields); NR "rsrp_rx" (B97F: RX 0-1
+ * from the serving beam, RX 2-3 from the layer; see b97f_serving_chains),
+ * "sinr_rx" and "csinr_rx" (B8D8/B8DD chains of SSB and TRS records).
  * Checked on X55, X60, X65, X70 (SM8550), X75 and X85 logs, 2026-10-12.
  * Only C-RNTI and SPS-C-RNTI grants are counted (no paging/SI/RA).
  */
@@ -63,13 +68,14 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.20"
+#define HELPER_VERSION "1.22.21"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
 #define DIAG_CON_MPSS (1 << 1)
 #define DCI_NO_ERROR 1001
 #define SLOTS 8
+#define RX_CHAINS 4                   /* receive chains the logs report per carrier (RX 0-3) */
 
 typedef int (*lsm_init_t)(void *);
 typedef int (*set_version_t)(int, int);
@@ -101,6 +107,9 @@ struct slot {
     /* B193, means over the window */
     double rsrp_sum, rsrq_sum, sinr_sum;
     long n_rsrp, n_rsrq, n_sinr;
+    /* B193 per RX chain (the antenna card), means over the window */
+    double rsrp_rx_sum[RX_CHAINS], rsrq_rx_sum[RX_CHAINS], sinr_rx_sum[RX_CHAINS];
+    long n_rsrp_rx[RX_CHAINS], n_rsrq_rx[RX_CHAINS], n_sinr_rx[RX_CHAINS];
     /* B179's filtered RSRP/RSRQ and the cell they were for: used only when
      * B193 has none (a deactivated SCell) */
     double frsrp_sum, frsrq_sum;
@@ -369,8 +378,22 @@ static int best(const uint8_t *r, int mask, struct pos combined, int combined_ad
 }
 
 /* One packet's serving record per carrier slot (the strongest, as in the
- * Python parser), added to the window once the packet is read. */
-struct meas { int have_rsrp, have_rsrq, have_sinr; double rsrp, rsrq, sinr; uint32_t earfcn; int pci; };
+ * Python parser), added to the window once the packet is read. The *_rx
+ * values are per RX chain, valid where the chain's bit is set in the mask. */
+struct meas {
+    int have_rsrp, have_rsrq, have_sinr; double rsrp, rsrq, sinr; uint32_t earfcn; int pci;
+    unsigned rsrp_chains, rsrq_chains, sinr_chains;
+    double rsrp_rx[RX_CHAINS], rsrq_rx[RX_CHAINS], sinr_rx[RX_CHAINS];
+};
+
+/* Adds the chains in mask to per-chain window sums. */
+static void add_chains(double *sum, long *count, const double *v, unsigned mask) {
+    for (int c = 0; c < RX_CHAINS; c++) {
+        if (!(mask & (1U << c))) continue;
+        sum[c] += v[c];
+        count[c]++;
+    }
+}
 
 /* Which carrier each slot is, from B193's serving records. B184 is only
  * sent on CA events on some modems (X85: 19 in a whole drive log), so a
@@ -400,6 +423,11 @@ struct held { double v; long at_ms; uint32_t arfcn; int pci; };
 static struct held lte_held_s[SIMS][SLOTS][3], nr_held_s[SIMS][SLOTS][5];
 #define lte_held (lte_held_s[sim])
 #define nr_held (nr_held_s[sim])
+/* The same per RX chain, [value][chain]: LTE RSRP, RSRQ and SINR; NR RSRP,
+ * SS-SINR and CSI-SINR. */
+static struct held lte_chain_held_s[SIMS][SLOTS][3][RX_CHAINS], nr_chain_held_s[SIMS][SLOTS][3][RX_CHAINS];
+#define lte_chain_held (lte_chain_held_s[sim])
+#define nr_chain_held (nr_chain_held_s[sim])
 
 /* The window's mean when it has samples (remembered for this cell), else the
  * remembered value while it's under HOLD_MS old and for the same cell. A
@@ -415,6 +443,15 @@ static int held_value(struct held *h, double sum, long n, uint32_t arfcn, int pc
         return 1;
     }
     return 0;
+}
+
+/* held_value for each RX chain; returns a mask of the chains with a value. */
+static unsigned held_chains(struct held *h, const double *sum, const long *n, uint32_t arfcn, int pci, long now,
+                            double *v) {
+    unsigned mask = 0;
+    for (int c = 0; c < RX_CHAINS; c++)
+        if (held_value(&h[c], sum[c], n[c], arfcn, pci, now, &v[c])) mask |= 1U << c;
+    return mask;
 }
 
 /* The combined RSRP code is based at -180 dB in some versions and -140 dB in
@@ -456,6 +493,26 @@ static int b193_rsrp_add(const struct b193_layout *L, const uint8_t *r, int mask
     return own >= 0 ? own : L->rsrp_add;
 }
 
+/* Each RX chain's own RSRP and RSRQ, for the antenna card (the chains'
+ * SINR is read with the best one, below). A chain counts only with a valid
+ * RSRP code: before the valid-RX mask (v50), a chain the carrier doesn't use
+ * still has fields, and an RSRQ code of 0 would read as -30 dB. */
+static void b193_chains(const struct b193_layout *L, const uint8_t *r, int mask, struct meas *m) {
+    for (int i = 0; i < RX_CHAINS; i++) {
+        if (!(mask & (1 << i)) || !L->rsrp_ch[i].bits) continue;
+        int code = (int)at(r, L->rsrp_ch[i]);
+        double v;
+        if (!rsrp_code_valid(code, L->rsrp_ch[i].bits) || !rsrp_db(code, &v)) continue;
+        m->rsrp_rx[i] = v;
+        m->rsrp_chains |= 1U << i;
+        if (L->rsrq_ch[i].bits && rsrq_db((int)at(r, L->rsrq_ch[i]), &v)) {
+            m->rsrq_rx[i] = v;
+            m->rsrq_chains |= 1U << i;
+        }
+    }
+    m->sinr_chains &= m->rsrp_chains;
+}
+
 static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t earfcn, struct meas *pk) {
     if (L->serving.bits && !at(r, L->serving)) return;  /* serving cell records only (older: one cell, serving) */
     int slot = at(r, L->slot);                          /* absent before CA: the PCell */
@@ -479,7 +536,10 @@ static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t ea
             continue;
         }
         if (!m.have_sinr || db > m.sinr) { m.sinr = db; m.have_sinr = 1; }
+        m.sinr_rx[i] = db;
+        m.sinr_chains |= 1U << i;
     }
+    b193_chains(L, r, mask, &m);
     /* Aliases of one carrier in a packet: keep the stronger RSRP. */
     struct meas *prev = &pk[slot];
     int seen = prev->have_rsrp || prev->have_rsrq || prev->have_sinr;
@@ -549,6 +609,9 @@ static void b193(const uint8_t *p, int n) {
         if (pk[i].have_rsrp) { s->rsrp_sum += pk[i].rsrp; s->n_rsrp++; }
         if (pk[i].have_rsrq) { s->rsrq_sum += pk[i].rsrq; s->n_rsrq++; }
         if (pk[i].have_sinr) { s->sinr_sum += pk[i].sinr; s->n_sinr++; }
+        add_chains(s->rsrp_rx_sum, s->n_rsrp_rx, pk[i].rsrp_rx, pk[i].rsrp_chains);
+        add_chains(s->rsrq_rx_sum, s->n_rsrq_rx, pk[i].rsrq_rx, pk[i].rsrq_chains);
+        add_chains(s->sinr_rx_sum, s->n_sinr_rx, pk[i].sinr_rx, pk[i].sinr_chains);
         if (pk[i].have_rsrp || pk[i].have_rsrq || pk[i].have_sinr) {
             live[i].earfcn = pk[i].earfcn;
             live[i].pci = pk[i].pci;
@@ -716,6 +779,11 @@ struct nr_slot {
      * window */
     double rsrp_sum, rsrq_sum, sinr_sum, csinr_sum, bsinr_sum;
     long n_rsrp, n_rsrq, n_sinr, n_csinr, n_bsinr;
+    /* Per RX chain (the antenna card), means over the window: B97F serving
+     * cell RSRP (see b97f_serving_chains), B8D8/B8DD SNR of SSB and of TRS
+     * records */
+    double rsrp_rx_sum[RX_CHAINS], sinr_rx_sum[RX_CHAINS], csinr_rx_sum[RX_CHAINS];
+    long n_rsrp_rx[RX_CHAINS], n_sinr_rx[RX_CHAINS], n_csinr_rx[RX_CHAINS];
     /* B8A7: last report in the window */
     int cqi, ri, have_csf;
 };
@@ -1037,11 +1105,62 @@ static int nr_slot_unconfigured(uint32_t arfcn) {
     return -1;
 }
 
+/*
+ * The serving cell's RSRP per RX chain, for the antenna card. Each beam
+ * holds its RSRP on RX 0 and 1 ("RX Beam Info"; in FR2 the beam pair's two
+ * receivers), and the layer the serving SSB and the serving cell's RSRP on
+ * RX 2 and 3 ("ServingRSRP_Rx23", 0 when only two receivers measured: FR2
+ * and some FR1 captures). Signed Q7. Positions checked on the real captures
+ * in SCAT's tests (versions 2.6, 2.7, 2.9 and 2.10; n25, n28, n66, n78 and
+ * FR2), where the serving SSB always names one of the serving cell's beams.
+ * From 2.9 the serving cell's list index comes before the serving SSB. 3.0
+ * and 3.1 keep the 2.10 beam and widen the layer's array to four values, of
+ * which the first two are taken as RX 2 and 3 (no 3.x capture with a
+ * serving cell checked yet). Before 2.6 the beam layout is not known: no
+ * chains.
+ */
+struct b97f_chains { uint32_t ver; struct pos serving_ssb, rx23[2], beam_ssb, rx01[2]; };
+static const struct b97f_chains B97F_CHAINS[] = {
+    { 0x20006, { 64, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.6 */
+    { 0x20007, { 64, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.7 */
+    { 0x20008, { 64, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.8 */
+    { 0x20009, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.9 */
+    { 0x2000a, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.10 */
+    { 0x30000, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 3.0 */
+    { 0x30001, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 3.1 */
+};
+
+/* One Q7 RSRP; 0 (not measured) and the -156 dBm floor are not values. */
+static unsigned q7_rsrp(uint32_t raw, double *v) {
+    *v = q7((int32_t)raw);
+    return *v > -156 && *v < -20;
+}
+
+/* Adds the serving cell's chains to its carrier: RX 0 and 1 from the beam of
+ * the serving SSB among the cell's beams (at beams, payload offset), RX 2
+ * and 3 from the layer. */
+static void b97f_serving_chains(const struct b97f_chains *P, const uint8_t *layer, const uint8_t *p, int n,
+                                int beams, int count, int beam_bytes, struct nr_slot *s) {
+    double v[RX_CHAINS] = { 0 };
+    unsigned chains = 0;
+    int ssb = (int)at(layer, P->serving_ssb);
+    for (int b = 0; b < count && beams + (b + 1) * beam_bytes <= n; b++) {
+        const uint8_t *beam = p + beams + b * beam_bytes;
+        if ((int)at(beam, P->beam_ssb) != ssb) continue;
+        for (int i = 0; i < 2; i++) chains |= q7_rsrp(at(beam, P->rx01[i]), &v[i]) << i;
+        break;
+    }
+    for (int i = 0; i < 2; i++) chains |= q7_rsrp(at(layer, P->rx23[i]), &v[2 + i]) << (2 + i);
+    add_chains(s->rsrp_rx_sum, s->n_rsrp_rx, v, chains);
+}
+
 static void b97f(const uint8_t *p, int n) {
     if (n < 4) return;
     const struct b97f_layout *Lay;
     FIND_LAYOUT(B97F_LAYOUTS, nr_ver(p), Lay);
     if (!Lay || (Lay->layers_at / 8) > n) return;
+    const struct b97f_chains *chain_pos;
+    FIND_LAYOUT(B97F_CHAINS, nr_ver(p), chain_pos);
     int layers = at(p, Lay->layer_count), pos = Lay->layers_at / 8;
     int layer_bytes = Lay->cells_at / 8, cell_bytes = Lay->beams_at / 8, beam_bytes = Lay->beam_bits / 8;
     for (int l = 0; l < layers && pos + layer_bytes <= n; l++) {
@@ -1070,6 +1189,7 @@ static void b97f(const uint8_t *p, int n) {
                     s->rsrp_sum += rsrp; s->n_rsrp++;
                     if (rsrq > -40 && rsrq < 10) { s->rsrq_sum += rsrq; s->n_rsrq++; }
                 }
+                if (chain_pos) b97f_serving_chains(chain_pos, L, p, n, pos + cell_bytes, beams, beam_bytes, s);
                 nrlive[cc].earfcn = arfcn;
                 nrlive[cc].pci = pci;
                 nrlive[cc].at_ms = now_ms();
@@ -1100,6 +1220,9 @@ static void serving_snr(const struct b8d8_layout *layout, const uint8_t *payload
         return;
     int have = 0;
     double best_db = 0;
+    /* Each chain's own SNR as well, for the antenna card. */
+    double chain_db[RX_CHAINS] = { 0 };
+    unsigned chains = 0;
     for (int i = 0; i < 4; i++) {
         if (!fits(layout->snr[i], size))
             return;
@@ -1107,6 +1230,10 @@ static void serving_snr(const struct b8d8_layout *layout, const uint8_t *payload
         if (!raw)
             continue;
         double db = 10.0 * log10(raw / 1024.0);
+        if (db > -30 && db < 60) {
+            chain_db[i] = db;
+            chains |= 1U << i;
+        }
         if (!have || db > best_db) {
             best_db = db;
             have = 1;
@@ -1114,12 +1241,15 @@ static void serving_snr(const struct b8d8_layout *layout, const uint8_t *payload
     }
     if (!have || best_db <= -30 || best_db >= 60)
         return;
+    struct nr_slot *s = &nrwin[carrier];
     if (layout->rs.bits && at(payload, layout->rs)) {
-        nrwin[carrier].csinr_sum += best_db;
-        nrwin[carrier].n_csinr++;
+        s->csinr_sum += best_db;
+        s->n_csinr++;
+        add_chains(s->csinr_rx_sum, s->n_csinr_rx, chain_db, chains);
     } else {
-        nrwin[carrier].sinr_sum += best_db;
-        nrwin[carrier].n_sinr++;
+        s->sinr_sum += best_db;
+        s->n_sinr++;
+        add_chains(s->sinr_rx_sum, s->n_sinr_rx, chain_db, chains);
     }
 }
 
@@ -1357,6 +1487,28 @@ static int argmax(const long *v, int n) {
 
 static long window_start;
 
+/* Appends ,"name":[a,b,null,null] to a stats reply, as PUT does: each RX
+ * chain's window mean or held value (held_chains), null for a chain with
+ * neither; nothing when no chain has a value. */
+static void put_chains(char *out, size_t cap, size_t *o, const char *name, struct held *held, const double *sum,
+                       const long *count, uint32_t arfcn, int pci, long now) {
+    double v[RX_CHAINS];
+    unsigned mask = held_chains(held, sum, count, arfcn, pci, now, v);
+    if (!mask) return;
+    char text[96];
+    size_t t = (size_t)snprintf(text, sizeof text, ",\"%s\":[", name);
+    for (int c = 0; c < RX_CHAINS && t < sizeof text; c++) {
+        const char *comma = c ? "," : "";
+        if (mask & (1U << c))
+            t += (size_t)snprintf(text + t, sizeof text - t, "%s%.2f", comma, v[c]);
+        else
+            t += (size_t)snprintf(text + t, sizeof text - t, "%snull", comma);
+    }
+    if (t + 1 >= sizeof text) return;                   /* never a cut array */
+    int k = snprintf(out + (*o < cap ? *o : cap), *o < cap ? cap - *o : 0, "%s]", text);
+    if (k > 0) *o += (size_t)k;
+}
+
 /* The NR PCell a TA is tied to: B823's carrier, else (no B823 yet) the first
  * live carrier, which in SA with one carrier is the PCell. */
 static struct cell_id nr_ta_cell(int pcell, const int *live_of, const struct nr_cell *const *cfg_of) {
@@ -1441,6 +1593,10 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             if (held_value(&lte_held[i][1], f ? s->frsrq_sum : s->rsrq_sum, f ? s->n_frsrq : s->n_rsrq, ch, pci, now, &v))
                 PUT(",\"rsrq\":%.2f", v);
             if (held_value(&lte_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
+            /* Per RX chain, B193 only (B179 has none). */
+            put_chains(out, cap, &o, "rsrp_rx", lte_chain_held[i][0], s->rsrp_rx_sum, s->n_rsrp_rx, ch, pci, now);
+            put_chains(out, cap, &o, "rsrq_rx", lte_chain_held[i][1], s->rsrq_rx_sum, s->n_rsrq_rx, ch, pci, now);
+            put_chains(out, cap, &o, "sinr_rx", lte_chain_held[i][2], s->sinr_rx_sum, s->n_sinr_rx, ch, pci, now);
         }
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
             s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
@@ -1549,6 +1705,9 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             if (held_value(&nr_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
             if (held_value(&nr_held[i][3], s->csinr_sum, s->n_csinr, ch, pci, now, &v)) PUT(",\"csinr\":%.2f", v);
             if (held_value(&nr_held[i][4], s->bsinr_sum, s->n_bsinr, ch, pci, now, &v)) PUT(",\"bsinr\":%.2f", v);
+            put_chains(out, cap, &o, "rsrp_rx", nr_chain_held[i][0], s->rsrp_rx_sum, s->n_rsrp_rx, ch, pci, now);
+            put_chains(out, cap, &o, "sinr_rx", nr_chain_held[i][1], s->sinr_rx_sum, s->n_sinr_rx, ch, pci, now);
+            put_chains(out, cap, &o, "csinr_rx", nr_chain_held[i][2], s->csinr_rx_sum, s->n_csinr_rx, ch, pci, now);
         }
         if (s->have_csf) PUT(",\"cqi\":%d,\"ri\":%d", s->cqi, s->ri);
         PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",

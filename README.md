@@ -16,6 +16,7 @@ Apply cellular forcings such as RAT preferences, band locking, and 5G-NR modes t
   - MIMO, Rank, MCS, modulation schemes, RBs, CSI-RS ports etc
   - PHY DL/UL throughput
   - Detailed NRCA readings
+  - Antenna measurements per receive chain for every LTE and NR carrier (PCell and SCells)
 - Available as both an Android app and a command-line utility
 
 <img height="600" alt="image" src="https://github.com/user-attachments/assets/56620800-fa04-4f80-a2db-914f86331a60" />
@@ -356,7 +357,7 @@ LTE:
 0xB126  PDSCH demapper config     Tx/Rx antennas, rank, transmission mode
 0xB139  PUSCH Tx report           uplink TB size
 0xB184  CA metrics                PCell/SCell EARFCN, PCI, band, bandwidth, state
-0xB193  Serving cell measurement  per-carrier RSRP, RSRQ, SINR
+0xB193  Serving cell measurement  per-carrier RSRP, RSRQ, SINR, also per RX chain
 0xB179  Intra-frequency measure   RSRP, RSRQ of deactivated SCells
 0xB168  Random access MSG2        timing advance
 ```
@@ -366,9 +367,9 @@ NR:
 ```text
 0xB887  PDSCH status              MCS, modulation, RBs, layers, TB size
 0xB883  UL physical channel       uplink TB size
-0xB97F  Measurements              SS-RSRP, SS-RSRQ
-0xB8D8  SNR                       SS-SINR, CSI-SINR
-0xB8DD  SNR (X55 to X65)          SS-SINR, CSI-SINR
+0xB97F  Measurements              SS-RSRP, SS-RSRQ, RSRP per RX chain
+0xB8D8  SNR                       SS-SINR, CSI-SINR, also per RX chain
+0xB8DD  SNR (X55 to X65)          SS-SINR, CSI-SINR, also per RX chain
 0xB96A  Beam measurements (X65)   strongest beam's SNR
 0xB8A7  CSF                       CQI, rank indicator
 0xB825  RRC configuration         carriers, band, bandwidth, SCS
