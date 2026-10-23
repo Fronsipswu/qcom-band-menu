@@ -82,7 +82,9 @@ data class CarrierGroup(
 data class Neighbor(
     val rat: Rat, val channelLabel: String, val channel: Long, val idLabel: String, val id: String, val metrics: List<Metric>,
     /** Band derived from the channel number (neighbour reports carry none); null when ambiguous. */
-    val band: Band? = null
+    val band: Band? = null,
+    /** NR (DIAG): the SSB beam index; one row per measured beam. */
+    val beam: Int? = null
 )
 
 /**
@@ -670,6 +672,19 @@ class SnapshotBuilder(
     private fun neighbors(): List<Neighbor> = neighborList().sortedByDescending { n ->
         (n.metrics.firstOrNull { it.kind == MetricKind.RSRQ || it.kind == MetricKind.ECIO } ?: n.metrics.firstOrNull())
             ?.value ?: Double.NEGATIVE_INFINITY
+    } + nrNeighbors()
+
+    /**
+     * NR neighbour beams from DIAG (B97F), after the other RATs' and in the
+     * helper's order (strongest RSRP first): one row per beam, as NSG lists
+     * them. QMI reports no NR neighbour PCI, so without DIAG there are none.
+     */
+    private fun nrNeighbors(): List<Neighbor> = diag?.nrNeighbours.orEmpty().map { n ->
+        Neighbor(Rat.NR, "NARFCN", n.arfcn, "PCI", n.pci.toString(), listOf(
+            Metric("RSRP", MetricKind.RSRP, Rat.NR, n.rsrp, "dBm"),
+            Metric("RSRQ", MetricKind.RSRQ, Rat.NR, n.rsrq, "dB")),
+            band = nrBandForArfcn(n.arfcn, nrHardwareBands)?.let { Band(Rat.NR, it, "n$it") },
+            beam = n.beam)
     }
 
     private fun neighborList(): List<Neighbor> = buildList {
@@ -787,7 +802,7 @@ class SnapshotBuilder(
         }
         // WCDMA/GSM neighbours: shown with their measurements, but the modem
         // has no cell lock for them.
-        neighbors().filter { it.rat != Rat.LTE }.forEach { n ->
+        neighbors().filter { it.rat != Rat.LTE && it.rat != Rat.NR }.forEach { n ->
             add(LockTarget(
                 rat = n.rat, role = LockRole.NEIGHBOUR,
                 idLabel = n.idLabel, id = n.id,
@@ -796,16 +811,36 @@ class SnapshotBuilder(
                 lock = null, note = "${n.rat.label} cell lock is not supported"
             ))
         }
-        // NR neighbours are frequencies only: no PCI, no measurement.
         val servingScs = sys?.nrScsKhz ?: diag?.nr?.firstOrNull { it.arfcn == primaryNrArfcn() }?.scsKhz
         val servingBand = nrServingTarget()?.band?.number
+        fun nrScs(band: Int?) = if (band != null && band == servingBand && servingScs != null) servingScs
+            else nrDefaultScsKhz(band)
+        // DIAG's NR neighbour beams: a PCI, so the cell lock (every beam of a
+        // cell locks the same cell).
+        val diagNr = diag?.nrNeighbours
+        if (diagNr != null) {
+            nrNeighbors().forEach { n ->
+                val pci = n.id.toInt()
+                val band = n.band?.number
+                val scs = nrScs(band)
+                add(LockTarget(
+                    rat = Rat.NR, role = LockRole.NEIGHBOUR,
+                    idLabel = "PCI", id = n.id,
+                    channelLabel = "NARFCN", channel = n.channel,
+                    band = n.band, scsKhz = scs, metrics = n.metrics, beam = n.beam,
+                    lock = if (band != null) LockRequest.NrCell(n.channel, pci, scs, band)
+                        else LockRequest.NrFrequency(n.channel, scs)
+                ))
+            }
+            return@buildList
+        }
+        // Without DIAG, NR neighbours are frequencies only: no PCI, no measurement.
         arfcn?.nrNeighbor.orEmpty()
             .filter { it != primaryNrArfcn() && it !in arfcn?.nrServing.orEmpty() }
             .distinct()
             .forEach { f ->
                 val band = nrBandForArfcn(f, nrHardwareBands)
-                val scs = if (band != null && band == servingBand && servingScs != null) servingScs
-                    else nrDefaultScsKhz(band)
+                val scs = nrScs(band)
                 add(LockTarget(
                     rat = Rat.NR, role = LockRole.NEIGHBOUR,
                     idLabel = "NARFCN", id = "—",

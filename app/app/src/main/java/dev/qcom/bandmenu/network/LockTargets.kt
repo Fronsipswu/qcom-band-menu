@@ -46,10 +46,12 @@ data class LockTarget(
     val scsKhz: Int? = null,
     val metrics: List<Metric> = emptyList(),
     val lock: LockRequest? = null,
-    val note: String? = null
+    val note: String? = null,
+    /** NR (DIAG) neighbour rows: the SSB beam index. */
+    val beam: Int? = null
 ) {
     /** Stable identity of the row across rounds (for list keys and tests). */
-    val key: String get() = "$rat/$channel/$id"
+    val key: String get() = "$rat/$channel/$id/${beam ?: ""}"
 }
 
 /**
@@ -64,7 +66,7 @@ fun Neighbor.asLockTarget(role: LockRole = LockRole.NEIGHBOUR): LockTarget {
         rat = rat, role = role,
         idLabel = idLabel, id = id,
         channelLabel = channelLabel, channel = channel,
-        band = band, metrics = metrics, lock = lock,
+        band = band, metrics = metrics, lock = lock, beam = beam,
         note = when {
             lock != null -> null
             rat == Rat.LTE -> "No PCI reported"

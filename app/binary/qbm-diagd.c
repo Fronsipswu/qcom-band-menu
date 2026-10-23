@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.27"
+#define HELPER_VERSION "1.22.28"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -1330,6 +1330,69 @@ static void b97f_serving_chains(const struct b97f_chains *P, const uint8_t *laye
     add_chains(s->rsrp_rx_sum, s->n_rsrp_rx, v, chains);
 }
 
+/*
+ * NR neighbour beams for the neighbour list, as NSG lists them (AirScreen
+ * 2.7.8's NR beam table; the notes' nr-neighbours/ study reproduces every
+ * paired NSG export with it): one row per measured beam (NR-ARFCN, PCI, SSB
+ * index) with its newest values in the window, except each serving carrier's
+ * serving beam (the serving cell's other beams stay), strongest RSRP first.
+ * A beam's RSRP/RSRQ are its filtered L3 values, or its L2NR L3 values when
+ * the filtered RSRP is 0 (not measured). A beam counts with -150 < RSRP < -20
+ * and -40 < RSRQ < 20 under a cell whose own values pass the same test, and
+ * both below -1 dBm. A carrier's serving cell index 255 marks a non-serving
+ * carrier; its serving beam is the serving SSB, or with none (255) the
+ * serving cell's first counted beam. Positions from AirScreen's readers (2.9
+ * also checked against QCAT text, 2.7, 2.10 and 3.1 by the NSG exports);
+ * before 2.6 the layer's frequency isn't an NR-ARFCN: no rows.
+ */
+struct b97f_nb_pos { uint32_t ver; struct pos sci, sssb, ssb, rsrp, rsrq, l2_rsrp, l2_rsrq; };
+static const struct b97f_nb_pos B97F_NB[] = {
+    { 0x20006, { 40, 8 }, { 64, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.6 */
+    { 0x20007, { 40, 8 }, { 64, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.7 */
+    { 0x20008, { 40, 8 }, { 64, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.8 */
+    { 0x20009, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.9 */
+    { 0x2000a, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 544, 32 }, { 576, 32 }, { 608, 32 }, { 640, 32 } },   /* 2.10 */
+    { 0x30000, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 544, 32 }, { 576, 32 }, { 608, 32 }, { 640, 32 } },   /* 3.0 */
+    { 0x30001, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 544, 32 }, { 576, 32 }, { 608, 32 }, { 640, 32 } },   /* 3.1 */
+};
+
+#define NR_NB_MAX 48
+struct nr_nb { uint32_t arfcn; int pci, ssb; double rsrp, rsrq; };
+struct nr_nb_set { int n; struct nr_nb e[NR_NB_MAX]; };
+/* Per SIM: this window's beams and serving beams (newest per key), whether a
+ * B97F with a measured layer came, and the last list shown (held HOLD_MS). */
+static struct nr_nb_set nrnb_s[SIMS], nrnb_serving_s[SIMS], nrnb_last_s[SIMS];
+static int nrnb_seen_s[SIMS];
+static long nrnb_last_ms_s[SIMS];
+#define nrnb (nrnb_s[sim])
+#define nrnb_serving (nrnb_serving_s[sim])
+#define nrnb_last (nrnb_last_s[sim])
+#define nrnb_seen (nrnb_seen_s[sim])
+#define nrnb_last_ms (nrnb_last_ms_s[sim])
+
+/* Stores the newest values of a beam; a serving beam is one per cell. */
+static void nr_nb_put(struct nr_nb_set *set, uint32_t arfcn, int pci, int ssb, double rsrp, double rsrq, int per_cell) {
+    for (int i = 0; i < set->n; i++) {
+        struct nr_nb *e = &set->e[i];
+        if (e->arfcn == arfcn && e->pci == pci && (per_cell || e->ssb == ssb)) {
+            e->ssb = ssb; e->rsrp = rsrp; e->rsrq = rsrq;
+            return;
+        }
+    }
+    if (set->n < NR_NB_MAX) set->e[set->n++] = (struct nr_nb){ arfcn, pci, ssb, rsrp, rsrq };
+}
+
+/* A beam's RSRP/RSRQ (see above); true when it counts. */
+static int b97f_beam_values(const struct b97f_nb_pos *P, const uint8_t *beam, double *rsrp, double *rsrq) {
+    *rsrp = q7((int32_t)at(beam, P->rsrp));
+    *rsrq = q7((int32_t)at(beam, P->rsrq));
+    if (*rsrp > -0.001) {
+        *rsrp = q7((int32_t)at(beam, P->l2_rsrp));
+        *rsrq = q7((int32_t)at(beam, P->l2_rsrq));
+    }
+    return *rsrp > -150 && *rsrp < -20 && *rsrq > -40 && *rsrq < 20 && *rsrp < -1;
+}
+
 static void b97f(const uint8_t *p, int n) {
     if (n < 4) return;
     const struct b97f_layout *Lay;
@@ -1337,12 +1400,17 @@ static void b97f(const uint8_t *p, int n) {
     if (!Lay || (Lay->layers_at / 8) > n) return;
     const struct b97f_chains *chain_pos;
     FIND_LAYOUT(B97F_CHAINS, nr_ver(p), chain_pos);
+    const struct b97f_nb_pos *nbp;
+    FIND_LAYOUT(B97F_NB, nr_ver(p), nbp);
     int layers = at(p, Lay->layer_count), pos = Lay->layers_at / 8;
     int layer_bytes = Lay->cells_at / 8, cell_bytes = Lay->beams_at / 8, beam_bytes = Lay->beam_bits / 8;
     for (int l = 0; l < layers && pos + layer_bytes <= n; l++) {
         const uint8_t *L = p + pos;
         uint32_t arfcn = at(L, Lay->arfcn);
         int cc = Lay->cc.bits ? (int)at(L, Lay->cc) : -1, ncell = at(L, Lay->ncell), spci = at(L, Lay->spci);
+        /* Neighbour beams: a measured first layer makes this a list update. */
+        int serving_carrier = nbp && at(L, nbp->sci) != 255, sssb = nbp ? (int)at(L, nbp->sssb) : 255, serving_found = 0;
+        if (nbp && l == 0 && arfcn) nrnb_seen = 1;
         pos += layer_bytes;
         if (cc < 0 && Lay->arfcn.bits) {                 /* before 2.9: match by frequency */
             for (int i = 0; i < SLOTS && cc < 0; i++)
@@ -1355,6 +1423,19 @@ static void b97f(const uint8_t *p, int n) {
         for (int c = 0; c < ncell && pos + cell_bytes <= n; c++) {
             const uint8_t *C = p + pos;
             int pci = at(C, Lay->pci), beams = at(C, Lay->nbeam);
+            double cell_rsrp = q7((int32_t)at(C, Lay->rsrp)), cell_rsrq = q7((int32_t)at(C, Lay->rsrq));
+            if (nbp && cell_rsrp > -150 && cell_rsrp < -1 && cell_rsrq > -40 && cell_rsrq < 20) {
+                for (int b = 0; b < beams && pos + cell_bytes + (b + 1) * beam_bytes <= n; b++) {
+                    const uint8_t *B = p + pos + cell_bytes + b * beam_bytes;
+                    int ssb = (int)at(B, nbp->ssb);
+                    double rsrp, rsrq;
+                    if (!b97f_beam_values(nbp, B, &rsrp, &rsrq)) continue;
+                    if (serving_carrier && pci == spci && !serving_found && (sssb > 254 || sssb == ssb)) {
+                        nr_nb_put(&nrnb_serving, arfcn, pci, ssb, rsrp, rsrq, 1);
+                        serving_found = 1;
+                    } else nr_nb_put(&nrnb, arfcn, pci, ssb, rsrp, rsrq, 0);
+                }
+            }
             if (cc >= 0 && cc < SLOTS && spci != 0xFFFF && pci == spci) {
                 double rsrp = q7((int32_t)at(C, Lay->rsrp)), rsrq = q7((int32_t)at(C, Lay->rsrq));
                 struct nr_slot *s = &nrwin[cc];
@@ -1964,6 +2045,31 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         PUT("}");
     }
     PUT("]");
+    /* NR neighbour beams as [NR-ARFCN, PCI, SSB, RSRP, RSRQ], strongest first:
+     * this window's without the serving beams; with no B97F this window, the
+     * last list for HOLD_MS. */
+    if (nrnb_seen) {
+        nrnb_last.n = 0;
+        for (int i = 0; i < nrnb.n; i++) {
+            const struct nr_nb *e = &nrnb.e[i];
+            int serving = 0;
+            for (int j = 0; j < nrnb_serving.n && !serving; j++)
+                serving = nrnb_serving.e[j].arfcn == e->arfcn && nrnb_serving.e[j].pci == e->pci && nrnb_serving.e[j].ssb == e->ssb;
+            if (serving) continue;
+            int k = nrnb_last.n++;
+            while (k > 0 && nrnb_last.e[k - 1].rsrp < e->rsrp) { nrnb_last.e[k] = nrnb_last.e[k - 1]; k--; }
+            nrnb_last.e[k] = *e;
+        }
+        nrnb_last_ms = now;
+    }
+    if (!silent && nrnb_last_ms && now - nrnb_last_ms < HOLD_MS) {
+        PUT(",\"nr_nb\":[");
+        for (int i = 0; i < nrnb_last.n; i++) {
+            const struct nr_nb *e = &nrnb_last.e[i];
+            PUT("%s[%u,%d,%d,%.2f,%.2f]", i ? "," : "", e->arfcn, e->pci, e->ssb, e->rsrp, e->rsrq);
+        }
+        PUT("]");
+    }
     /* The last random access's TA, as the raw index. */
     if (!silent && show_lte_ta) PUT(",\"lte_ta\":%d", lte_ta.value);
     if (!silent && show_nr_ta) PUT(",\"nr_ta\":%d", nr_ta.value);
@@ -1973,6 +2079,9 @@ static int write_stats(char *out, size_t cap, int for_sim) {
      * time since this one. */
     memset(win_s, 0, sizeof win_s);
     memset(nrwin_s, 0, sizeof nrwin_s);
+    memset(nrnb_s, 0, sizeof nrnb_s);
+    memset(nrnb_serving_s, 0, sizeof nrnb_serving_s);
+    memset(nrnb_seen_s, 0, sizeof nrnb_seen_s);
     window_start = now;
     pthread_mutex_unlock(&lock);
     return o < cap ? (int)o : -1;
@@ -2091,7 +2200,7 @@ int main(int argc, char **argv) {
     int cfd = -1;
     char in[512];
     size_t in_len = 0;
-    static char out[8192];
+    static char out[16384];
     while (!stop_flag && now_ms() - last_request < WATCHDOG_MS) {
         struct pollfd pf[2] = { { lfd, POLLIN, 0 }, { cfd, POLLIN, 0 } };
         if (poll(pf, cfd >= 0 ? 2 : 1, 500) < 0 && errno != EINTR) break;

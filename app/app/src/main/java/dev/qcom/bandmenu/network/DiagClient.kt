@@ -102,10 +102,16 @@ data class DiagNrCarrier(
     val hasUplink: Boolean get() = ulMbps != null || ulRbs != null || ulPower != null || ulPucch != null
 }
 
+/** One NR neighbour beam (B97F), as the neighbour list shows it. */
+data class DiagNrNeighbour(val arfcn: Long, val pci: Int, val beam: Int, val rsrp: Double, val rsrq: Double)
+
 data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr: List<DiagNrCarrier> = emptyList(),
     /** Raw timing-advance index of the last random access (the RAR): LTE B168,
      *  NR B88A. The helper drops it when the serving cell changes. */
-    val lteTimingAdvance: Int? = null, val nrTimingAdvance: Int? = null) {
+    val lteTimingAdvance: Int? = null, val nrTimingAdvance: Int? = null,
+    /** NR neighbour beams, strongest RSRP first (the serving beams left out);
+     *  null when the helper sent no list (no NR measurement lately). */
+    val nrNeighbours: List<DiagNrNeighbour>? = null) {
     /** Combined PHY downlink throughput: every LTE and NR carrier. */
     val totalMbps: Double get() = carriers.sumOf { it.mbps } + nr.sumOf { it.mbps }
 
@@ -174,7 +180,13 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     ulRbs = c.d("ul_rbs"), ulMcs = c.d("ul_mcs"), ulModulation = c.optString("ul_mod").ifEmpty { null },
                     ulPower = c.d("ul_pwr"), ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler")
                 )
-            }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"))
+            }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"),
+                nrNeighbours = o.optJSONArray("nr_nb")?.let { a ->
+                    (0 until a.length()).map { k ->
+                        val e = a.getJSONArray(k)
+                        DiagNrNeighbour(e.getLong(0), e.getInt(1), e.getInt(2), e.getDouble(3), e.getDouble(4))
+                    }
+                })
         }
 
         /** Combined DL and UL throughput from [o] without decoding full carrier lists. */
@@ -213,7 +225,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.27"
+        private const val EXPECTED_VERSION = "1.22.28"
         /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
         private val ROOT_DOMAINS = listOf("su", "magisk")
     }
