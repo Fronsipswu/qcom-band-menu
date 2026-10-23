@@ -1343,7 +1343,7 @@ private fun CarrierAntennaRows(a: AntennaGroup, header: Boolean = true) = BoxWit
                     maxLines = 1,
                 )
             }
-            val detail = listOfNotNull(a.channel, a.pci?.let { "PCI $it" }).joinToString(" | ")
+            val detail = a.pci?.let { "PCI $it" }.orEmpty()
             if (detail.isNotEmpty())
                 Text(
                     (if (a.band != null) " | " else "  ") + detail,
