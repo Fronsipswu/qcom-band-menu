@@ -1,8 +1,6 @@
 package dev.qcom.bandmenu
 
 import androidx.datastore.preferences.core.mutablePreferencesOf
-import dev.qcom.bandmenu.network.Band
-import dev.qcom.bandmenu.network.Rat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -246,23 +244,5 @@ class BandFilterTest {
         val copied = source.copyForOtherSim()
         assertEquals(nr, copied.nrNsa)
         assertEquals(nr, copied.nrSa)
-    }
-
-    @Test
-    fun allows_judgesEachRatByItsOwnSet() {
-        val filter = SimBandFilter(
-            gsm = setOf(900), wcdma = setOf(1), lte = setOf(3, 7), nrNsa = setOf(78), nrSa = setOf(41)
-        )
-        assertTrue(filter.allows(Band(Rat.LTE, 3, "B3")))
-        assertFalse(filter.allows(Band(Rat.LTE, 20, "B20")))
-        // NR: either operating mode's set keeps the band.
-        assertTrue(filter.allows(Band(Rat.NR, 78, "n78")))
-        assertTrue(filter.allows(Band(Rat.NR, 41, "n41")))
-        assertFalse(filter.allows(Band(Rat.NR, 28, "n28")))
-        assertTrue(filter.allows(Band(Rat.WCDMA, 1, "B1")))
-        assertFalse(filter.allows(Band(Rat.WCDMA, 8, "B8")))
-        assertTrue(filter.allows(Band(Rat.GSM, 900, "900")))
-        // An undecidable band (no derived band) is never hidden.
-        assertTrue(filter.allows(null))
     }
 }

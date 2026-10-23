@@ -72,3 +72,46 @@ fun Neighbor.asLockTarget(role: LockRole = LockRole.NEIGHBOUR): LockTarget {
         }
     )
 }
+
+/**
+ * The serving cells as lock rows, in the carrier tables' order: the primary
+ * first (LTE PCell, SA's NR PCell, NSA's MCG), then its SCells (NSA: the LTE
+ * SCells, the SCG, the NR SCells). A row that is the snapshot's own primary
+ * target keeps that target, whose band and SCS come from more sources; the
+ * others lock like a cell of their RAT. Without carrier tables: the primary
+ * targets alone.
+ */
+fun servingLockTargets(snap: NetworkSnapshot): List<LockTarget> {
+    val primaries = snap.lockTargets.filter { it.role == LockRole.SERVING }
+    val carriers = snap.endc?.carriers ?: snap.carrierGroups.filter { it.table }.flatMap { it.carriers }
+    if (carriers.isEmpty()) return primaries
+    return carriers.mapNotNull { it.asServingTarget(primaries) }
+}
+
+private fun Carrier.asServingTarget(primaries: List<LockTarget>): LockTarget? {
+    val ch = channel.substringBefore(' ').toLongOrNull() ?: return null
+    val isNr = nr != null || band?.startsWith("n") == true
+    val rat = if (isNr) Rat.NR else Rat.LTE
+    primaries.firstOrNull { it.rat == rat && it.channel == ch && it.id == pci?.toString() }?.let { return it }
+    val bandNumber = nr?.band?.takeIf { it > 0 } ?: band?.drop(1)?.toIntOrNull()
+    val bandOf = bandNumber?.let { Band(rat, it, (if (isNr) "n" else "B") + it) }
+    val scs = if (isNr) nr?.scsKhz ?: nrDefaultScsKhz(bandNumber) else null
+    val lock = when {
+        !isNr -> pci?.let { LockRequest.LteCell(ch, it) }
+        pci != null && bandNumber != null -> LockRequest.NrCell(ch, pci, scs!!, bandNumber)
+        else -> LockRequest.NrFrequency(ch, scs!!)
+    }
+    return LockTarget(
+        rat = rat, role = LockRole.SERVING,
+        idLabel = "PCI", id = pci?.toString() ?: "—",
+        channelLabel = if (isNr) "NARFCN" else "EARFCN", channel = ch,
+        band = bandOf, scsKhz = scs,
+        // Neighbour-table labels: the table takes its headers from the first row.
+        metrics = listOf(
+            Metric("RSRP", MetricKind.RSRP, rat, rsrp, "dBm"),
+            Metric("RSRQ", MetricKind.RSRQ, rat, rsrq, "dB")
+        ),
+        lock = lock,
+        note = if (lock == null) "No PCI reported" else null
+    )
+}

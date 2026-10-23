@@ -1,8 +1,5 @@
 package dev.qcom.bandmenu.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,24 +11,20 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,13 +38,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
@@ -61,20 +52,20 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
-import dev.qcom.bandmenu.BandFilterState
 import dev.qcom.bandmenu.CellLockState
-import dev.qcom.bandmenu.HardwareBands
 import dev.qcom.bandmenu.ModemState
 import dev.qcom.bandmenu.PlmnLockState
-import dev.qcom.bandmenu.SimBandFilter
 import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
+import dev.qcom.bandmenu.network.servingLockTargets
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.icon.extended.Lock
+import top.yukonga.miuix.kmp.icon.extended.Unlock
 import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.Rat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.DropdownEntry
@@ -87,14 +78,12 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextFieldDefaults
 import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.window.WindowBottomSheet
 
 data class CellLockResult(
     val sim: Int,
@@ -129,15 +118,10 @@ fun CellLockScreen(
     lockResult: CellLockResult?,
     onLockResultConsumed: () -> Unit,
     snackbarHostState: SnackbarHostState,
-    /** The Network page's poller: the Live view shows its rounds. */
+    /** The Network page's poller: the cell table shows its rounds. */
     networkMonitor: NetworkMonitor,
-    /** This page is the settled one, so Live polling follows it. */
+    /** This page is the settled one, so the table's polling follows it. */
     isActive: Boolean = false,
-    /** Bands the app shows (the Bands page's filter, applied to the live lists). */
-    bandFilter: BandFilterState = BandFilterState(),
-    hardware: HardwareBands = HardwareBands(),
-    onSaveBandFilter: (BandFilterState) -> Unit = {},
-    onClearBandFilter: () -> Unit = {},
     backdrop: Backdrop? = null
 ) {
     val density = LocalDensity.current
@@ -164,30 +148,20 @@ fun CellLockScreen(
 
     val scope = rememberCoroutineScope()
     var experimentalEnabled by rememberSaveable { mutableStateOf(false) }
-    // Live (the cells the modem reports, one tap to lock) or Manual (the text
-    // fields). Live is the default: the neighbours are what people come here
-    // to lock to.
-    var liveMode by rememberSaveable { mutableStateOf(true) }
-    var showBandFilter by rememberSaveable { mutableStateOf(false) }
     val live by networkMonitor.state.collectAsState()
+    // The cell table at the bottom of each SIM page shows the Network page's
+    // poller rounds. This page's padlock holds it still: polling for this
+    // page stops and the table keeps the reading it had (the Network page's
+    // own padlock is separate).
+    var frozen by rememberSaveable { mutableStateOf(false) }
+    var frozenSnaps by remember { mutableStateOf<Map<Int, NetworkSnapshot>>(emptyMap()) }
+    fun liveSnapshot(slot: Int): NetworkSnapshot? =
+        live.lastBySim[slot + 1]?.snapshot ?: live.snapshot?.takeIf { it.sim == slot + 1 }
 
-    // The Live view is fed by the Network page's poller, which runs while at
-    // least one of its viewers is on screen. The SIM tab decides which SIM's
-    // cell-lock page it follows (binding to a SIM needs no modem lock).
-    DisposableEffect(liveMode, isActive) {
-        networkMonitor.setVisible(NetworkMonitor.OWNER_CELL_LOCK, liveMode && isActive)
+    // The poller runs while at least one of its viewers is on screen.
+    DisposableEffect(isActive, frozen) {
+        networkMonitor.setVisible(NetworkMonitor.OWNER_CELL_LOCK, isActive && !frozen)
         onDispose { networkMonitor.setVisible(NetworkMonitor.OWNER_CELL_LOCK, false) }
-    }
-
-    // In Live view the result is a snackbar: there are no field labels to
-    // colour, and the round that lands next already shows the new cell.
-    LaunchedEffect(lockResult, liveMode) {
-        val r = lockResult ?: return@LaunchedEffect
-        if (!liveMode) return@LaunchedEffect
-        onLockResultConsumed()
-        snackbarHostState.showSnackbar(
-            if (r.success) "${r.type} locked \u2713" else (r.message ?: "Rejected by modem")
-        )
     }
 
     // The pager is the single source of truth for the selected page. Mirroring
@@ -213,10 +187,10 @@ fun CellLockScreen(
         }
     }
 
-    // The Live view follows this screen's SIM tab: its own SIM, not the one
-    // the Network page last looked at. Skipped while the SIM isn't usable.
-    LaunchedEffect(liveMode, isActive, selectedSim, modemState?.sim2Available) {
-        if (liveMode && isActive && (selectedSim == 0 || modemState?.sim2Available != false))
+    // The table follows this screen's SIM tab (the Network page takes its own
+    // SIM back when it's shown again). Skipped while the SIM isn't usable.
+    LaunchedEffect(isActive, frozen, selectedSim, modemState?.sim2Available) {
+        if (isActive && !frozen && (selectedSim == 0 || modemState?.sim2Available != false))
             networkMonitor.selectSim(selectedSim + 1)
     }
 
@@ -233,12 +207,11 @@ fun CellLockScreen(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 PullToRefresh(
-                    isRefreshing = isRefreshing || (liveMode && live.refreshing),
+                    isRefreshing = isRefreshing || (!frozen && live.refreshing),
                     onRefresh = {
                         onRefresh()
-                        // Live also takes a fresh reading now, instead of
-                        // waiting for the poller's next round.
-                        if (liveMode) networkMonitor.refreshOnce()
+                        // The table takes a fresh reading too, unless held.
+                        if (!frozen) networkMonitor.refreshOnce()
                     },
                     modifier = Modifier
                         .fillMaxSize()
@@ -269,26 +242,6 @@ fun CellLockScreen(
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            // Live | Manual, beside the SIM tabs: Live shows the
-                            // cells the modem reports, Manual the text fields.
-                            // TabRowWithContour fills the width it's given, so the
-                            // fixed size belongs to this Box: on the row itself it
-                            // would claim the SIM tabs' room.
-                            Box(modifier = Modifier.width(132.dp)) {
-                                TabRowWithContour(
-                                    tabs = listOf("Live", "Manual"),
-                                    selectedTabIndex = if (liveMode) 0 else 1,
-                                    onTabSelected = { index ->
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                        liveMode = index == 0
-                                    },
-                                    height = 38.dp,
-                                    minWidth = 58.dp,
-                                    maxWidth = 64.dp,
-                                    cornerRadius = 8.dp
-                                )
-                            }
                         }
 
                         HorizontalPager(
@@ -300,32 +253,7 @@ fun CellLockScreen(
                             val cellLock = if (slot == 0) modemState.sim1CellLock else modemState.sim2CellLock
                             if (slot == 1 && !modemState.sim2Available) {
                                 Column(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) { Sim2UnavailableNote() }
-                            } else if (liveMode) SimLiveCellPage(
-                                simSlot = slot,
-                                // This SIM's last reading: the poller follows the
-                                // selected tab, so the other page keeps its own.
-                                snapshot = live.lastBySim[slot + 1]?.snapshot
-                                    ?: live.snapshot?.takeIf { it.sim == slot + 1 },
-                                error = live.error,
-                                paused = live.frozen,
-                                bandFilter = bandFilter,
-                                hardware = hardware,
-                                onOpenBandFilter = { showBandFilter = true },
-                                onToggleLive = { networkMonitor.setFrozen(!live.frozen) },
-                                cellLockState = cellLock,
-                                onLock = lock@{ target ->
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                    val field = target.lock ?: return@lock
-                                    val (index, input) = field.args()
-                                    onApplyLock(slot + 1, index, input)
-                                },
-                                onUnlock = unlock@{ target ->
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                    if (target.rat == Rat.LTE) onClear4G(slot + 1) else onClear5G(slot + 1)
-                                },
-                                hasNrHardware = hasNrHardware,
-                                navbarSpace = navbarSpace
-                            ) else SimCellLockPage(
+                            } else SimCellLockPage(
                                 simSlot = slot,
                                 cellLockState = if (slot == 0) modemState.sim1CellLock else modemState.sim2CellLock,
                                 plmnLockState = if (slot == 0) modemState.sim1PlmnLock else modemState.sim2PlmnLock,
@@ -337,7 +265,25 @@ fun CellLockScreen(
                                 snackbarHostState = snackbarHostState,
                                 navbarSpace = navbarSpace,
                                 hasNrHardware = hasNrHardware,
-                                onClearPlmn = onClearPlmn
+                                onClearPlmn = onClearPlmn,
+                                cellTable = {
+                                    CellLockTable(
+                                        simSlot = slot,
+                                        snapshot = if (frozen) frozenSnaps[slot] else liveSnapshot(slot),
+                                        error = live.error,
+                                        cellLockState = cellLock,
+                                        onLock = lock@{ target ->
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            val field = target.lock ?: return@lock
+                                            val (index, input) = field.args()
+                                            onApplyLock(slot + 1, index, input)
+                                        },
+                                        onUnlock = { target ->
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            if (target.rat == Rat.LTE) onClear4G(slot + 1) else onClear5G(slot + 1)
+                                        }
+                                    )
+                                }
                             )
                         }
                     }
@@ -438,27 +384,26 @@ fun CellLockScreen(
                         DropdownItem("Re-Attach", onClick = onReattach)
                     ))
                 )
-                LiveBandFilterSheet(
-                    show = showBandFilter,
-                    slot = selectedSim,
-                    hardware = hardware,
-                    bandFilter = bandFilter,
-                    onDismiss = { showBandFilter = false },
-                    onClear = {
-                        onClearBandFilter()
-                        showBandFilter = false
-                    },
-                    onSave = {
-                        onSaveBandFilter(it)
-                        showBandFilter = false
-                    }
-                )
 
                 Row(
                     modifier = Modifier.align(Alignment.TopEnd)
                         .padding(top = topBarInset + 8.dp, end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Padlock: holds this page's cell table still (as on the Network page).
+                    IconButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                            if (!frozen) frozenSnaps = (0..1).mapNotNull { slot -> liveSnapshot(slot)?.let { slot to it } }.toMap()
+                            frozen = !frozen
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
+                            contentDescription = if (frozen) "Resume the cell table" else "Freeze the cell table",
+                            tint = if (frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
+                        )
+                    }
                     WindowIconDropdownMenu(
                         entries = menuEntries,
                         collapseOnSelection = false
@@ -488,7 +433,9 @@ private fun SimCellLockPage(
     snackbarHostState: SnackbarHostState,
     navbarSpace: androidx.compose.ui.unit.Dp,
     hasNrHardware: Boolean,
-    onClearPlmn: (Int) -> Unit
+    onClearPlmn: (Int) -> Unit,
+    /** The cell table, below the fields. */
+    cellTable: @Composable () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -794,239 +741,50 @@ private fun SimCellLockPage(
             })
         )
 
+        cellTable()
+
         Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
-// ── Live view ────────────────────────────────────────────────────────────
-
-/** One line per lock that's active now, so Live view always shows the state. */
-private fun activeLockLines(state: CellLockState?, hasNrHardware: Boolean): List<String> = buildList {
-    if (hasNrHardware) state?.nr?.let { nr ->
-        when (nr.type) {
-            "pci" -> nr.pciLock?.let { p ->
-                add("NR  ${p.arfcn} / PCI ${p.pci} · SCS ${p.scsKhz} kHz" +
-                    if (p.bands.isEmpty()) "" else " · n${p.bands.sorted().joinToString("/n")}")
-            }
-            "arfcn" -> nr.arfcnLock?.firstOrNull()?.let { add("NR  ${it.arfcn} · SCS ${it.scsKhz} kHz") }
-            "multi_pci" -> add("NR  multi-PCI lock")
-            "gnb_allowlist" -> nr.gnbAllowlist?.let { add("NR  gNB allowlist (${it.gnbIds.size} IDs)") }
-        }
-    }
-    state?.lte?.locks?.takeIf { it.isNotEmpty() }?.let { locks ->
-        add(if (locks.size == 1) "LTE ${locks[0].earfcn} / PCI ${locks[0].pci}"
-            else "LTE ${locks.size} cells on ${locks[0].earfcn}")
-    }
-}
+// ── Cell table ───────────────────────────────────────────────────────────
 
 /**
- * One SIM's Live view: the cell the modem is on, then its neighbours, each with
- * the lock that pins it. A tap locks; a locked row's tap clears that RAT's lock
- * (the same "Clear 4G"/"Clear 5G" the menu runs).
+ * The cells the modem reports, one tap to lock: the serving cells first (the
+ * primary, then its SCells, PCI and channel in blue), then the neighbours.
+ * A locked row's tap clears that RAT's lock (the menu's "Clear 4G"/"Clear 5G").
  */
 @Composable
-private fun SimLiveCellPage(
+private fun CellLockTable(
     simSlot: Int,
     snapshot: NetworkSnapshot?,
     error: String?,
-    paused: Boolean,
-    bandFilter: BandFilterState,
-    hardware: HardwareBands,
-    onOpenBandFilter: () -> Unit,
-    onToggleLive: () -> Unit,
     cellLockState: CellLockState?,
     onLock: (LockTarget) -> Unit,
-    onUnlock: (LockTarget) -> Unit,
-    hasNrHardware: Boolean,
-    navbarSpace: Dp
+    onUnlock: (LockTarget) -> Unit
 ) {
-    val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    // The app-wide band filter (the Bands page's toggles): a hidden band's
-    // neighbours stay out of the list.
-    val filter = remember(bandFilter, hardware, simSlot) {
-        if (bandFilter.enabled) SimBandFilter.effectiveFilter(bandFilter, hardware, simSlot) else null
+    Spacer(modifier = Modifier.height(20.dp))
+    SmallTitle("Tap to lock cell")
+    if (snapshot == null) {
+        // No round yet for this SIM (first open, held before one came, or a
+        // SIM the daemon can't read).
+        NoticeText(error ?: "Waiting for the first reading from SIM ${simSlot + 1}\u2026")
+        return
     }
-    val reported = snapshot?.lockTargets?.filter { it.role == LockRole.NEIGHBOUR }.orEmpty()
-    val neighbours = if (filter == null) reported else reported.filter { filter.allows(it.band) }
-    val hiddenByFilter = reported.size - neighbours.size
-    val activeLocks = activeLockLines(cellLockState, hasNrHardware)
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = navbarSpace)
-    ) {
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // What the modem is on, and whether the readings are running.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(MiuixTheme.colorScheme.surfaceContainer)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    snapshot?.modeLabel ?: "Waiting\u2026",
-                    style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            snapshot?.plmn?.let {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "${it.mcc}-${it.mnc}",
-                    style = MiuixTheme.textStyles.body2,
-                    color = grey
-                )
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            // The band toggles sit next to the list they filter.
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(
-                        if (bandFilter.enabled) MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
-                        else MiuixTheme.colorScheme.surfaceContainer
-                    )
-                    .clickable(onClick = onOpenBandFilter)
-                    .padding(horizontal = 9.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    if (bandFilter.enabled) "Bands \u00b7 filtered" else "Bands",
-                    style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.Medium,
-                    color = if (bandFilter.enabled) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.onBackground
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            // Enable/disable the live reading: off stops the modem reads, so
-            // the list holds still while a cell is picked (locks still apply).
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(
-                        if (paused) MiuixTheme.colorScheme.surfaceContainer
-                        else LockGreen.copy(alpha = 0.18f)
-                    )
-                    .clickable { onToggleLive() }
-                    .padding(horizontal = 9.dp, vertical = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(if (paused) grey.copy(alpha = 0.45f) else LockGreen)
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        if (paused) "Disabled" else "Live",
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium,
-                        color = if (paused) grey else LockGreen
-                    )
-                }
-            }
-        }
-
-        if (snapshot == null) {
-            // No round yet for this SIM (first open, or a SIM the daemon can't
-            // read): say so instead of showing an empty list.
-            Spacer(modifier = Modifier.height(12.dp))
-            NoticeText(error ?: "Waiting for the first reading from SIM ${simSlot + 1}\u2026")
-        } else {
-            if (activeLocks.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(LockGreen)
-                            )
-                            Spacer(modifier = Modifier.width(7.dp))
-                            Text(
-                                "Locked now",
-                                style = MiuixTheme.textStyles.footnote1,
-                                fontWeight = FontWeight.Medium,
-                                color = LockGreen
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        activeLocks.forEach {
-                            Text(it, style = MiuixTheme.textStyles.body2)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SmallTitle("Neighbour cells (${neighbours.size})")
-                Spacer(modifier = Modifier.weight(1f))
-                if (onLock != null) Text(
-                    "tap to lock",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = grey
-                )
-            }
-            if (neighbours.isEmpty()) {
-                NoticeText(
-                    if (hiddenByFilter > 0) "No neighbour cells on the selected bands."
-                    else "No neighbour cells reported."
-                )
-            } else Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                // The Network page's neighbour table, and its rows lock: tapping
-                // a cell pins it, tapping a locked one releases it.
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    NeighbourTable(
-                        rows = neighbours,
-                        lockedOf = { it.isLockedIn(cellLockState) },
-                        onToggle = { t ->
-                            if (t.isLockedIn(cellLockState)) onUnlock(t) else onLock(t)
-                        },
-                        roomy = true
-                    )
-                }
-            }
-            if (hiddenByFilter > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "$hiddenByFilter hidden by the band filter",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = grey
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Change",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onOpenBandFilter)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                if (paused) "Live reading disabled: the modem isn't read until you enable it. Locks still apply."
-                else "Tap a row to lock to that cell, or a locked row to release it. " +
-                    "The modem is read every second.",
-                style = MiuixTheme.textStyles.footnote1,
-                color = grey
+    val rows = servingLockTargets(snapshot) + snapshot.lockTargets.filter { it.role == LockRole.NEIGHBOUR }
+    if (rows.isEmpty()) {
+        NoticeText("No cells reported.")
+        return
+    }
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            NeighbourTable(
+                rows = rows,
+                lockedOf = { it.isLockedIn(cellLockState) },
+                onToggle = { t -> if (t.isLockedIn(cellLockState)) onUnlock(t) else onLock(t) },
+                roomy = true
             )
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -1039,133 +797,6 @@ private fun NoticeText(text: String) {
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
-        }
-    }
-}
-
-
-/**
- * The band toggles for the live lists: the Bands page's filter, for this SIM.
- * Unchecked bands stay out of the neighbour lists on both pages; saving with
- * every band ticked, or "Clear filter", shows everything again.
- */
-@Composable
-private fun LiveBandFilterSheet(
-    show: Boolean,
-    slot: Int,
-    hardware: HardwareBands,
-    bandFilter: BandFilterState,
-    onDismiss: () -> Unit,
-    onClear: () -> Unit,
-    onSave: (BandFilterState) -> Unit
-) {
-    val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val saved = if (slot == 0) bandFilter.sim1 else bandFilter.sim2
-    val haptic = LocalHapticFeedback.current
-    var lte by remember { mutableStateOf(emptySet<Int>()) }
-    var nr by remember { mutableStateOf(emptySet<Int>()) }
-    var wcdma by remember { mutableStateOf(emptySet<Int>()) }
-    var gsm by remember { mutableStateOf(emptySet<Int>()) }
-
-    // Every band ticked, so the filter would hide nothing.
-    val everything = (hardware.lte.isEmpty() || lte.containsAll(hardware.lte)) &&
-        (hardware.nr.isEmpty() || nr.containsAll(hardware.nr)) &&
-        (hardware.wcdma.isEmpty() || wcdma.containsAll(hardware.wcdma)) &&
-        (hardware.gsm.isEmpty() || gsm.containsAll(hardware.gsm))
-
-    LaunchedEffect(show, slot, hardware, bandFilter) {
-        if (!show) return@LaunchedEffect
-        // Opened the first time (nothing saved for this SIM): start from every
-        // band the modem has, so ticking is "hide this one".
-        val neverSaved = saved.lte.isEmpty() && saved.nrNsa.isEmpty() && saved.nrSa.isEmpty() &&
-            saved.wcdma.isEmpty() && saved.gsm.isEmpty()
-        lte = if (neverSaved) hardware.lte else saved.lte
-        nr = if (neverSaved) hardware.nr else saved.nrNsa + saved.nrSa
-        wcdma = if (neverSaved) hardware.wcdma else saved.wcdma
-        gsm = if (neverSaved) hardware.gsm else saved.gsm
-    }
-
-    WindowBottomSheet(
-        title = "Bands shown",
-        show = show,
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 520.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Text(
-                "Live lists show only the selected bands. This is the same filter as the " +
-                    "Bands page's, and it applies to every page.",
-                style = MiuixTheme.textStyles.footnote1,
-                color = grey
-            )
-            if (hardware.nr.isNotEmpty()) {
-                SmallTitle("NR")
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    FilterCheckboxGrid(hardware.nr.sorted(), nr, "n") { band ->
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        nr = if (band in nr) nr - band else nr + band
-                    }
-                }
-            }
-            if (hardware.lte.isNotEmpty()) {
-                SmallTitle("LTE")
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    FilterCheckboxGrid(hardware.lte.sorted(), lte, "B") { band ->
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        lte = if (band in lte) lte - band else lte + band
-                    }
-                }
-            }
-            if (hardware.wcdma.isNotEmpty()) {
-                SmallTitle("WCDMA")
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    FilterCheckboxGrid(hardware.wcdma.sorted(), wcdma, "B") { band ->
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        wcdma = if (band in wcdma) wcdma - band else wcdma + band
-                    }
-                }
-            }
-            if (hardware.gsm.isNotEmpty()) {
-                SmallTitle("GSM")
-                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    FilterCheckboxGrid(hardware.gsm.sorted(), gsm, "") { band ->
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        gsm = if (band in gsm) gsm - band else gsm + band
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    text = "Clear filter",
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        onClear()
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(
-                    text = if (everything) "Show all" else "Save",
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val selection = SimBandFilter(gsm = gsm, wcdma = wcdma, lte = lte, nrNsa = nr, nrSa = nr)
-                        // Everything ticked hides nothing: clear instead, so a
-                        // band the modem starts reporting later still shows.
-                        if (everything) onClear()
-                        else onSave(
-                            if (slot == 0) BandFilterState(enabled = true, sim1 = selection, sim2 = bandFilter.sim2)
-                            else BandFilterState(enabled = true, sim1 = bandFilter.sim1, sim2 = selection)
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary()
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

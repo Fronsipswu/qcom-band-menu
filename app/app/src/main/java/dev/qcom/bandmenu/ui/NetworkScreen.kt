@@ -166,9 +166,6 @@ fun NetworkScreen(
     gnbBitsSim1: Int = 22,
     gnbBitsSim2: Int = 22,
     onGnbBitsCycle: (Int) -> Unit = {},
-    /** The app-wide band filter (the Bands page's toggles); hides neighbours. */
-    bandFilter: dev.qcom.bandmenu.BandFilterState = dev.qcom.bandmenu.BandFilterState(),
-    hardware: dev.qcom.bandmenu.HardwareBands = dev.qcom.bandmenu.HardwareBands(),
     backdrop: Backdrop? = null
 ) {
     val context = LocalContext.current
@@ -306,6 +303,11 @@ fun NetworkScreen(
         // switches polling too.
         snapshotFlow { pagerState.targetPage + currentOffset }.collect { monitor.selectSim(it + 1) }
     }
+    // The Cell-Lock page's table polls through the same monitor and selects
+    // its own SIM tab: coming back here takes this page's SIM again.
+    LaunchedEffect(isActive) {
+        if (isActive) monitor.selectSim(pagerState.targetPage + currentOffset + 1)
+    }
     val pageHeights = remember { mutableStateMapOf<Int, Int>() }
     // At least the visible area below the tabs, so a swipe anywhere on a short
     // page (e.g. "No service") still reaches the SIM pager, not the screen pager.
@@ -413,12 +415,7 @@ fun NetworkScreen(
                                 ) {
                                     NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
                                         endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage },
-                                        uplinkHidden = uplinkHidden,
-                                        // Same band filter as the Cell-Lock page: a band
-                                        // the user hid isn't listed as a neighbour here either.
-                                        neighbourFilter = if (bandFilter.enabled)
-                                            dev.qcom.bandmenu.SimBandFilter.effectiveFilter(bandFilter, hardware, sim - 1)
-                                        else null)
+                                        uplinkHidden = uplinkHidden)
                                 }
                             }
                         }
@@ -601,9 +598,7 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 @Composable
 private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
-    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null, uplinkHidden: Boolean = false,
-    /** Bands to show in the neighbour list; null shows every band. */
-    neighbourFilter: dev.qcom.bandmenu.SimBandFilter? = null
+    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null, uplinkHidden: Boolean = false
 ) {
     val p = "${snap.sim}:"
     // While the Uplink card shows, the tables leave out PHY UL and the
@@ -664,25 +659,12 @@ private fun NetworkContent(
     }
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
-    val neighbours = if (neighbourFilter == null) snap.neighbors
-        else snap.neighbors.filter { neighbourFilter.allows(it.band) }
-    val hiddenNeighbours = snap.neighbors.size - neighbours.size
     if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}neighbours")) {
-        Expandable("Neighbour cells (${neighbours.size})") {
-            if (neighbours.isEmpty()) {
-                Text(
-                    if (hiddenNeighbours > 0) "No neighbour cells on the selected bands."
-                    else "No neighbour cells reported.",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            } else NeighbourTable(neighbours.map { it.asLockTarget() })
-            if (hiddenNeighbours > 0) Text(
-                "$hiddenNeighbours hidden by the band filter.",
-                modifier = Modifier.padding(top = 6.dp),
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+        Expandable("Neighbour cells (${snap.neighbors.size})") {
+            if (snap.neighbors.isEmpty()) {
+                Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            } else NeighbourTable(snap.neighbors.map { it.asLockTarget() })
         }
     }
     if (snap.failedReads.isNotEmpty()) {

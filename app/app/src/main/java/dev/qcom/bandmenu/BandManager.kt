@@ -1,7 +1,5 @@
 package dev.qcom.bandmenu
 
-import dev.qcom.bandmenu.network.Band
-import dev.qcom.bandmenu.network.Rat
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,19 +33,6 @@ data class SimBandFilter(
     val nrNsa: Set<Int> = emptySet(),
     val nrSa: Set<Int> = emptySet()
 ) {
-    /**
-     * True when [band] passes this filter, which is also what the live pages
-     * (neighbour cells) use: a band the user hid isn't shown anywhere. A band
-     * the app couldn't work out (null) can't be judged, so it passes.
-     */
-    fun allows(band: Band?): Boolean = when (band?.rat) {
-        Rat.LTE -> band.number in lte
-        Rat.NR -> band.number in nrNsa || band.number in nrSa
-        Rat.WCDMA -> band.number in wcdma
-        Rat.GSM -> band.number in gsm
-        null -> true
-    }
-
     companion object {
         fun visibleBands(hardware: Set<Int>, filter: Set<Int>): Set<Int> =
             hardware.intersect(filter)

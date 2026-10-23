@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import dev.qcom.bandmenu.CellLockState
 import dev.qcom.bandmenu.network.LockRequest
+import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -25,7 +26,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * The neighbour table: Band | PCI | EARFCN | RSRP bar | RSRQ bar, headers once,
  * rows already sorted, best RSRQ first. The Network page and the Cell-Lock
- * page's Live list both use it, so a neighbour looks the same on either page.
+ * page's table both use it, so a neighbour looks the same on either page.
+ * Serving-cell rows (the Cell-Lock table's first rows) show PCI and channel
+ * in blue.
  * With [onToggle] a row is the lock control for its cell: tapping it locks (or,
  * already locked, releases), and the locked one is marked.
  */
@@ -69,6 +72,8 @@ internal fun NeighbourTable(
     cols({ head(first.idLabel) }, { head("Band") }, { head(first.channelLabel) }, metricLabels.map { l -> @Composable { head(l) } })
     rows.forEach { t ->
         val locked = lockedOf(t)
+        val serving = t.role == LockRole.SERVING
+        val servingColor = MiuixTheme.colorScheme.primary
         cols(
             {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -85,7 +90,7 @@ internal fun NeighbourTable(
                         t.id,
                         style = idStyle,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                        color = if (locked) LockGreen else MiuixTheme.colorScheme.onBackground,
+                        color = if (locked) LockGreen else if (serving) servingColor else MiuixTheme.colorScheme.onBackground,
                         maxLines = 1
                     )
                 }
@@ -98,7 +103,10 @@ internal fun NeighbourTable(
                     maxLines = 1
                 )
             },
-            { Text(t.channel.toString(), style = valueStyle, maxLines = 1) },
+            {
+                Text(t.channel.toString(), style = valueStyle, maxLines = 1,
+                    color = if (serving) servingColor else MiuixTheme.colorScheme.onBackground)
+            },
             t.metrics.take(2).map { m -> @Composable {
                 CellValueBar(m.value, m.kind, rat = m.rat, style = valueStyle)
             } },

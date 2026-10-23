@@ -232,8 +232,6 @@ fun MainScreen(
                             gnbBitsSim1 = gnbBitsSim1,
                             gnbBitsSim2 = gnbBitsSim2,
                             onGnbBitsCycle = onGnbBitsCycle,
-                            bandFilter = bandFilter,
-                            hardware = modemState?.hardware ?: dev.qcom.bandmenu.HardwareBands(),
                             backdrop = backdrop
                         )
                         1 -> BandLockScreen(
@@ -283,10 +281,6 @@ fun MainScreen(
                             snackbarHostState = snackbarHostState,
                             networkMonitor = networkMonitor,
                             isActive = pagerState.settledPage == 2,
-                            bandFilter = bandFilter,
-                            hardware = modemState?.hardware ?: dev.qcom.bandmenu.HardwareBands(),
-                            onSaveBandFilter = onSaveFilter,
-                            onClearBandFilter = onClearFilter,
                             backdrop = backdrop
                         )
                         else -> InfoScreen(
