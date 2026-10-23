@@ -1,10 +1,10 @@
 name: Staging build
 
 # The optimized (R8, shrunk) staging APK, dev.qcom.bandmenu.staging, for
-# every push to main or diag-test that touches the app.
+# every push to main, diag-test or cell-lock-rework that touches the app.
 on:
   push:
-    branches: [main, diag-test]
+    branches: [main, diag-test, cell-lock-rework]
     paths:
       - 'app/**'
       - '.github/workflows/staging.yml'
