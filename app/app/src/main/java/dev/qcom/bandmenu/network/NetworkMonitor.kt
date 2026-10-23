@@ -56,7 +56,10 @@ class NetworkMonitor(
         /** Combined DL throughput of each SIM's recent DIAG rounds, oldest
          *  first (the throughput chart's live data). Kept per SIM so a page
          *  keeps its chart while the pager swipes to the other SIM. */
-        val thputBySim: Map<Int, List<ThputPoint>> = emptyMap()
+        val thputBySim: Map<Int, List<ThputPoint>> = emptyMap(),
+        /** Every NR-ARFCN each SIM's rounds reported since the app started
+         *  (the Cell-Lock page's NR-ARFCN list). */
+        val nrArfcnsBySim: Map<Int, List<SeenNrArfcn>> = emptyMap()
     )
 
     data class Reading(val snapshot: NetworkSnapshot, val operatorName: String?)
@@ -181,6 +184,12 @@ class NetworkMonitor(
                 val point = ThputPoint(t, r.mbps!!, r.ulMbps ?: 0.0)
                 val history = (s.thputBySim[sim].orEmpty() + point).dropWhile { t - it.t > THPUT_KEEP_MS }
                 s.copy(thputBySim = s.thputBySim + (sim to history))
+            }
+        }
+        // So do the NR-ARFCNs seen.
+        result.getOrNull()?.let { seenNrArfcns(it.snapshot) }?.takeIf { it.isNotEmpty() }?.let { seen ->
+            _state.update { s ->
+                s.copy(nrArfcnsBySim = s.nrArfcnsBySim + (sim to mergeSeenNrArfcns(s.nrArfcnsBySim[sim].orEmpty(), seen)))
             }
         }
         if (_state.value.frozen && !fresh) {

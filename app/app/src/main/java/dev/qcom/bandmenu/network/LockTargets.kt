@@ -90,6 +90,27 @@ fun servingLockTargets(snap: NetworkSnapshot): List<LockTarget> {
     return carriers.mapNotNull { it.asServingTarget(primaries) }
 }
 
+/** An NR-ARFCN the modem reported (the Cell-Lock page's NR-ARFCN list), with
+ *  its band and SCS when known. */
+data class SeenNrArfcn(val arfcn: Long, val band: Int?, val scsKhz: Int?)
+
+/** The NR-ARFCNs of a reading: serving carriers and neighbours (QMI's
+ *  frequencies, DIAG's cells). */
+fun seenNrArfcns(snap: NetworkSnapshot): List<SeenNrArfcn> =
+    (servingLockTargets(snap) + snap.lockTargets).filter { it.rat == Rat.NR }
+        .map { SeenNrArfcn(it.channel, it.band?.number, it.scsKhz) }
+
+/** [old] plus the new NR-ARFCNs, sorted; a known band or SCS is kept, a new
+ *  one fills a gap. */
+fun mergeSeenNrArfcns(old: List<SeenNrArfcn>, new: List<SeenNrArfcn>): List<SeenNrArfcn> {
+    val byArfcn = old.associateBy { it.arfcn }.toMutableMap()
+    new.forEach { n ->
+        val o = byArfcn[n.arfcn]
+        byArfcn[n.arfcn] = if (o == null) n else SeenNrArfcn(n.arfcn, o.band ?: n.band, o.scsKhz ?: n.scsKhz)
+    }
+    return byArfcn.values.sortedBy { it.arfcn }
+}
+
 private fun Carrier.asServingTarget(primaries: List<LockTarget>): LockTarget? {
     val ch = channel.substringBefore(' ').toLongOrNull() ?: return null
     val isNr = nr != null || band?.startsWith("n") == true

@@ -58,6 +58,24 @@ import dev.qcom.bandmenu.PlmnLockState
 import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
 import dev.qcom.bandmenu.network.servingLockTargets
+import dev.qcom.bandmenu.network.SeenNrArfcn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.DpSize
+import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.ListPopupColumn
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
+import top.yukonga.miuix.kmp.icon.extended.ChevronForward
+import androidx.compose.ui.draw.rotate
+import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.theme.LocalDismissState
+import top.yukonga.miuix.kmp.window.WindowListPopup
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Unlock
@@ -266,6 +284,7 @@ fun CellLockScreen(
                                 navbarSpace = navbarSpace,
                                 hasNrHardware = hasNrHardware,
                                 onClearPlmn = onClearPlmn,
+                                seenNrArfcns = live.nrArfcnsBySim[slot + 1].orEmpty(),
                                 cellTable = {
                                     CellLockTable(
                                         simSlot = slot,
@@ -426,13 +445,20 @@ private fun SimCellLockPage(
     navbarSpace: androidx.compose.ui.unit.Dp,
     hasNrHardware: Boolean,
     onClearPlmn: (Int) -> Unit,
+    /** The NR-ARFCNs this SIM's readings reported (the NR-ARFCN field's list). */
+    seenNrArfcns: List<SeenNrArfcn> = emptyList(),
     /** The cell table, below the fields. */
     cellTable: @Composable () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val keyboard = LocalSoftwareKeyboardController.current
 
-    var nrArfcnText by rememberSaveable { mutableStateOf("") }
+    // NR-ARFCN lock: the NR-ARFCN (typed or picked), the SCS, and the input
+    // last sent (its check button stays grey until a value changes or the
+    // lock state does).
+    var nrArfcnValue by rememberSaveable { mutableStateOf("") }
+    var nrScs by rememberSaveable { mutableIntStateOf(30) }
+    var nrArfcnSent by rememberSaveable { mutableStateOf<String?>(null) }
     var nrPciText by rememberSaveable { mutableStateOf("") }
     var nrMultiPciText by rememberSaveable { mutableStateOf("") }
     var nrGnbText by rememberSaveable { mutableStateOf("") }
@@ -452,9 +478,13 @@ private fun SimCellLockPage(
         val nr = cellLockState?.nr
         val lte = cellLockState?.lte
 
-        nrArfcnText = if (nr?.type == "arfcn" && nr.arfcnLock?.isNotEmpty() == true) {
-            "${nr.arfcnLock[0].arfcn} ${nr.arfcnLock[0].scsKhz}"
-        } else ""
+        // An NR-ARFCN lock fills the fields; without one they keep what was
+        // entered, so a cleared lock can be applied again.
+        if (nr?.type == "arfcn" && nr.arfcnLock?.isNotEmpty() == true) {
+            nrArfcnValue = nr.arfcnLock[0].arfcn.toString()
+            nrScs = nr.arfcnLock[0].scsKhz
+        }
+        nrArfcnSent = null
 
         nrPciText = if (nr?.type == "pci" && nr.pciLock != null) {
             val band = nr.pciLock.bands.firstOrNull() ?: 0
@@ -497,6 +527,8 @@ private fun SimCellLockPage(
                 LabelOverride("$msg \u2717", RedColor)
             }
             onLockResultConsumed()
+            // Rejected: the check button is live again for another try.
+            if (fieldIndex == 0 && !lockResult.success) nrArfcnSent = null
             labelOverrides = labelOverrides + (fieldIndex to override)
             overrideJobs[fieldIndex]?.cancel()
             overrideJobs[fieldIndex] = pageScope.launch {
@@ -509,7 +541,7 @@ private fun SimCellLockPage(
 
     val defaultLabels = remember {
         mapOf(
-            0 to "NR-ARFCN SCS",
+            0 to "NR-ARFCN",
             1 to "NR-ARFCN PCI SCS Band",
             2 to "NR-ARFCN SCS Band PCI1 PCI2...",
             3 to "\"ID bits 22-32\" gNB1 gNB2...",
@@ -521,7 +553,7 @@ private fun SimCellLockPage(
 
     val fieldTitles = remember {
         mapOf(
-            0 to "NR-ARFCN lock: Put NR-ARFCN and SCS (in kHz)",
+            0 to "NR-ARFCN lock",
             1 to "PCI lock: Put NR-ARFCN PCI SCS and Band",
             2 to "MultiPCI lock: Put NR-ARFCN SCS Band and PCI list",
             3 to "gNB lock: Put ID bits (22-32) and gNB IDs",
@@ -556,20 +588,28 @@ private fun SimCellLockPage(
             )
             Spacer(modifier = Modifier.height(6.dp))
             val o0 = labelOverrides[0]
-            TextField(
-                value = nrArfcnText,
-                onValueChange = { nrArfcnText = it },
+            val nrArfcnInput = "${nrArfcnValue.trim()} $nrScs"
+            val nrArfcnLocked = cellLockState?.nr?.takeIf { it.type == "arfcn" }?.arfcnLock?.firstOrNull()
+                ?.let { "${it.arfcn} ${it.scsKhz}" }
+            val nrArfcnCanApply = nrArfcnValue.trim().toLongOrNull() != null &&
+                nrArfcnInput != nrArfcnSent && nrArfcnInput != nrArfcnLocked
+            fun applyNrArfcn() {
+                if (!nrArfcnCanApply) return
+                keyboard?.hide()
+                nrArfcnSent = nrArfcnInput
+                onApplyLock(simSlot + 1, 0, nrArfcnInput)
+            }
+            NrArfcnLockRow(
+                arfcn = nrArfcnValue,
+                onArfcnChange = { nrArfcnValue = it },
+                scsKhz = nrScs,
+                onScsChange = { nrScs = it },
+                seen = seenNrArfcns,
                 label = o0?.text ?: defaultLabels[0]!!,
-                colors = TextFieldDefaults.textFieldColors(
-                    labelColor = o0?.color ?: defaultLabelColor
-                ),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                labelColor = o0?.color ?: defaultLabelColor,
                 keyboardOptions = switchableNumericKeyboard,
-                keyboardActions = KeyboardActions(onDone = {
-                    keyboard?.hide()
-                    onApplyLock(simSlot + 1, 0, nrArfcnText)
-                })
+                canApply = nrArfcnCanApply,
+                onApply = { applyNrArfcn() }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -736,6 +776,142 @@ private fun SimCellLockPage(
         cellTable()
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+// ── NR-ARFCN lock row ────────────────────────────────────────────────────
+
+private val NR_SCS_KHZ = listOf(15, 30, 60, 120, 240)
+
+/** A down chevron (miuix's forward chevron turned a quarter; its ExpandMore
+ *  is a full-screen glyph, not an arrow). */
+@Composable
+private fun DropdownChevron(description: String, modifier: Modifier = Modifier) = Icon(
+    MiuixIcons.ChevronForward,
+    contentDescription = description,
+    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    modifier = modifier.size(18.dp).rotate(90f)
+)
+
+/**
+ * NR-ARFCN | SCS | apply. The NR-ARFCN is typed, or picked from the ones the
+ * modem reported this session (its arrow; picking one also takes its SCS when
+ * known); the SCS is picked only. The check button sends the lock and is grey
+ * while there is nothing new to send ([canApply]).
+ */
+@Composable
+private fun NrArfcnLockRow(
+    arfcn: String,
+    onArfcnChange: (String) -> Unit,
+    scsKhz: Int,
+    onScsChange: (Int) -> Unit,
+    seen: List<SeenNrArfcn>,
+    label: String,
+    labelColor: Color,
+    keyboardOptions: KeyboardOptions,
+    canApply: Boolean,
+    onApply: () -> Unit
+) {
+    var showArfcns by remember { mutableStateOf(false) }
+    var showScs by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(TextFieldDefaults.CornerRadius)
+    // A notch smaller than the other fields: three boxes share the row.
+    val textStyle = MiuixTheme.textStyles.body1
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) {
+            TextField(
+                value = arfcn,
+                onValueChange = onArfcnChange,
+                label = label,
+                colors = TextFieldDefaults.textFieldColors(labelColor = labelColor),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = DpSize(14.dp, 12.dp),
+                textStyle = textStyle,
+                keyboardOptions = keyboardOptions,
+                keyboardActions = KeyboardActions(onDone = { onApply() }),
+                trailingIcon = {
+                    IconButton(onClick = { showArfcns = true }) {
+                        DropdownChevron("Seen NR-ARFCNs")
+                    }
+                }
+            )
+            WindowListPopup(
+                show = showArfcns,
+                alignment = PopupPositionProvider.Align.Start,
+                onDismissRequest = { showArfcns = false }
+            ) {
+                val dismiss = LocalDismissState.current
+                ListPopupColumn {
+                    if (seen.isEmpty()) {
+                        DropdownImpl(text = "None seen yet", optionSize = 1, isSelected = false, index = 0,
+                            enabled = false, onSelectedIndexChange = {})
+                    }
+                    seen.forEachIndexed { i, s ->
+                        DropdownImpl(
+                            text = listOfNotNull(s.arfcn.toString(), s.band?.let { "n$it" }).joinToString("  ·  "),
+                            optionSize = seen.size,
+                            isSelected = arfcn.trim() == s.arfcn.toString(),
+                            index = i,
+                            onSelectedIndexChange = {
+                                onArfcnChange(s.arfcn.toString())
+                                s.scsKhz?.takeIf { it in NR_SCS_KHZ }?.let(onScsChange)
+                                dismiss?.invoke()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Box {
+            Row(
+                Modifier.fillMaxHeight().clip(shape)
+                    .background(MiuixTheme.colorScheme.secondaryContainer)
+                    .clickable { showScs = true }
+                    .padding(start = 14.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("$scsKhz", style = textStyle, color = MiuixTheme.colorScheme.onBackground)
+                DropdownChevron("SCS", Modifier.padding(start = 6.dp))
+            }
+            WindowListPopup(
+                show = showScs,
+                alignment = PopupPositionProvider.Align.End,
+                onDismissRequest = { showScs = false }
+            ) {
+                val dismiss = LocalDismissState.current
+                ListPopupColumn {
+                    NR_SCS_KHZ.forEachIndexed { i, scs ->
+                        DropdownImpl(
+                            text = "$scs kHz",
+                            optionSize = NR_SCS_KHZ.size,
+                            isSelected = scs == scsKhz,
+                            index = i,
+                            onSelectedIndexChange = {
+                                onScsChange(scs)
+                                dismiss?.invoke()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier.fillMaxHeight().aspectRatio(1f, matchHeightConstraintsFirst = true).clip(shape)
+                // Grey (the fields' own background) while there's nothing new to send.
+                .background(if (canApply) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
+                .clickable(enabled = canApply, onClick = onApply),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                MiuixIcons.Ok,
+                contentDescription = "Apply NR-ARFCN lock",
+                tint = if (canApply) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
 }
 
