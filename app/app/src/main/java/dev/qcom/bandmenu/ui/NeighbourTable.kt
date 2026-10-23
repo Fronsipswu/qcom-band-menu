@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import dev.qcom.bandmenu.CellLockState
@@ -57,13 +58,20 @@ internal fun NeighbourTable(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Six columns with a Beam: shorter bars, so a six-digit NR-ARFCN
-            // and the Beam header fit.
-            val bar = if (beam != null) 1.0f else 1.25f
-            Box(Modifier.weight(if (beam != null) 0.65f else 0.7f), Alignment.CenterStart) { band() }
-            Box(Modifier.weight(if (beam != null) 0.7f else 0.75f), Alignment.CenterStart) { id() }
-            // A beam index is one or two digits: centred under its header.
-            if (beam != null) Box(Modifier.weight(0.75f), Alignment.Center) { beam() }
-            Box(Modifier.weight(if (beam != null) 1.2f else 0.95f), Alignment.CenterStart) { ch() }
+            // and the Beam header fit; each text column its text plus the
+            // same gap.
+            val bar = if (beam != null) 1.0f else 1.15f
+            Box(Modifier.weight(if (beam != null) 0.67f else 0.7f), Alignment.CenterStart) { band() }
+            Box(Modifier.weight(if (beam != null) 0.58f else 0.75f), Alignment.CenterStart) { id() }
+            // A beam index is one or two digits: centred under the header's
+            // word (an invisible copy sizes the cell), left like the others.
+            if (beam != null) Box(Modifier.weight(0.72f), Alignment.CenterStart) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("Beam", style = MiuixTheme.textStyles.footnote1, maxLines = 1, modifier = Modifier.alpha(0f))
+                    beam()
+                }
+            }
+            Box(Modifier.weight(if (beam != null) 1.04f else 1.15f), Alignment.CenterStart) { ch() }
             metrics.forEach { m -> Box(Modifier.weight(bar).padding(horizontal = 3.dp), Alignment.Center) { m() } }
             repeat(2 - metrics.size) { Spacer(Modifier.weight(bar)) }
         }

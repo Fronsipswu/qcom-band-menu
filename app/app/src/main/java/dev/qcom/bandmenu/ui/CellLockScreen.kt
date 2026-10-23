@@ -776,11 +776,14 @@ private fun CellLockTable(
         return
     }
     // NR neighbours come one row per beam, strongest first: here one row per
-    // cell, its strongest beam's values, without the Beam column.
+    // cell, its strongest beam's values, without the Beam column. A serving
+    // cell's other beams are neighbour rows too; its serving row stands for it.
+    val serving = servingLockTargets(snapshot)
     val neighbours = snapshot.lockTargets.filter { it.role == LockRole.NEIGHBOUR }
         .distinctBy { Triple(it.rat, it.channel, if (it.beam != null) it.id else it.key) }
+        .filter { n -> n.beam == null || serving.none { it.rat == n.rat && it.channel == n.channel && it.id == n.id } }
         .map { if (it.beam != null) it.copy(beam = null) else it }
-    val rows = servingLockTargets(snapshot) + neighbours
+    val rows = serving + neighbours
     if (rows.isEmpty()) {
         NoticeText("No cells reported.")
         return
