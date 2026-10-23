@@ -18,11 +18,11 @@ class UplinkCardTest {
 
     private val stats = DiagStats.parse(JSONObject("""{"ms":1000,
         "carriers":[
-          {"slot":0,"earfcn":1300,"pci":10,"tb":5,"mbps":1.0,"ul_mbps":2.5,"ul_rbs":12.4,"ul_mod":"16QAM","ul_mcs":17.6,"ul_pwr":11.25},
+          {"slot":0,"earfcn":1300,"pci":10,"tb":5,"mbps":1.0,"ul_mbps":2.5,"ul_rbs":12.4,"ul_mod":"16QAM","ul_mcs":17.6,"ul_pwr":11.25,"ul_pucch":-7.5},
           {"slot":1,"earfcn":3050,"pci":11,"tb":5,"mbps":1.0}],
         "nr":[
           {"cc":0,"pcell":true,"pci":300,"arfcn":630000,"bw":100,"scs":30,"band":78,"tb":3,"mbps":50.0,
-           "ul_mbps":10.0,"ul_rbs":136.5,"ul_mcs":9.4,"ul_mod":"QPSK","ul_layers":1.5,"ul_tx_mode":"SMDL","ul_pwr":22.9},
+           "ul_mbps":10.0,"ul_rbs":136.5,"ul_mcs":9.4,"ul_mod":"QPSK","ul_layers":1.5,"ul_tx_mode":"SMDL","ul_pwr":22.9,"ul_pucch":14.7},
           {"cc":1,"pcell":false,"pci":301,"arfcn":640000,"tb":3,"mbps":20.0}]}"""))
 
     @Test
@@ -32,12 +32,14 @@ class UplinkCardTest {
         assertEquals(17.6, lte.ulMcs!!, 1e-9)
         assertEquals("16QAM", lte.ulModulation)
         assertEquals(11.25, lte.ulPower!!, 1e-9)
+        assertEquals(-7.5, lte.ulPucch!!, 1e-9)
         assertTrue(lte.hasUplink)
         assertFalse(stats.carriers[1].hasUplink)
         val nr = stats.nr[0]
         assertEquals(1.5, nr.ulLayers!!, 1e-9)
         assertEquals("SMDL", nr.ulTxMode)
         assertEquals(22.9, nr.ulPower!!, 1e-9)
+        assertEquals(14.7, nr.ulPucch!!, 1e-9)
         assertTrue(nr.hasUplink)
         assertFalse(stats.nr[1].hasUplink)
         assertNull(stats.nr[1].ulMcs)

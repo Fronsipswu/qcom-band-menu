@@ -24,7 +24,7 @@
  *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
  *       0xB139 PUSCH Tx Report: UL TB size, RBs, modulation, carrier slot
  *       0xB16E PUSCH Power Control: the actual PUSCH transmit power
- *       0xB16D GM TX Report: PUSCH MCS
+ *       0xB16D GM TX Report: PUSCH MCS, PUCCH transmit power
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.25"
+#define HELPER_VERSION "1.22.26"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -106,8 +106,9 @@ struct slot {
     /* B139 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
     /* The uplink card: B139 records with an RB count (RBs, modulation),
-     * B16D's PUSCH MCS and B16E's actual PUSCH power, means over the window */
-    long ul_recs, ul_rb_sum, ul_mod[6], ul_mcs_sum, ul_mcs_n, n_ul_pwr;
+     * B16D's PUSCH MCS and PUCCH power, B16E's actual PUSCH power, means over
+     * the window */
+    long ul_recs, ul_rb_sum, ul_mod[6], ul_mcs_sum, ul_mcs_n, n_ul_pwr, ul_pucch_sum, n_ul_pucch;
     double ul_pwr_sum;
     /* B126 */
     long n126, rank[4], scheme[16];
@@ -333,10 +334,12 @@ static void b16e(const uint8_t *p, int n) {
  * byte 4 of 36 (v49) or 48 (v52) bytes plus 12 when CA (bit 57) is set.
  * Channel type at bit 32 (1 PUSCH), carrier at 33/3; the PUSCH block starts
  * at bit 96 (192 with CA), MCS at its bit 46/5. 29-31 only signal a
- * retransmission's redundancy version. Walked completely first. */
+ * retransmission's redundancy version. The other records are PUCCH: their
+ * total transmit power (signed 8 bits at 86, 182 with CA, dBm) is the PUCCH
+ * power (NSG's within 0.1 dB on three phones). Walked completely first. */
 static void b16d(const uint8_t *p, int n) {
     if (n < 4 || (p[0] != 49 && p[0] != 52)) return;
-    long add_mcs[SLOTS] = { 0 }, add_n[SLOTS] = { 0 };
+    long add_mcs[SLOTS] = { 0 }, add_n[SLOTS] = { 0 }, add_pucch[SLOTS] = { 0 }, add_pucch_n[SLOTS] = { 0 };
     int pos = 4;
     for (int i = 0; i < p[3]; i++) {
         if (pos + 8 > n) return;
@@ -346,7 +349,14 @@ static void b16d(const uint8_t *p, int n) {
         if (size > n - pos) return;
         pos += size;
         int carrier = (int)bits(r, 33, 3), mcs = (int)bits(r, 96 + 96 * with_ca + 46, 5);
-        if (!bits(r, 32, 1) || carrier >= SLOTS || mcs > 28) continue;
+        if (carrier >= SLOTS) continue;
+        if (!bits(r, 32, 1)) {
+            int power = (int)bits(r, 86 + 96 * with_ca, 8);
+            add_pucch[carrier] += power >= 128 ? power - 256 : power;
+            add_pucch_n[carrier]++;
+            continue;
+        }
+        if (mcs > 28) continue;
         add_mcs[carrier] += mcs;
         add_n[carrier]++;
     }
@@ -354,6 +364,8 @@ static void b16d(const uint8_t *p, int n) {
     for (int i = 0; i < SLOTS; i++) {
         win[i].ul_mcs_sum += add_mcs[i];
         win[i].ul_mcs_n += add_n[i];
+        win[i].ul_pucch_sum += add_pucch[i];
+        win[i].n_ul_pucch += add_pucch_n[i];
     }
 }
 
@@ -840,10 +852,10 @@ struct nr_slot {
     /* The uplink card, means over the window: B883 PUSCH blocks (RBs, DMRS
      * ports = layers, modulation; MCS without the reserved indices that
      * mark a retransmission; the last block's TX mode + 1, 0 = none) and
-     * B884's PUSCH power */
-    long ul_recs, ul_rb_sum, ul_layers_sum, ul_mcs_sum, ul_mcs_n, ul_mod[6], n_ul_pwr;
+     * B884's PUSCH and PUCCH power */
+    long ul_recs, ul_rb_sum, ul_layers_sum, ul_mcs_sum, ul_mcs_n, ul_mod[6], n_ul_pwr, n_ul_pucch;
     int ul_tx_mode;
-    double ul_pwr_sum;
+    double ul_pwr_sum, ul_pucch_sum;
     /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
      * of TRS records (CSI-SINR); B96A strongest beam's SNR: means over the
      * window */
@@ -964,13 +976,15 @@ static void b883(const uint8_t *p, int n) {
  * power-control transmit power (signed 12 bits at 8, 0.1 dB) and the
  * maximum transmit power (signed 12 bits at 44, 0.1 dB); the power sent is the
  * first capped at the second (matches the separate RF target log on every
- * checked block). Walked completely first, like B883. */
+ * checked block). PUCCH blocks (type 5) carry the same two fields; capped
+ * the same way they match NSG's PUCCH power. Walked completely first, like
+ * B883. */
 static void b884(const uint8_t *p, int n) {
     if (n < 8) return;
     uint32_t ver = nr_ver(p);
     if (ver != 0x30003 && ver != 0x30005) return;
-    double add_pwr[SLOTS] = { 0 };
-    long add_n[SLOTS] = { 0 };
+    double add_pwr[SLOTS] = { 0 }, add_pucch[SLOTS] = { 0 };
+    long add_n[SLOTS] = { 0 }, add_pucch_n[SLOTS] = { 0 };
     int pos = 8;
     for (int r = 0; r < p[7]; r++) {
         if (pos + 12 > n) return;
@@ -986,12 +1000,12 @@ static void b884(const uint8_t *p, int n) {
                 pos += 16;
                 int type = (int)bits(b, 4, 4), carrier = (int)bits(b, 0, 4);
                 if (type != 1 && type != 3 && type != 4 && type != 5) return;
-                if (type != 4 || carrier >= SLOTS) continue;
+                if ((type != 4 && type != 5) || carrier >= SLOTS) continue;
                 int raw = (int)bits(b, 8, 12), raw_max = (int)bits(b, 44, 12);
                 double power = (raw >= 2048 ? raw - 4096 : raw) / 10.0;
                 double max = (raw_max >= 2048 ? raw_max - 4096 : raw_max) / 10.0;
-                add_pwr[carrier] += power < max ? power : max;
-                add_n[carrier]++;
+                if (type == 4) { add_pwr[carrier] += power < max ? power : max; add_n[carrier]++; }
+                else { add_pucch[carrier] += power < max ? power : max; add_pucch_n[carrier]++; }
             }
         }
     }
@@ -999,6 +1013,8 @@ static void b884(const uint8_t *p, int n) {
     for (int i = 0; i < SLOTS; i++) {
         nrwin[i].ul_pwr_sum += add_pwr[i];
         nrwin[i].n_ul_pwr += add_n[i];
+        nrwin[i].ul_pucch_sum += add_pucch[i];
+        nrwin[i].n_ul_pucch += add_pucch_n[i];
     }
 }
 
@@ -1795,6 +1811,7 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         }
         if (s->ul_mcs_n > 0) PUT(",\"ul_mcs\":%.2f", (double)s->ul_mcs_sum / s->ul_mcs_n);
         if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
+        if (s->n_ul_pucch > 0) PUT(",\"ul_pucch\":%.2f", (double)s->ul_pucch_sum / s->n_ul_pucch);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
             PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
@@ -1916,6 +1933,7 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         }
         if (s->ul_tx_mode) PUT(",\"ul_tx_mode\":\"%s\"", TX_MODES[s->ul_tx_mode - 1]);
         if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
+        if (s->n_ul_pucch > 0) PUT(",\"ul_pucch\":%.2f", (double)s->ul_pucch_sum / s->n_ul_pucch);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
             PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);

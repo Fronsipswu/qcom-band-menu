@@ -68,6 +68,9 @@ fun MainScreen(
     /** Network page menu: throughput chart hidden (persisted by the caller). */
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
+    /** Network page menu: Uplink card hidden (persisted by the caller). */
+    uplinkHidden: Boolean = false,
+    onUplinkHiddenToggle: (Boolean) -> Unit = {},
     /** Network page menu: keep the screen on (persisted by the caller). */
     keepScreenOn: Boolean = false,
     onKeepScreenOnToggle: (Boolean) -> Unit = {},
@@ -220,6 +223,8 @@ fun MainScreen(
                             onServingHiddenToggle = onServingHiddenToggle,
                             thputHidden = thputHidden,
                             onThputHiddenToggle = onThputHiddenToggle,
+                            uplinkHidden = uplinkHidden,
+                            onUplinkHiddenToggle = onUplinkHiddenToggle,
                             keepScreenOn = keepScreenOn,
                             onKeepScreenOnToggle = onKeepScreenOnToggle,
                             endcSeparate = endcSeparate,

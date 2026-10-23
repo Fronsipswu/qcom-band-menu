@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
                 var nrModeHidden by remember { mutableStateOf(false) }
                 var servingHidden by remember { mutableStateOf(false) }
                 var thputHidden by remember { mutableStateOf(false) }
+                var uplinkHidden by remember { mutableStateOf(false) }
                 var keepScreenOn by remember { mutableStateOf(false) }
                 var endcSeparate by remember { mutableStateOf(true) }
                 var gnbBitsSim1 by remember { mutableIntStateOf(22) }
@@ -168,6 +169,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getThputHidden(bandDataStore).collectLatest { hidden ->
                         thputHidden = hidden
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getUplinkHidden(bandDataStore).collectLatest { hidden ->
+                        uplinkHidden = hidden
                     }
                 }
 
@@ -462,6 +469,11 @@ class MainActivity : ComponentActivity() {
                     onThputHiddenToggle = { hidden ->
                         thputHidden = hidden
                         scope.launch { BandPreferences.setThputHidden(bandDataStore, hidden) }
+                    },
+                    uplinkHidden = uplinkHidden,
+                    onUplinkHiddenToggle = { hidden ->
+                        uplinkHidden = hidden
+                        scope.launch { BandPreferences.setUplinkHidden(bandDataStore, hidden) }
                     },
                     keepScreenOn = keepScreenOn,
                     onKeepScreenOnToggle = { on ->

@@ -155,6 +155,9 @@ fun NetworkScreen(
     /** Throughput chart hidden (menu; persisted by the caller). */
     thputHidden: Boolean = false,
     onThputHiddenToggle: (Boolean) -> Unit = {},
+    /** Uplink card hidden (menu; persisted by the caller). */
+    uplinkHidden: Boolean = false,
+    onUplinkHiddenToggle: (Boolean) -> Unit = {},
     keepScreenOn: Boolean = false,
     onKeepScreenOnToggle: (Boolean) -> Unit = {},
     /** NSA: separate LTE and NR tables instead of one ENDC table (menu; persisted by the caller). */
@@ -407,7 +410,7 @@ fun NetworkScreen(
                                     LocalSnapSignalBars provides (sim == state.sim && replayRound != null)
                                 ) {
                                     NetworkContent(snap, pageState, servingHidden, if (thputHidden) emptyList() else points,
-                                        endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage })
+                                        endcSeparate, pageGnbBits, anchor.takeIf { page == pagerState.currentPage }, uplinkHidden)
                                 }
                             }
                         }
@@ -520,6 +523,10 @@ fun NetworkScreen(
                             onClick = { onThputHiddenToggle(!thputHidden) }
                         ),
                         DropdownItem(
+                            text = "Hide uplink", selected = uplinkHidden,
+                            onClick = { onUplinkHiddenToggle(!uplinkHidden) }
+                        ),
+                        DropdownItem(
                             text = "Combine ENDC", selected = !endcSeparate,
                             onClick = { onEndcSeparateToggle(!endcSeparate) }
                         ),
@@ -586,9 +593,13 @@ private fun testStatus(r: TrafficTest.Run): String = when {
 @Composable
 private fun NetworkContent(
     snap: NetworkSnapshot, state: NetworkMonitor.State, servingHidden: Boolean, thput: List<ThputPoint>,
-    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null
+    endcSeparate: Boolean = true, gnbBits: Int = 22, anchor: ScrollAnchor? = null, uplinkHidden: Boolean = false
 ) {
     val p = "${snap.sim}:"
+    // While the Uplink card shows, the tables leave out PHY UL and the
+    // antenna card its TX power: the card has both, per carrier.
+    val uplink = if (state.diagEnabled && snap.mode != ServiceMode.WCDMA && !uplinkHidden) uplinkCarriers(snap) else emptyList()
+    val uplinkShown = uplink.isNotEmpty()
     // The summary and the serving cell (the LTE MCG in NSA) share one card;
     // any further cell (the NR SCG in NSA) keeps its own card below. The menu
     // can hide them all.
@@ -610,7 +621,7 @@ private fun NetworkContent(
     // With the serving cell hidden, the tables go without their headings too.
     groups.forEach { g ->
         val groupKey = if (g.title == "NR aggregation") "${p}nr" else "${p}lte"
-        Column(Modifier.scrollAnchor(anchor, groupKey)) { CarrierSection(g, title = !servingHidden) }
+        Column(Modifier.scrollAnchor(anchor, groupKey)) { CarrierSection(g, title = !servingHidden, phyUl = !uplinkShown) }
     }
     state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
     // DIAG only: QMI has no throughput (hidden on WCDMA).
@@ -620,15 +631,13 @@ private fun NetworkContent(
         }
     }
     // Below the chart (kept when the menu hides the chart).
-    if (state.diagEnabled && snap.mode != ServiceMode.WCDMA) {
-        val uplink = uplinkCarriers(snap)
-        if (uplink.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}uplink")) { UplinkCard(uplink) }
-    }
+    if (uplinkShown) Column(Modifier.scrollAnchor(anchor, "${p}uplink")) { UplinkCard(uplink) }
     if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
         Expandable("Antenna measurements") {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top: once per
             // RAT, from its first group (QMI's serving cell, or DIAG's first carrier).
-            snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.distinctBy { it.rat }.forEach {
+            // Left out while the Uplink card shows the PUSCH/PUCCH power.
+            if (!uplinkShown) snap.antennas.filter { it.rat == Rat.LTE || it.rat == Rat.WCDMA }.distinctBy { it.rat }.forEach {
                 SignalBar(Metric("TX PWR", MetricKind.TX_POWER, it.rat, it.txPower, "dBm"),
                     Modifier.padding(vertical = 3.dp), labelWidth = 64.dp)
             }
@@ -801,7 +810,7 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
 }
 
 @Composable
-private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
+private fun CarrierSection(group: CarrierGroup, title: Boolean = true, phyUl: Boolean = true) {
     if (title) SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -809,7 +818,7 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
                 Text(group.summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(4.dp))
             }
-            if (group.table) CaTable(group.carriers, group.diag, group.nrTable, group.endc) else group.carriers.forEach { c ->
+            if (group.table) CaTable(group.carriers, group.diag, group.nrTable, group.endc, phyUl = phyUl) else group.carriers.forEach { c ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(c.role, modifier = Modifier.width(76.dp), style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 1)
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold, color = bandColor(it) ?: MiuixTheme.colorScheme.onBackground) }
@@ -831,7 +840,11 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true) {
 
 /** CA table: one column per carrier, one row per parameter. */
 @Composable
-private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false, endc: Boolean = false, uplink: Boolean = false) = BoxWithConstraints {
+private fun CaTable(
+    carriers: List<Carrier>, diag: Boolean, nr: Boolean = false, endc: Boolean = false, uplink: Boolean = false,
+    /** The PHY UL row; left out while the Uplink card shows. */
+    phyUl: Boolean = true
+) = BoxWithConstraints {
     // Up to four carriers (P, S1, S2, S3) each column is fixed at the width
     // four columns share, and the columns sit from the left, so a lone PCell
     // isn't centred in empty space. From five carriers (S4) the columns share
@@ -870,7 +883,7 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
             else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
     if (uplink) { UplinkRows(::row, ::text, barMax, cellStyle); return@Column }
-    if (nr) { NrRows(::row, ::text, barMax, cellStyle); return@Column }
+    if (nr) { NrRows(::row, ::text, barMax, cellStyle, phyUl); return@Column }
     row("Band") { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     // ENDC: EARFCN and NR-ARFCN share the row.
@@ -904,10 +917,11 @@ private fun CaTable(carriers: List<Carrier>, diag: Boolean, nr: Boolean = false,
             val (value, fill) = mcsCell(it)
             CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
         }
+        row("BLER") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
         row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
         row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
-        row("PHY UL") { text((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+        if (phyUl) row("PHY UL") { text((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
     }
 } }
 
@@ -923,7 +937,8 @@ private fun NrRows(
     row: @Composable (String, Boolean, @Composable (Carrier) -> Unit) -> Unit,
     text: @Composable (String?, Boolean, Color) -> Unit,
     barMax: Dp,
-    cellStyle: TextStyle
+    cellStyle: TextStyle,
+    phyUl: Boolean = true
 ) {
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
@@ -947,11 +962,12 @@ private fun NrRows(
         val (value, fill) = mcsCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
+    r("BLER") { BlerBar(it.nr?.bler, barMax, cellStyle) }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
     // Values coloured as the chart's lines.
     r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
-    r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+    if (phyUl) r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
 }
 
 /** The uplink card: the CA table's columns with the PUSCH rows. */
@@ -967,8 +983,8 @@ private fun UplinkCard(carriers: List<Carrier>) {
 
 /**
  * The uplink card's rows (DIAG), over the last round: LTE from B139 (RBs,
- * modulation), B16D (MCS) and B16E (power); NR from B883 and B884. Layers
- * and TX mode are NR only.
+ * modulation), B16D (MCS, PUCCH power) and B16E (PUSCH power); NR from
+ * B883 and B884. Layers and TX mode are NR only.
  */
 @Composable
 private fun UplinkRows(
@@ -992,8 +1008,13 @@ private fun UplinkRows(
     r("Mod") { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
     r("Layers") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
     r("TX mode") { t(it.nr?.ulTxMode) }
-    r("TX PWR") {
+    // Transmit power per channel, dBm.
+    r("PUSCH") {
         CellValueBar(it.diag?.ulPower ?: it.nr?.ulPower, MetricKind.TX_POWER, barMax,
+            if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
+    }
+    r("PUCCH") {
+        CellValueBar(it.diag?.ulPucch ?: it.nr?.ulPucch, MetricKind.TX_POWER, barMax,
             if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
     }
     r("PHY UL") { t((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
@@ -1081,6 +1102,16 @@ private val BAND_COLORS = mapOf(
 private val TableValueWeight = FontWeight.Normal
 private val TableEmphasis = FontWeight.Normal
 
+/** BLER, %: green to 2 %, light green to the usual 10 % target, then yellow
+ * (15 %), orange (25 %) and red; the bar fills up to 30 %. */
+private val BLER_SCALE = SignalScale(0.0, 30.0, listOf(2.0, 10.0, 15.0, 25.0), higherIsWorse = true)
+
+/** The BLER cell: the value (one decimal) on a level-coloured bar. */
+@Composable
+private fun BlerBar(bler: Double?, maxWidth: Dp, style: TextStyle) =
+    CellValueBar(bler, MetricKind.SINR, maxWidth, style = style, trackWhenEmpty = true, gradientFill = true,
+        scaleOverride = BLER_SCALE)
+
 /** A value with a level-coloured bar behind it. With [gradientFill] the fill
  *  fades from the full level colour toward a lighter tip — brighter than the
  *  MCS/RBs bars', whose colours read muted at their strength; the neighbour
@@ -1089,7 +1120,9 @@ private val TableEmphasis = FontWeight.Normal
 private fun CellValueBar(
     v: Double?, kind: MetricKind, maxWidth: Dp = Dp.Unspecified, rat: Rat = Rat.LTE,
     style: TextStyle = MiuixTheme.textStyles.body2, trackWhenEmpty: Boolean = false,
-    gradientFill: Boolean = false
+    gradientFill: Boolean = false,
+    /** A scale of its own instead of [kind]'s (BLER). */
+    scaleOverride: SignalScale? = null
 ) {
     if (v == null) {
         // With [trackWhenEmpty] the empty track stays visible, so a bar cell
@@ -1105,7 +1138,7 @@ private fun CellValueBar(
         }
         return
     }
-    val scale = signalScale(kind, rat)
+    val scale = scaleOverride ?: signalScale(kind, rat)
     val color = signalLevelColor(scale.level(v))
     val fraction = scale.fraction(v)
     Box(
@@ -1358,7 +1391,7 @@ private fun NeighborRows(neighbors: List<Neighbor>) {
     neighbors.forEach { n ->
         cols(
             { Text(n.id, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold) },
-            { Text(n.band?.label ?: "–", style = MiuixTheme.textStyles.body2, color = if (n.band == null) grey else MiuixTheme.colorScheme.onBackground) },
+            { Text(n.band?.label ?: "–", style = MiuixTheme.textStyles.body2, color = if (n.band == null) grey else bandColor(n.band.label) ?: MiuixTheme.colorScheme.onBackground) },
             { Text(n.channel.toString(), style = MiuixTheme.textStyles.body2) },
             n.metrics.take(2).map { m -> @Composable { CellValueBar(m.value, m.kind, rat = m.rat) } }
         )
