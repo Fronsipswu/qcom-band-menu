@@ -885,7 +885,7 @@ private fun CaTable(
         text(it.role, color = if (it.role == "P" || it.role == "MCG" || it.role == "SCG") MiuixTheme.colorScheme.primary
             else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
-    if (uplink) { UplinkRows(::row, ::text, barMax, cellStyle); return@Column }
+    if (uplink) { UplinkRows(::row, ::text, barMax, cellStyle, sa = carriers.none { it.diag != null }); return@Column }
     if (nr) { NrRows(::row, ::text, barMax, cellStyle, phyUl); return@Column }
     row("Band") { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
@@ -987,15 +987,16 @@ private fun UplinkCard(carriers: List<Carrier>) {
 /**
  * The uplink card's rows (DIAG), over the last round: LTE from B139 (RBs,
  * modulation), B16D (MCS, PUCCH power, BLER) and B16E (PUSCH power); NR
- * from B883 and B884. Rank and TX mode are decoded for NR only; LTE shows
- * 1.0 and SISO.
+ * from B883 and B884. Rank and TX mode are NR only, shown in SA.
  */
 @Composable
 private fun UplinkRows(
     row: @Composable (String, Boolean, @Composable (Carrier) -> Unit) -> Unit,
     text: @Composable (String?, Boolean, Color) -> Unit,
     barMax: Dp,
-    cellStyle: TextStyle
+    cellStyle: TextStyle,
+    /** SA: NR carriers only, so the Rank and TX mode rows show. */
+    sa: Boolean
 ) {
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
@@ -1010,9 +1011,11 @@ private fun UplinkRows(
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
     r("Mod") { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
-    // LTE: one layer, SISO (no LTE uplink MIMO decoded yet).
-    r("Rank") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) } ?: it.diag?.let { "1.0" }) }
-    r("TX mode") { t(it.nr?.ulTxMode ?: it.diag?.let { "SISO" }) }
+    // NR only: left out in LTE and NSA (no LTE uplink rank or TX mode decoded).
+    if (sa) {
+        r("Rank") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+        r("TX mode") { t(it.nr?.ulTxMode) }
+    }
     // Transmit power per channel, dBm.
     r("PUSCH") {
         CellValueBar(it.diag?.ulPower ?: it.nr?.ulPower, MetricKind.TX_POWER, barMax,
@@ -1374,7 +1377,7 @@ private fun CarrierAntennaRows(a: AntennaGroup, header: Boolean = true) = BoxWit
 
 @Composable
 private fun NeighborRows(neighbors: List<Neighbor>) {
-    // Table: PCI | Band | EARFCN | RSRP bar | RSRQ bar, headers once,
+    // Table: Band | PCI | EARFCN | RSRP bar | RSRQ bar, headers once,
     // rows already sorted, best RSRQ first. Band is derived from the channel.
     val first = neighbors.first()
     val metricLabels = first.metrics.take(2).map { it.label }
@@ -1383,8 +1386,8 @@ private fun NeighborRows(neighbors: List<Neighbor>) {
     @Composable
     fun cols(id: @Composable () -> Unit, band: @Composable () -> Unit, ch: @Composable () -> Unit, metrics: List<@Composable () -> Unit>) {
         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(0.75f), Alignment.CenterStart) { id() }
             Box(Modifier.weight(0.7f), Alignment.CenterStart) { band() }
+            Box(Modifier.weight(0.75f), Alignment.CenterStart) { id() }
             Box(Modifier.weight(0.95f), Alignment.CenterStart) { ch() }
             metrics.forEach { m -> Box(Modifier.weight(1.25f).padding(horizontal = 3.dp), Alignment.Center) { m() } }
             repeat(2 - metrics.size) { Spacer(Modifier.weight(1.25f)) }
