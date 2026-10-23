@@ -775,7 +775,12 @@ private fun CellLockTable(
         NoticeText(error ?: "Waiting for the first reading from SIM ${simSlot + 1}\u2026")
         return
     }
-    val rows = servingLockTargets(snapshot) + snapshot.lockTargets.filter { it.role == LockRole.NEIGHBOUR }
+    // NR neighbours come one row per beam, strongest first: here one row per
+    // cell, its strongest beam's values, without the Beam column.
+    val neighbours = snapshot.lockTargets.filter { it.role == LockRole.NEIGHBOUR }
+        .distinctBy { Triple(it.rat, it.channel, if (it.beam != null) it.id else it.key) }
+        .map { if (it.beam != null) it.copy(beam = null) else it }
+    val rows = servingLockTargets(snapshot) + neighbours
     if (rows.isEmpty()) {
         NoticeText("No cells reported.")
         return

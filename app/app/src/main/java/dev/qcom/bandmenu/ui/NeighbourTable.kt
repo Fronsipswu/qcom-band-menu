@@ -56,12 +56,16 @@ internal fun NeighbourTable(
             modifier.fillMaxWidth().padding(vertical = rowPadding),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.weight(0.7f), Alignment.CenterStart) { band() }
-            Box(Modifier.weight(0.75f), Alignment.CenterStart) { id() }
-            if (beam != null) Box(Modifier.weight(0.6f), Alignment.CenterStart) { beam() }
-            Box(Modifier.weight(0.95f), Alignment.CenterStart) { ch() }
-            metrics.forEach { m -> Box(Modifier.weight(1.25f).padding(horizontal = 3.dp), Alignment.Center) { m() } }
-            repeat(2 - metrics.size) { Spacer(Modifier.weight(1.25f)) }
+            // Six columns with a Beam: shorter bars, so a six-digit NR-ARFCN
+            // and the Beam header fit.
+            val bar = if (beam != null) 1.0f else 1.25f
+            Box(Modifier.weight(if (beam != null) 0.65f else 0.7f), Alignment.CenterStart) { band() }
+            Box(Modifier.weight(if (beam != null) 0.7f else 0.75f), Alignment.CenterStart) { id() }
+            // A beam index is one or two digits: centred under its header.
+            if (beam != null) Box(Modifier.weight(0.75f), Alignment.Center) { beam() }
+            Box(Modifier.weight(if (beam != null) 1.2f else 0.95f), Alignment.CenterStart) { ch() }
+            metrics.forEach { m -> Box(Modifier.weight(bar).padding(horizontal = 3.dp), Alignment.Center) { m() } }
+            repeat(2 - metrics.size) { Spacer(Modifier.weight(bar)) }
         }
     }
 
