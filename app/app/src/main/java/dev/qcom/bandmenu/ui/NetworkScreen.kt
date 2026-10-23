@@ -644,8 +644,11 @@ private fun NetworkContent(
             // QMI's chains have a heading only when LTE and NR are shown together
             // (NSA); DIAG's carriers (PCell, SCells) always have theirs.
             val showHeadings = snap.antennas.size > 1
-            snap.antennas.forEach {
-                if (it.carrier != null) CarrierAntennaRows(it) else AntennaRows(it, showHeadings)
+            // DIAG carriers: the metric header once per RAT (LTE's carriers share
+            // one; NSA's NR carriers start their own).
+            snap.antennas.forEachIndexed { i, it ->
+                if (it.carrier != null) CarrierAntennaRows(it, header = i == 0 || snap.antennas[i - 1].rat != it.rat)
+                else AntennaRows(it, showHeadings)
             }
         }
     }
@@ -917,7 +920,7 @@ private fun CaTable(
             val (value, fill) = mcsCell(it)
             CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
         }
-        row("BLER") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
+        row("BLER%") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
         row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
         row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
@@ -962,7 +965,7 @@ private fun NrRows(
         val (value, fill) = mcsCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
-    r("BLER") { BlerBar(it.nr?.bler, barMax, cellStyle) }
+    r("BLER%") { BlerBar(it.nr?.bler, barMax, cellStyle) }
     // QAM order only ("256"); QPSK as is.
     r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
     // Values coloured as the chart's lines.
@@ -983,8 +986,9 @@ private fun UplinkCard(carriers: List<Carrier>) {
 
 /**
  * The uplink card's rows (DIAG), over the last round: LTE from B139 (RBs,
- * modulation), B16D (MCS, PUCCH power) and B16E (PUSCH power); NR from
- * B883 and B884. Layers and TX mode are NR only.
+ * modulation), B16D (MCS, PUCCH power, BLER) and B16E (PUSCH power); NR
+ * from B883 and B884. Rank and TX mode are decoded for NR only; LTE shows
+ * 1.0 and SISO.
  */
 @Composable
 private fun UplinkRows(
@@ -1006,8 +1010,9 @@ private fun UplinkRows(
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
     r("Mod") { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
-    r("Layers") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
-    r("TX mode") { t(it.nr?.ulTxMode) }
+    // LTE: one layer, SISO (no LTE uplink MIMO decoded yet).
+    r("Rank") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) } ?: it.diag?.let { "1.0" }) }
+    r("TX mode") { t(it.nr?.ulTxMode ?: it.diag?.let { "SISO" }) }
     // Transmit power per channel, dBm.
     r("PUSCH") {
         CellValueBar(it.diag?.ulPower ?: it.nr?.ulPower, MetricKind.TX_POWER, barMax,
@@ -1017,6 +1022,7 @@ private fun UplinkRows(
         CellValueBar(it.diag?.ulPucch ?: it.nr?.ulPucch, MetricKind.TX_POWER, barMax,
             if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
     }
+    r("BLER%") { BlerBar(it.diag?.ulBler ?: it.nr?.ulBler, barMax, cellStyle) }
     r("PHY UL") { t((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
 }
 
@@ -1298,7 +1304,7 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
  * B8D8/B8DD), drawn as in the carrier tables.
  */
 @Composable
-private fun CarrierAntennaRows(a: AntennaGroup) = BoxWithConstraints {
+private fun CarrierAntennaRows(a: AntennaGroup, header: Boolean = true) = BoxWithConstraints {
     val grey = MiuixTheme.colorScheme.onSurfaceVariantSummary
     val nr = a.rat == Rat.NR
     val labels = if (nr) listOf("RSRP", "SINR", "CSINR") else listOf("RSRP", "RSRQ", "SINR")
@@ -1356,7 +1362,7 @@ private fun CarrierAntennaRows(a: AntennaGroup) = BoxWithConstraints {
                 }
             }
         }
-        row("") { k -> Text(labels[k], style = MiuixTheme.textStyles.footnote1, color = grey, maxLines = 1) }
+        if (header) row("") { k -> Text(labels[k], style = MiuixTheme.textStyles.footnote1, color = grey, maxLines = 1) }
         a.chains.forEach { c ->
             val v = values(c)
             row("RX${c.chain}") { k ->

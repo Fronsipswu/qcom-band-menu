@@ -79,6 +79,8 @@ class NetworkMonitor(
     private val cachedName = arrayOfNulls<String>(2)
     /** Per SIM: NR columns' CSI-RS ports and LTE columns' Tx antennas held while idle. */
     private val portHold = Array(2) { PortHold() }
+    /** Per SIM: the Uplink card's PUCCH power held between PUCCH windows. */
+    private val pucchHold = Array(2) { PucchHold() }
 
     fun setVisible(v: Boolean) { visible = v; reschedule() }
     fun setResumed(v: Boolean) { resumed = v; reschedule() }
@@ -217,8 +219,8 @@ class NetworkMonitor(
                 null
             }
         } else null
-        val snap = portHold[sim - 1].apply(SnapshotBuilder(reads, nrHardwareBands, diagStats, diagMode = withDiag)
-            .build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt()))
+        val snap = pucchHold[sim - 1].apply(portHold[sim - 1].apply(SnapshotBuilder(reads, nrHardwareBands, diagStats, diagMode = withDiag)
+            .build(sim, SystemClock.elapsedRealtime(), (SystemClock.elapsedRealtime() - t0).toInt())))
         // Slow tier: operator name only when the PLMN changes.
         val plmn = snap.plmn
         val key = plmn?.let { "$it/${snap.mode}" }

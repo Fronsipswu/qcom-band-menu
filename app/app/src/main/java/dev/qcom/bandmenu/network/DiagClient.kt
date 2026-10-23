@@ -40,10 +40,11 @@ data class DiagCarrier(
     /** The uplink card, over the window: mean PUSCH RBs (B139), mean MCS of
      *  PUSCH grants (B16D; reserved retransmission indices left out), the
      *  most used modulation (B139) and the mean actual PUSCH transmit power,
-     *  dBm (B16E); the mean PUCCH transmit power, dBm (B16D). Null when the
-     *  carrier had none. */
+     *  dBm (B16E); the mean PUCCH transmit power, dBm, and the uplink BLER,
+     *  % of PUSCH records retransmitted (B16D). Null when the carrier had
+     *  none. */
     val ulRbs: Double? = null, val ulMcs: Double? = null, val ulModulation: String? = null, val ulPower: Double? = null,
-    val ulPucch: Double? = null
+    val ulPucch: Double? = null, val ulBler: Double? = null
 ) {
     /** Any uplink value this window. */
     val hasUplink: Boolean get() = ulMbps != null || ulRbs != null || ulMcs != null || ulPower != null || ulPucch != null
@@ -90,11 +91,12 @@ data class DiagNrCarrier(
     /** The uplink card, over the window (B883 PUSCH grants): mean RBs, mean
      *  MCS (reserved retransmission indices left out), the most used
      *  modulation, mean layers (DMRS ports used) and the last TX mode (SISO,
-     *  SMSL, SMDL); B884's mean PUSCH and PUCCH transmit power, each capped
-     *  at the maximum, dBm. Null when the carrier had none. */
+     *  SMSL, SMDL), the uplink BLER (% of PUSCH bytes that were HARQ
+     *  retransmissions); B884's mean PUSCH and PUCCH transmit power, each
+     *  capped at the maximum, dBm. Null when the carrier had none. */
     val ulRbs: Double? = null, val ulMcs: Double? = null, val ulModulation: String? = null,
     val ulLayers: Double? = null, val ulTxMode: String? = null, val ulPower: Double? = null,
-    val ulPucch: Double? = null
+    val ulPucch: Double? = null, val ulBler: Double? = null
 ) {
     /** Any uplink value this window. */
     val hasUplink: Boolean get() = ulMbps != null || ulRbs != null || ulPower != null || ulPucch != null
@@ -152,7 +154,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     rsrpRx = c.chains("rsrp_rx"), sinrRx = c.chains("sinr_rx"), csiSinrRx = c.chains("csinr_rx"),
                     ulRbs = c.d("ul_rbs"), ulMcs = c.d("ul_mcs"), ulModulation = c.optString("ul_mod").ifEmpty { null },
                     ulLayers = c.d("ul_layers"), ulTxMode = c.optString("ul_tx_mode").ifEmpty { null }, ulPower = c.d("ul_pwr"),
-                    ulPucch = c.d("ul_pucch")
+                    ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler")
                 )
             }
             return DiagStats(o.optLong("ms"), (0 until arr.length()).map { n ->
@@ -170,7 +172,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     txAntennas = c.i("tx"), rxAntennas = c.i("rx"), layers = c.d("layers"),
                     rsrpRx = c.chains("rsrp_rx"), rsrqRx = c.chains("rsrq_rx"), sinrRx = c.chains("sinr_rx"),
                     ulRbs = c.d("ul_rbs"), ulMcs = c.d("ul_mcs"), ulModulation = c.optString("ul_mod").ifEmpty { null },
-                    ulPower = c.d("ul_pwr"), ulPucch = c.d("ul_pucch")
+                    ulPower = c.d("ul_pwr"), ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler")
                 )
             }, nr, lteTimingAdvance = o.i("lte_ta"), nrTimingAdvance = o.i("nr_ta"))
         }
@@ -211,7 +213,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.26"
+        private const val EXPECTED_VERSION = "1.22.27"
         /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
         private val ROOT_DOMAINS = listOf("su", "magisk")
     }

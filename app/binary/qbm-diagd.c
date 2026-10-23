@@ -24,7 +24,7 @@
  *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
  *       0xB139 PUSCH Tx Report: UL TB size, RBs, modulation, carrier slot
  *       0xB16E PUSCH Power Control: the actual PUSCH transmit power
- *       0xB16D GM TX Report: PUSCH MCS, PUCCH transmit power
+ *       0xB16D GM TX Report: PUSCH MCS and retransmissions, PUCCH transmit power
  *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
  *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
  *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.26"
+#define HELPER_VERSION "1.22.27"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -109,6 +109,7 @@ struct slot {
      * B16D's PUSCH MCS and PUCCH power, B16E's actual PUSCH power, means over
      * the window */
     long ul_recs, ul_rb_sum, ul_mod[6], ul_mcs_sum, ul_mcs_n, n_ul_pwr, ul_pucch_sum, n_ul_pucch;
+    long ul_pusch_n, ul_retx_n;   /* B16D PUSCH records, those with a retransmission index */
     double ul_pwr_sum;
     /* B126 */
     long n126, rank[4], scheme[16];
@@ -334,12 +335,16 @@ static void b16e(const uint8_t *p, int n) {
  * byte 4 of 36 (v49) or 48 (v52) bytes plus 12 when CA (bit 57) is set.
  * Channel type at bit 32 (1 PUSCH), carrier at 33/3; the PUSCH block starts
  * at bit 96 (192 with CA), MCS at its bit 46/5. 29-31 only signal a
- * retransmission's redundancy version. The other records are PUCCH: their
+ * retransmission's redundancy version; a retransmission index (23/5 in the
+ * PUSCH block) above 0 counts toward the uplink BLER, the share of PUSCH
+ * records retransmitted (NSG's retransmission rate within 0.3 points on
+ * three phones). The other records are PUCCH: their
  * total transmit power (signed 8 bits at 86, 182 with CA, dBm) is the PUCCH
  * power (NSG's within 0.1 dB on three phones). Walked completely first. */
 static void b16d(const uint8_t *p, int n) {
     if (n < 4 || (p[0] != 49 && p[0] != 52)) return;
     long add_mcs[SLOTS] = { 0 }, add_n[SLOTS] = { 0 }, add_pucch[SLOTS] = { 0 }, add_pucch_n[SLOTS] = { 0 };
+    long add_pusch[SLOTS] = { 0 }, add_retx[SLOTS] = { 0 };
     int pos = 4;
     for (int i = 0; i < p[3]; i++) {
         if (pos + 8 > n) return;
@@ -356,6 +361,8 @@ static void b16d(const uint8_t *p, int n) {
             add_pucch_n[carrier]++;
             continue;
         }
+        add_pusch[carrier]++;
+        if (bits(r, 96 + 96 * with_ca + 23, 5)) add_retx[carrier]++;
         if (mcs > 28) continue;
         add_mcs[carrier] += mcs;
         add_n[carrier]++;
@@ -366,6 +373,8 @@ static void b16d(const uint8_t *p, int n) {
         win[i].ul_mcs_n += add_n[i];
         win[i].ul_pucch_sum += add_pucch[i];
         win[i].n_ul_pucch += add_pucch_n[i];
+        win[i].ul_pusch_n += add_pusch[i];
+        win[i].ul_retx_n += add_retx[i];
     }
 }
 
@@ -854,6 +863,7 @@ struct nr_slot {
      * mark a retransmission; the last block's TX mode + 1, 0 = none) and
      * B884's PUSCH and PUCCH power */
     long ul_recs, ul_rb_sum, ul_layers_sum, ul_mcs_sum, ul_mcs_n, ul_mod[6], n_ul_pwr, n_ul_pucch;
+    long ul_retx_bytes;   /* B883 TB bytes of HARQ retransmissions (TX Type RE_TX) */
     int ul_tx_mode;
     double ul_pwr_sum, ul_pucch_sum;
     /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
@@ -898,7 +908,7 @@ static void b883(const uint8_t *p, int n) {
     long add_bytes[SLOTS] = { 0 };
     /* The uplink card's per-carrier sums, published with the bytes. */
     long add_recs[SLOTS] = { 0 }, add_rbs[SLOTS] = { 0 }, add_layers[SLOTS] = { 0 };
-    long add_mcs[SLOTS] = { 0 }, add_mcs_n[SLOTS] = { 0 }, add_mod[SLOTS][6] = { { 0 } };
+    long add_mcs[SLOTS] = { 0 }, add_mcs_n[SLOTS] = { 0 }, add_mod[SLOTS][6] = { { 0 } }, add_retx[SLOTS] = { 0 };
     int last_mode[SLOTS] = { 0 };
     for (int r = 0; r < records; r++) {
         int record = pos;
@@ -922,6 +932,11 @@ static void b883(const uint8_t *p, int n) {
                     int table = (int)at(b, L->mcs_table);
                     add_tb[carrier]++;
                     add_bytes[carrier] += at(b, L->tb_size);
+                    /* Uplink BLER: the share of PUSCH bytes that were HARQ
+                     * retransmissions (NSG's MAC BLER within 0.3 points on
+                     * five captures; a block count isn't: the X85
+                     * retransmits small grants). */
+                    if ((int)at(b, L->tx_type) == L->retx_type) add_retx[carrier] += at(b, L->tb_size);
                     add_recs[carrier]++;
                     add_rbs[carrier] += at(b, L->rbs);
                     /* A DMRS port of 15 is unused. */
@@ -961,6 +976,7 @@ static void b883(const uint8_t *p, int n) {
         struct nr_slot *s = &nrwin[i];
         s->ul_tb += add_tb[i];
         s->ul_bytes += add_bytes[i];
+        s->ul_retx_bytes += add_retx[i];
         s->ul_recs += add_recs[i];
         s->ul_rb_sum += add_rbs[i];
         s->ul_layers_sum += add_layers[i];
@@ -1812,6 +1828,7 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         if (s->ul_mcs_n > 0) PUT(",\"ul_mcs\":%.2f", (double)s->ul_mcs_sum / s->ul_mcs_n);
         if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
         if (s->n_ul_pucch > 0) PUT(",\"ul_pucch\":%.2f", (double)s->ul_pucch_sum / s->n_ul_pucch);
+        if (s->ul_pusch_n > 0) PUT(",\"ul_bler\":%.2f", 100.0 * s->ul_retx_n / s->ul_pusch_n);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5);
             PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
@@ -1934,6 +1951,7 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         if (s->ul_tx_mode) PUT(",\"ul_tx_mode\":\"%s\"", TX_MODES[s->ul_tx_mode - 1]);
         if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
         if (s->n_ul_pucch > 0) PUT(",\"ul_pucch\":%.2f", (double)s->ul_pucch_sum / s->n_ul_pucch);
+        if (s->ul_bytes > 0) PUT(",\"ul_bler\":%.2f", 100.0 * s->ul_retx_bytes / s->ul_bytes);
         if (s->tb > 0) {
             int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
             PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
