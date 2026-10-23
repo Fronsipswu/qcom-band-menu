@@ -11,7 +11,9 @@ Apply cellular forcings such as RAT preferences, band locking, and 5G-NR modes t
 - Query modem-reported hardware-supported bands
 - Restore band locks to hardware defaults
 - Instant Cell & ARFCN locking (app only)
+- Live cell lock: the neighbours the modem reports, one tap to lock to (app only)
 - Live Network page: serving cell, LTE carrier aggregation, NR cells, antennas and neighbour cells, read from the modem over QMI (app only)
+- Band toggles that apply app-wide: a band hidden there is hidden from the neighbour lists too (app only)
 - Advanced network metrics with DIAG mode (experimental)
   - MIMO, Rank, MCS, modulation schemes, RBs, CSI-RS ports etc
   - PHY DL/UL throughput
@@ -75,6 +77,30 @@ band
 ```
 
 The launcher is installed into Termux's existing executable path, so restarting Termux or editing `.profile` is not required.
+# Cell Lock
+
+The Cell-Lock page has two modes, chosen by the toggle beside the SIM tabs.
+
+**Live** (the default) shows the neighbour cells the modem is reporting right now,
+read over QMI every second, in the same table the Network page uses (PCI, band,
+EARFCN, RSRP, RSRQ). Tapping a row locks to that cell:
+
+| Row | Command sent |
+| --- | --- |
+| LTE neighbour | LTE cell lock, EARFCN + PCI |
+| NR neighbour (frequency only, the modem reports no NR PCI) | NR-ARFCN lock, with the SCS shown |
+| Locked row | releases that RAT's cell lock |
+
+An NR serving cell that carries a PCI is locked as a cell (ARFCN + PCI + SCS +
+band). The enable/disable control at the top stops the modem reads (the list
+holds still while a cell is picked; locks still apply) and the **Bands** toggles
+choose which bands are listed — the same filter as the Bands page, so it applies
+to every page. WCDMA and GSM neighbours are listed with their measurements, but
+the modem has no cell lock for them, which the row says.
+
+**Manual** keeps the original text fields for typing a lock by hand (NR-ARFCN,
+PCI, multi-PCI, gNB allowlist, LTE PCI, multi-cell and PLMN).
+
 # How Does It Work?
 
 `qcom-band-menu` sends QMI commands through Android's **QRTR** transport using `AF_QIPCRTR` datagram sockets.
