@@ -90,25 +90,95 @@ fun servingLockTargets(snap: NetworkSnapshot): List<LockTarget> {
     return carriers.mapNotNull { it.asServingTarget(primaries) }
 }
 
-/** An NR-ARFCN the modem reported (the Cell-Lock page's NR-ARFCN list), with
- *  its band and SCS when known. */
-data class SeenNrArfcn(val arfcn: Long, val band: Int?, val scsKhz: Int?)
+/**
+ * An NR-ARFCN the modem reported (the Cell-Lock page's NR-ARFCN list): the
+ * PCIs seen on it, and its band and SCS as DIAG's serving-cell data gives
+ * them (null without DIAG or for a neighbour frequency: QMI only has the
+ * NR-ARFCN, whose band is ambiguous where bands overlap).
+ */
+data class SeenNrArfcn(val arfcn: Long, val pcis: List<Int> = emptyList(), val band: Int? = null, val scsKhz: Int? = null)
 
 /** The NR-ARFCNs of a reading: serving carriers and neighbours (QMI's
- *  frequencies, DIAG's cells). */
-fun seenNrArfcns(snap: NetworkSnapshot): List<SeenNrArfcn> =
-    (servingLockTargets(snap) + snap.lockTargets).filter { it.rat == Rat.NR }
-        .map { SeenNrArfcn(it.channel, it.band?.number, it.scsKhz) }
+ *  frequencies, DIAG's cells), each with its PCIs, serving first. */
+fun seenNrArfcns(snap: NetworkSnapshot): List<SeenNrArfcn> {
+    val carriers = snap.endc?.carriers ?: snap.carrierGroups.filter { it.table }.flatMap { it.carriers }
+    val diag = carriers.mapNotNull { c -> c.nr?.let { n -> (n.dlArfcn ?: c.channel.substringBefore(' ').toLongOrNull())?.let { it to n } } }
+    return (servingLockTargets(snap) + snap.lockTargets).filter { it.rat == Rat.NR }.groupBy { it.channel }
+        .map { (arfcn, rows) ->
+            val d = diag.firstOrNull { it.first == arfcn }?.second
+            SeenNrArfcn(
+                arfcn,
+                pcis = rows.mapNotNull { it.id.toIntOrNull() }.distinct(),
+                band = d?.band?.takeIf { it > 0 && nrBandFitsArfcn(it, arfcn) },
+                scsKhz = d?.scsKhz?.takeIf { it > 0 }
+            )
+        }
+}
 
-/** [old] plus the new NR-ARFCNs, sorted; a known band or SCS is kept, a new
- *  one fills a gap. */
+/** How many NR-ARFCNs or EARFCNs the Cell-Lock lists keep, and PCIs per
+ *  channel: on the move new ones keep coming, and the least recently seen
+ *  are dropped. */
+const val SEEN_MAX = 10
+
+/** [old] (least recently seen first) after a reading's [new] values (its
+ *  most important first: serving cells, then neighbours): the values seen
+ *  again move to the end, and beyond [SEEN_MAX] the oldest are dropped. */
+private fun <T> recentFirstDropped(old: List<T>, new: List<T>): List<T> =
+    (old - new.toSet() + new.asReversed()).takeLast(SEEN_MAX)
+
+/** [old] plus a reading's NR-ARFCNs, at most [SEEN_MAX] (least recently seen
+ *  first; see [recentFirstDropped]), each with at most [SEEN_MAX] PCIs. A
+ *  known band or SCS is kept and a new one fills a gap. */
 fun mergeSeenNrArfcns(old: List<SeenNrArfcn>, new: List<SeenNrArfcn>): List<SeenNrArfcn> {
-    val byArfcn = old.associateBy { it.arfcn }.toMutableMap()
-    new.forEach { n ->
-        val o = byArfcn[n.arfcn]
-        byArfcn[n.arfcn] = if (o == null) n else SeenNrArfcn(n.arfcn, o.band ?: n.band, o.scsKhz ?: n.scsKhz)
+    val byArfcn = LinkedHashMap<Long, SeenNrArfcn>()
+    old.forEach { byArfcn[it.arfcn] = it }
+    new.asReversed().forEach { n ->
+        val o = byArfcn.remove(n.arfcn)
+        byArfcn[n.arfcn] = SeenNrArfcn(
+            n.arfcn, recentFirstDropped(o?.pcis.orEmpty(), n.pcis), o?.band ?: n.band, o?.scsKhz ?: n.scsKhz
+        )
     }
-    return byArfcn.values.sortedBy { it.arfcn }
+    return byArfcn.values.toList().takeLast(SEEN_MAX)
+}
+
+/** An LTE EARFCN the modem reported (the Cell-Lock page's EARFCN list) and
+ *  the PCIs seen on it. */
+data class SeenEarfcn(val earfcn: Long, val pcis: List<Int> = emptyList(), val band: Int? = null)
+
+/** The EARFCNs of a reading: serving carriers and neighbours, each with its
+ *  PCIs, serving first. */
+fun seenEarfcns(snap: NetworkSnapshot): List<SeenEarfcn> =
+    (servingLockTargets(snap) + snap.lockTargets).filter { it.rat == Rat.LTE }.groupBy { it.channel }
+        .map { (earfcn, rows) ->
+            SeenEarfcn(earfcn, rows.mapNotNull { it.id.toIntOrNull() }.distinct(), rows.firstNotNullOfOrNull { it.band?.number })
+        }
+
+/** [old] plus a reading's EARFCNs, kept as [mergeSeenNrArfcns] keeps
+ *  NR-ARFCNs. */
+fun mergeSeenEarfcns(old: List<SeenEarfcn>, new: List<SeenEarfcn>): List<SeenEarfcn> {
+    val byEarfcn = LinkedHashMap<Long, SeenEarfcn>()
+    old.forEach { byEarfcn[it.earfcn] = it }
+    new.asReversed().forEach { n ->
+        val o = byEarfcn.remove(n.earfcn)
+        byEarfcn[n.earfcn] = SeenEarfcn(n.earfcn, recentFirstDropped(o?.pcis.orEmpty(), n.pcis), o?.band ?: n.band)
+    }
+    return byEarfcn.values.toList().takeLast(SEEN_MAX)
+}
+
+/** The band an NR-ARFCN is in when that's certain: the only candidate (among
+ *  the modem's bands), or the band DIAG resolved for it. Null where bands
+ *  overlap and nothing resolved it. */
+fun nrLockBand(arfcn: Long, seen: List<SeenNrArfcn>, supported: Set<Int> = emptySet()): Int? =
+    seen.firstOrNull { it.arfcn == arfcn }?.band ?: nrBandsForArfcn(arfcn, supported).singleOrNull()
+
+/** The SCS for an NR-ARFCN: the serving cell's own when DIAG saw it,
+ *  otherwise its band's usual one (TDD 30 kHz, FDD 15, FR2 120); where the
+ *  candidate bands disagree, the most deployed band's. Null off the table. */
+fun nrLockScs(arfcn: Long, seen: List<SeenNrArfcn>, supported: Set<Int> = emptySet()): Int? {
+    seen.firstOrNull { it.arfcn == arfcn }?.scsKhz?.let { return it }
+    nrLockBand(arfcn, seen, supported)?.let { return nrDefaultScsKhz(it) }
+    val scs = nrBandsForArfcn(arfcn, supported).map(::nrDefaultScsKhz).distinct()
+    return scs.singleOrNull() ?: nrBandForArfcn(arfcn, supported)?.let(::nrDefaultScsKhz)
 }
 
 private fun Carrier.asServingTarget(primaries: List<LockTarget>): LockTarget? {

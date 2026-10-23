@@ -59,6 +59,12 @@ import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
 import dev.qcom.bandmenu.network.servingLockTargets
 import dev.qcom.bandmenu.network.SeenNrArfcn
+import dev.qcom.bandmenu.network.SeenEarfcn
+import dev.qcom.bandmenu.network.nrBandLabelForArfcn
+import dev.qcom.bandmenu.network.nrBandsForArfcn
+import dev.qcom.bandmenu.network.nrDefaultScsKhz
+import dev.qcom.bandmenu.network.nrLockBand
+import dev.qcom.bandmenu.network.nrLockScs
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -285,6 +291,8 @@ fun CellLockScreen(
                                 hasNrHardware = hasNrHardware,
                                 onClearPlmn = onClearPlmn,
                                 seenNrArfcns = live.nrArfcnsBySim[slot + 1].orEmpty(),
+                                nrHardwareBands = modemState.hardware.nr,
+                                seenEarfcns = live.earfcnsBySim[slot + 1].orEmpty(),
                                 cellTable = {
                                     CellLockTable(
                                         simSlot = slot,
@@ -447,23 +455,35 @@ private fun SimCellLockPage(
     onClearPlmn: (Int) -> Unit,
     /** The NR-ARFCNs this SIM's readings reported (the NR-ARFCN field's list). */
     seenNrArfcns: List<SeenNrArfcn> = emptyList(),
+    /** The EARFCNs this SIM's readings reported (the EARFCN field's list). */
+    seenEarfcns: List<SeenEarfcn> = emptyList(),
+    /** NR bands the modem supports (narrow an NR-ARFCN's band candidates). */
+    nrHardwareBands: Set<Int> = emptySet(),
     /** The cell table, below the fields. */
     cellTable: @Composable () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // NR-ARFCN lock: the NR-ARFCN (typed or picked), the SCS, and the input
-    // last sent (its check button stays grey until a value changes or the
-    // lock state does).
+    // NR lock: NR-ARFCN and SCS (the NR-ARFCN lock), plus PCI and band (the
+    // full cell lock, sent once a PCI is entered). Each value is typed or
+    // picked; the SCS and the band fill themselves from the NR-ARFCN, the
+    // band only with a PCI (nrBandAuto: the page filled it in, so it follows
+    // the NR-ARFCN and goes with the PCI). nrSent is the lock last sent: the
+    // check button stays grey until a value or the lock state changes.
     var nrArfcnValue by rememberSaveable { mutableStateOf("") }
     var nrScs by rememberSaveable { mutableIntStateOf(30) }
-    var nrArfcnSent by rememberSaveable { mutableStateOf<String?>(null) }
-    var nrPciText by rememberSaveable { mutableStateOf("") }
+    var nrPciValue by rememberSaveable { mutableStateOf("") }
+    var nrBandValue by rememberSaveable { mutableStateOf("") }
+    var nrBandAuto by rememberSaveable { mutableStateOf(false) }
+    var nrSent by rememberSaveable { mutableStateOf<String?>(null) }
     var nrMultiPciText by rememberSaveable { mutableStateOf("") }
     var nrGnbText by rememberSaveable { mutableStateOf("") }
-    var ltePciText by rememberSaveable { mutableStateOf("") }
-    var lteMultiPciText by rememberSaveable { mutableStateOf("") }
+    // LTE lock: the EARFCN and its PCIs (typed or picked; one PCI sends the
+    // cell lock, more the multi-cell lock), and the lock last sent.
+    var lteEarfcnValue by rememberSaveable { mutableStateOf("") }
+    var ltePciValue by rememberSaveable { mutableStateOf("") }
+    var lteSent by rememberSaveable { mutableStateOf<String?>(null) }
     var plmnText by rememberSaveable { mutableStateOf("") }
     var syncedStateKey by rememberSaveable { mutableStateOf("") }
 
@@ -478,18 +498,22 @@ private fun SimCellLockPage(
         val nr = cellLockState?.nr
         val lte = cellLockState?.lte
 
-        // An NR-ARFCN lock fills the fields; without one they keep what was
+        // An NR lock fills the fields; without one they keep what was
         // entered, so a cleared lock can be applied again.
         if (nr?.type == "arfcn" && nr.arfcnLock?.isNotEmpty() == true) {
             nrArfcnValue = nr.arfcnLock[0].arfcn.toString()
             nrScs = nr.arfcnLock[0].scsKhz
+            nrPciValue = ""
+            nrBandValue = ""
+            nrBandAuto = false
+        } else if (nr?.type == "pci" && nr.pciLock != null) {
+            nrArfcnValue = nr.pciLock.arfcn.toString()
+            nrScs = nr.pciLock.scsKhz
+            nrPciValue = nr.pciLock.pci.toString()
+            nrBandValue = nr.pciLock.bands.firstOrNull()?.toString().orEmpty()
+            nrBandAuto = false
         }
-        nrArfcnSent = null
-
-        nrPciText = if (nr?.type == "pci" && nr.pciLock != null) {
-            val band = nr.pciLock.bands.firstOrNull() ?: 0
-            "${nr.pciLock.arfcn} ${nr.pciLock.pci} ${nr.pciLock.scsKhz} $band"
-        } else ""
+        nrSent = null
 
         nrMultiPciText = if (nr?.multiPciLock == true) {
             "(active - values not read back)"
@@ -500,13 +524,12 @@ private fun SimCellLockPage(
             "$idBits ${nr.gnbAllowlist.gnbIds.joinToString(" ")}"
         } else ""
 
-        ltePciText = if (lte?.valid == true && lte.locks.size == 1) {
-            "${lte.locks[0].earfcn} ${lte.locks[0].pci}"
-        } else ""
-
-        lteMultiPciText = if (lte?.valid == true && lte.locks.size > 1) {
-            "${lte.locks[0].earfcn} ${lte.locks.joinToString(" ") { it.pci.toString() }}"
-        } else ""
+        // An LTE lock fills the fields; without one they keep what was entered.
+        if (lte?.valid == true && lte.locks.isNotEmpty()) {
+            lteEarfcnValue = lte.locks[0].earfcn.toString()
+            ltePciValue = lte.locks.joinToString(" ") { it.pci.toString() }
+        }
+        lteSent = null
 
         plmnText = if (plmnLockState?.lockedPlmn != null) {
             val lp = plmnLockState.lockedPlmn
@@ -528,7 +551,8 @@ private fun SimCellLockPage(
             }
             onLockResultConsumed()
             // Rejected: the check button is live again for another try.
-            if (fieldIndex == 0 && !lockResult.success) nrArfcnSent = null
+            if ((fieldIndex == 0 || fieldIndex == 1) && !lockResult.success) nrSent = null
+            if ((fieldIndex == 4 || fieldIndex == 6) && !lockResult.success) lteSent = null
             labelOverrides = labelOverrides + (fieldIndex to override)
             overrideJobs[fieldIndex]?.cancel()
             overrideJobs[fieldIndex] = pageScope.launch {
@@ -554,7 +578,7 @@ private fun SimCellLockPage(
     val fieldTitles = remember {
         mapOf(
             0 to "NR-ARFCN lock",
-            1 to "PCI lock: Put NR-ARFCN PCI SCS and Band",
+            1 to "PCI + Band lock (OPTIONAL)",
             2 to "MultiPCI lock: Put NR-ARFCN SCS Band and PCI list",
             3 to "gNB lock: Put ID bits (22-32) and gNB IDs",
             4 to "PCI lock: Put EARFCN and PCI",
@@ -578,64 +602,77 @@ private fun SimCellLockPage(
         if (hasNrHardware) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            SmallTitle("5G")
+            SmallTitle("5G", insideMargin = FieldTitleMargin)
 
-            // Field 0: NR-ARFCN
-            Text(
-                fieldTitles[0]!!,
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Spacer(modifier = Modifier.height(6.dp))
+            // Fields 0 and 1: the NR-ARFCN lock, or with a PCI the full cell lock.
             val o0 = labelOverrides[0]
-            val nrArfcnInput = "${nrArfcnValue.trim()} $nrScs"
-            val nrArfcnLocked = cellLockState?.nr?.takeIf { it.type == "arfcn" }?.arfcnLock?.firstOrNull()
-                ?.let { "${it.arfcn} ${it.scsKhz}" }
-            val nrArfcnCanApply = nrArfcnValue.trim().toLongOrNull() != null &&
-                nrArfcnInput != nrArfcnSent && nrArfcnInput != nrArfcnLocked
-            fun applyNrArfcn() {
-                if (!nrArfcnCanApply) return
-                keyboard?.hide()
-                nrArfcnSent = nrArfcnInput
-                onApplyLock(simSlot + 1, 0, nrArfcnInput)
+            val o1 = labelOverrides[1]
+            val arfcn = nrArfcnValue.trim().toLongOrNull()
+            val withPci = nrPciValue.isNotBlank()
+            val pci = nrPciValue.trim().toIntOrNull()?.takeIf { it in 0..1007 }
+            val band = nrBandValue.trim().removePrefix("n").toIntOrNull()?.takeIf { it > 0 }
+            val nrInput = if (withPci) "$arfcn $pci $nrScs $band" else "$arfcn $nrScs"
+            val nrLocked = cellLockState?.nr?.let { nr ->
+                when (nr.type) {
+                    "arfcn" -> nr.arfcnLock?.firstOrNull()?.let { "${it.arfcn} ${it.scsKhz}" }
+                    "pci" -> nr.pciLock?.let { "${it.arfcn} ${it.pci} ${it.scsKhz} ${it.bands.firstOrNull()}" }
+                    else -> null
+                }
             }
-            NrArfcnLockRow(
+            val nrCanApply = arfcn != null && (!withPci || (pci != null && band != null)) &&
+                nrInput != nrSent && nrInput != nrLocked
+            // Each row's check button sends its own lock: the top one only
+            // without a PCI, the bottom one only with.
+            fun autoBand(a: Long?) = a?.let { nrLockBand(it, seenNrArfcns, nrHardwareBands) }?.toString().orEmpty()
+            fun applyNr() {
+                if (!nrCanApply) return
+                keyboard?.hide()
+                nrSent = nrInput
+                onApplyLock(simSlot + 1, if (withPci) 1 else 0, nrInput)
+            }
+            NrLockFields(
                 arfcn = nrArfcnValue,
-                onArfcnChange = { nrArfcnValue = it },
+                onArfcnChange = { v ->
+                    nrArfcnValue = v
+                    val a = v.trim().toLongOrNull()
+                    a?.let { nrLockScs(it, seenNrArfcns, nrHardwareBands) }?.let { nrScs = it }
+                    if (nrPciValue.isNotBlank() && (nrBandAuto || nrBandValue.isBlank())) {
+                        nrBandValue = autoBand(a)
+                        nrBandAuto = true
+                    }
+                },
                 scsKhz = nrScs,
                 onScsChange = { nrScs = it },
+                pci = nrPciValue,
+                onPciChange = { v ->
+                    nrPciValue = v
+                    if (v.isBlank()) {
+                        if (nrBandAuto) { nrBandValue = ""; nrBandAuto = false }
+                    } else if (nrBandValue.isBlank() || nrBandAuto) {
+                        nrBandValue = autoBand(arfcn)
+                        nrBandAuto = true
+                    }
+                },
+                band = nrBandValue,
+                onBandChange = { v ->
+                    nrBandValue = v
+                    nrBandAuto = false
+                    // A band picked by hand for an ambiguous NR-ARFCN sets its SCS
+                    // (unless DIAG saw the cell's own).
+                    val b = v.trim().removePrefix("n").toIntOrNull()
+                    if (b != null && seenNrArfcns.none { it.arfcn == arfcn && it.scsKhz != null }) nrScs = nrDefaultScsKhz(b)
+                },
                 seen = seenNrArfcns,
-                label = o0?.text ?: defaultLabels[0]!!,
-                labelColor = o0?.color ?: defaultLabelColor,
+                hardwareBands = nrHardwareBands,
+                arfcnLabel = o0?.text ?: defaultLabels[0]!!,
+                arfcnLabelColor = o0?.color ?: defaultLabelColor,
+                pciTitle = fieldTitles[1]!!,
+                pciLabel = o1?.text ?: "PCI",
+                pciLabelColor = o1?.color ?: defaultLabelColor,
                 keyboardOptions = switchableNumericKeyboard,
-                canApply = nrArfcnCanApply,
-                onApply = { applyNrArfcn() }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Field 1: PCI
-            Text(
-                fieldTitles[1]!!,
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            val o1 = labelOverrides[1]
-            TextField(
-                value = nrPciText,
-                onValueChange = { nrPciText = it },
-                label = o1?.text ?: defaultLabels[1]!!,
-                colors = TextFieldDefaults.textFieldColors(
-                    labelColor = o1?.color ?: defaultLabelColor
-                ),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = switchableNumericKeyboard,
-                keyboardActions = KeyboardActions(onDone = {
-                    keyboard?.hide()
-                    onApplyLock(simSlot + 1, 1, nrPciText)
-                })
+                canApplyArfcn = nrCanApply && !withPci,
+                canApplyCell = nrCanApply && withPci,
+                onApply = { applyNr() }
             )
 
             if (experimentalEnabled) {
@@ -695,67 +732,54 @@ private fun SimCellLockPage(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        SmallTitle("4G")
+        // The section title over the EARFCN box, a note over the PCI box (the
+        // columns as LteLockFields' row), on one line.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            SmallTitle("4G", modifier = Modifier.weight(1f), insideMargin = FieldTitleMargin)
+            Spacer(Modifier.width(8.dp))
+            // From the PCI box's text on, over its check button too (the box alone is narrow).
+            Text(
+                "(Multi-PCI allowed)", style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1,
+                modifier = Modifier.width(NR_SIDE_WIDTH + 60.dp).padding(start = 14.dp, bottom = 8.dp)
+            )
+        }
 
-        // Field 4: LTE PCI
-        Text(
-            fieldTitles[4]!!,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        val o4 = labelOverrides[4]
-        TextField(
-            value = ltePciText,
-            onValueChange = { ltePciText = it },
-            label = o4?.text ?: defaultLabels[4]!!,
-            colors = TextFieldDefaults.textFieldColors(
-                labelColor = o4?.color ?: defaultLabelColor
-            ),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        // Fields 4 and 6: one PCI is the cell lock, more the multi-cell lock.
+        val o4 = labelOverrides[4] ?: labelOverrides[6]
+        val earfcn = lteEarfcnValue.trim().toLongOrNull()
+        val pciTokens = ltePciValue.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val ltePcis = pciTokens.mapNotNull { it.toIntOrNull()?.takeIf { p -> p in 0..503 } }
+        val lteInput = "$earfcn ${ltePcis.joinToString(" ")}"
+        // Compared as a set: the same PCIs in another order are the same lock.
+        fun lteKey(e: Long?, pcis: List<Int>) = "$e ${pcis.sorted().joinToString(" ")}"
+        val lteLocked = cellLockState?.lte?.takeIf { it.valid && it.locks.isNotEmpty() }
+            ?.let { l -> lteKey(l.locks[0].earfcn.toLong(), l.locks.map { it.pci }) }
+        val lteCanApply = earfcn != null && ltePcis.isNotEmpty() && ltePcis.size == pciTokens.size &&
+            lteKey(earfcn, ltePcis) != lteSent && lteKey(earfcn, ltePcis) != lteLocked
+        fun applyLte() {
+            if (!lteCanApply) return
+            keyboard?.hide()
+            lteSent = lteKey(earfcn, ltePcis)
+            onApplyLock(simSlot + 1, if (ltePcis.size == 1) 4 else 6, lteInput)
+        }
+        LteLockFields(
+            earfcn = lteEarfcnValue,
+            onEarfcnChange = { lteEarfcnValue = it },
+            pcis = ltePciValue,
+            onPcisChange = { ltePciValue = it },
+            seen = seenEarfcns,
+            pciLabel = o4?.text ?: "PCI",
+            pciLabelColor = o4?.color ?: defaultLabelColor,
             keyboardOptions = switchableNumericKeyboard,
-            keyboardActions = KeyboardActions(onDone = {
-                keyboard?.hide()
-                onApplyLock(simSlot + 1, 4, ltePciText)
-            })
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            fieldTitles[6]!!,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        val o6 = labelOverrides[6]
-        TextField(
-            value = lteMultiPciText,
-            onValueChange = { lteMultiPciText = it },
-            label = o6?.text ?: defaultLabels[6]!!,
-            colors = TextFieldDefaults.textFieldColors(
-                labelColor = o6?.color ?: defaultLabelColor
-            ),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = switchableNumericKeyboard,
-            keyboardActions = KeyboardActions(onDone = {
-                keyboard?.hide()
-                onApplyLock(simSlot + 1, 6, lteMultiPciText)
-            })
+            canApply = lteCanApply,
+            onApply = { applyLte() }
         )
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        SmallTitle("PLMN lock")
+        SmallTitle("PLMN lock", insideMargin = FieldTitleMargin)
 
-        Text(
-            fieldTitles[5]!!,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-        Spacer(modifier = Modifier.height(6.dp))
         val o5 = labelOverrides[5]
         TextField(
             value = plmnText,
@@ -793,124 +817,271 @@ private fun DropdownChevron(description: String, modifier: Modifier = Modifier) 
     modifier = modifier.size(18.dp).rotate(90f)
 )
 
+/** Section titles flush with the fields' own titles (the default margin
+ *  indents them). */
+private val FieldTitleMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp)
+
+/** The SCS box and the band field: narrow, the same width so they line up. */
+private val NR_SIDE_WIDTH = 104.dp
+
 /**
- * NR-ARFCN | SCS | apply. The NR-ARFCN is typed, or picked from the ones the
- * modem reported this session (its arrow; picking one also takes its SCS when
- * known); the SCS is picked only. The check button sends the lock and is grey
- * while there is nothing new to send ([canApply]).
+ * The NR lock fields: NR-ARFCN | SCS | check, then (titled [pciTitle]) PCI |
+ * Band | check. NR-ARFCN, PCI and band are typed or picked (their arrows: the
+ * NR-ARFCNs seen this session, the PCIs seen on the NR-ARFCN, the bands it can
+ * be in); the SCS is picked only. The top check button sends the NR-ARFCN
+ * lock, the bottom one the cell lock; each is grey while it has nothing new to
+ * send ([canApplyArfcn], [canApplyCell]).
  */
 @Composable
-private fun NrArfcnLockRow(
+private fun NrLockFields(
     arfcn: String,
     onArfcnChange: (String) -> Unit,
     scsKhz: Int,
     onScsChange: (Int) -> Unit,
+    pci: String,
+    onPciChange: (String) -> Unit,
+    band: String,
+    onBandChange: (String) -> Unit,
     seen: List<SeenNrArfcn>,
-    label: String,
-    labelColor: Color,
+    hardwareBands: Set<Int>,
+    arfcnLabel: String,
+    arfcnLabelColor: Color,
+    pciTitle: String,
+    pciLabel: String,
+    pciLabelColor: Color,
+    keyboardOptions: KeyboardOptions,
+    canApplyArfcn: Boolean,
+    canApplyCell: Boolean,
+    onApply: () -> Unit
+) {
+    val arfcnN = arfcn.trim().toLongOrNull()
+    val defaultLabelColor = MiuixTheme.colorScheme.onSecondaryContainer
+    val arfcnItems = seen.sortedBy { it.arfcn }.map { s ->
+        DropdownOption(s.arfcn.toString(), s.arfcn.toString(), tag = s.band?.let { "n$it" } ?: nrBandLabelForArfcn(s.arfcn, hardwareBands))
+    }
+    val pciItems = seen.firstOrNull { it.arfcn == arfcnN }?.pcis.orEmpty().sorted().map { DropdownOption(it.toString(), it.toString()) }
+    val bandItems = (arfcnN?.let { nrBandsForArfcn(it, hardwareBands) } ?: hardwareBands.sorted())
+        .map { DropdownOption(it.toString(), "", tag = "n$it") }
+    Column {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+            DropdownField(
+                value = arfcn, onValueChange = onArfcnChange, label = arfcnLabel, labelColor = arfcnLabelColor,
+                items = arfcnItems, emptyText = "None seen yet", description = "Seen NR-ARFCNs",
+                keyboardOptions = keyboardOptions, onDone = onApply, modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            ScsBox(scsKhz, onScsChange, Modifier.width(NR_SIDE_WIDTH).fillMaxHeight())
+            Spacer(Modifier.width(8.dp))
+            ApplyButton(canApplyArfcn, onApply, "Apply NR-ARFCN lock")
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(pciTitle, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+            DropdownField(
+                value = pci, onValueChange = onPciChange, label = pciLabel, labelColor = pciLabelColor,
+                items = pciItems,
+                emptyText = if (arfcnN == null) "Pick an NR-ARFCN first" else "None seen on this NR-ARFCN",
+                description = "Seen PCIs", keyboardOptions = keyboardOptions, onDone = onApply,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            DropdownField(
+                value = band, onValueChange = onBandChange, label = "Band", labelColor = defaultLabelColor,
+                items = bandItems, emptyText = "No NR band", description = "Bands",
+                keyboardOptions = keyboardOptions, onDone = onApply, popupAlignment = PopupPositionProvider.Align.End,
+                modifier = Modifier.width(NR_SIDE_WIDTH)
+            )
+            Spacer(Modifier.width(8.dp))
+            ApplyButton(canApplyCell, onApply, "Apply NR cell lock")
+        }
+    }
+}
+
+/**
+ * The LTE lock fields: EARFCN | PCI | check, in the NR rows' columns. Both
+ * are typed or picked (the EARFCNs seen this session, the PCIs seen on the
+ * EARFCN); the PCI list takes several (space-separated, or ticked in the
+ * list): one is the cell lock, more the multi-cell lock.
+ */
+@Composable
+private fun LteLockFields(
+    earfcn: String,
+    onEarfcnChange: (String) -> Unit,
+    pcis: String,
+    onPcisChange: (String) -> Unit,
+    seen: List<SeenEarfcn>,
+    pciLabel: String,
+    pciLabelColor: Color,
     keyboardOptions: KeyboardOptions,
     canApply: Boolean,
     onApply: () -> Unit
 ) {
-    var showArfcns by remember { mutableStateOf(false) }
-    var showScs by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(TextFieldDefaults.CornerRadius)
-    // A notch smaller than the other fields: three boxes share the row.
-    val textStyle = MiuixTheme.textStyles.body1
+    val earfcnN = earfcn.trim().toLongOrNull()
+    val labelColor = MiuixTheme.colorScheme.onSecondaryContainer
+    val earfcnItems = seen.sortedBy { it.earfcn }.map { s ->
+        DropdownOption(s.earfcn.toString(), s.earfcn.toString(), tag = s.band?.let { "B$it" })
+    }
+    val pciItems = seen.firstOrNull { it.earfcn == earfcnN }?.pcis.orEmpty().sorted().map { DropdownOption(it.toString(), it.toString()) }
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f)) {
-            TextField(
-                value = arfcn,
-                onValueChange = onArfcnChange,
-                label = label,
-                colors = TextFieldDefaults.textFieldColors(labelColor = labelColor),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                insideMargin = DpSize(14.dp, 12.dp),
-                textStyle = textStyle,
-                keyboardOptions = keyboardOptions,
-                keyboardActions = KeyboardActions(onDone = { onApply() }),
-                trailingIcon = {
-                    IconButton(onClick = { showArfcns = true }) {
-                        DropdownChevron("Seen NR-ARFCNs")
-                    }
-                }
-            )
-            WindowListPopup(
-                show = showArfcns,
-                alignment = PopupPositionProvider.Align.Start,
-                onDismissRequest = { showArfcns = false }
-            ) {
-                val dismiss = LocalDismissState.current
-                ListPopupColumn {
-                    if (seen.isEmpty()) {
-                        DropdownImpl(text = "None seen yet", optionSize = 1, isSelected = false, index = 0,
-                            enabled = false, onSelectedIndexChange = {})
-                    }
-                    seen.forEachIndexed { i, s ->
-                        DropdownImpl(
-                            text = listOfNotNull(s.arfcn.toString(), s.band?.let { "n$it" }).joinToString("  ·  "),
-                            optionSize = seen.size,
-                            isSelected = arfcn.trim() == s.arfcn.toString(),
-                            index = i,
-                            onSelectedIndexChange = {
-                                onArfcnChange(s.arfcn.toString())
-                                s.scsKhz?.takeIf { it in NR_SCS_KHZ }?.let(onScsChange)
+        DropdownField(
+            value = earfcn, onValueChange = onEarfcnChange, label = "EARFCN", labelColor = labelColor,
+            items = earfcnItems, emptyText = "None seen yet", description = "Seen EARFCNs",
+            keyboardOptions = keyboardOptions, onDone = onApply, modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
+        DropdownField(
+            value = pcis, onValueChange = onPcisChange, label = pciLabel, labelColor = pciLabelColor,
+            items = pciItems,
+            emptyText = if (earfcnN == null) "Pick an EARFCN first" else "None seen on this EARFCN",
+            description = "Seen PCIs", keyboardOptions = keyboardOptions, onDone = onApply,
+            multi = true, popupAlignment = PopupPositionProvider.Align.End, modifier = Modifier.width(NR_SIDE_WIDTH)
+        )
+        Spacer(Modifier.width(8.dp))
+        ApplyButton(canApply, onApply, "Apply LTE lock")
+    }
+}
+
+/** A lock row's check button: blue when it has something to send, grey (the
+ *  fields' own background) when not. */
+@Composable
+private fun ApplyButton(enabled: Boolean, onClick: () -> Unit, description: String) {
+    Box(
+        Modifier.width(52.dp).fillMaxHeight().clip(RoundedCornerShape(TextFieldDefaults.CornerRadius))
+            .background(if (enabled) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            MiuixIcons.Ok,
+            contentDescription = description,
+            tint = if (enabled) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+/** A dropdown entry: the [value] it puts in the field, its [text], and an
+ *  optional band [tag] before it in the band's colour (as the Network page
+ *  shows bands). */
+private data class DropdownOption(val value: String, val text: String, val tag: String? = null)
+
+/** A text field that can also be filled from a list (its arrow): [items],
+ *  after "None", which clears the field. With [multi]
+ *  the field holds space-separated values and the list ticks them on and off
+ *  (it stays open). A notch smaller than the page's other fields. */
+@Composable
+private fun DropdownField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    labelColor: Color,
+    items: List<DropdownOption>,
+    emptyText: String,
+    description: String,
+    keyboardOptions: KeyboardOptions,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+    multi: Boolean = false,
+    popupAlignment: PopupPositionProvider.Align = PopupPositionProvider.Align.Start
+) {
+    var show by remember { mutableStateOf(false) }
+    val tokens = value.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    Box(modifier) {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label,
+            colors = TextFieldDefaults.textFieldColors(labelColor = labelColor),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            insideMargin = DpSize(14.dp, 12.dp),
+            textStyle = MiuixTheme.textStyles.body1,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = KeyboardActions(onDone = { onDone() }),
+            trailingIcon = {
+                Box(
+                    Modifier.clip(RoundedCornerShape(12.dp)).clickable { show = true }
+                        .padding(start = 6.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
+                ) { DropdownChevron(description) }
+            }
+        )
+        WindowListPopup(show = show, alignment = popupAlignment, onDismissRequest = { show = false }) {
+            val dismiss = LocalDismissState.current
+            val options = listOf(DropdownOption("", "None")) + items
+            val size = options.size + if (items.isEmpty()) 1 else 0
+            ListPopupColumn {
+                options.forEachIndexed { i, (v, text, tag) ->
+                    DropdownImpl(
+                        item = DropdownItem(text = text, icon = tag?.let { t -> { m -> BandTag(t, m) } }),
+                        optionSize = size,
+                        isSelected = if (v.isEmpty()) tokens.isEmpty() else v in tokens && (multi || tokens.size == 1),
+                        index = i,
+                        onSelectedIndexChange = {
+                            if (multi && v.isNotEmpty()) {
+                                onValueChange((if (v in tokens) tokens - v else tokens + v).joinToString(" "))
+                            } else {
+                                onValueChange(v)
                                 dismiss?.invoke()
                             }
-                        )
-                    }
+                        }
+                    )
+                }
+                if (items.isEmpty()) {
+                    DropdownImpl(text = emptyText, optionSize = size, isSelected = false, index = options.size,
+                        enabled = false, onSelectedIndexChange = {})
                 }
             }
         }
-        Spacer(Modifier.width(8.dp))
-        Box {
-            Row(
-                Modifier.fillMaxHeight().clip(shape)
-                    .background(MiuixTheme.colorScheme.secondaryContainer)
-                    .clickable { showScs = true }
-                    .padding(start = 14.dp, end = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("$scsKhz", style = textStyle, color = MiuixTheme.colorScheme.onBackground)
-                DropdownChevron("SCS", Modifier.padding(start = 6.dp))
-            }
-            WindowListPopup(
-                show = showScs,
-                alignment = PopupPositionProvider.Align.End,
-                onDismissRequest = { showScs = false }
-            ) {
-                val dismiss = LocalDismissState.current
-                ListPopupColumn {
-                    NR_SCS_KHZ.forEachIndexed { i, scs ->
-                        DropdownImpl(
-                            text = "$scs kHz",
-                            optionSize = NR_SCS_KHZ.size,
-                            isSelected = scs == scsKhz,
-                            index = i,
-                            onSelectedIndexChange = {
-                                onScsChange(scs)
-                                dismiss?.invoke()
-                            }
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier.fillMaxHeight().aspectRatio(1f, matchHeightConstraintsFirst = true).clip(shape)
-                // Grey (the fields' own background) while there's nothing new to send.
-                .background(if (canApply) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
-                .clickable(enabled = canApply, onClick = onApply),
-            contentAlignment = Alignment.Center
+    }
+}
+
+/** A dropdown entry's band label, coloured as on the Network page. */
+@Composable
+private fun BandTag(band: String, modifier: Modifier) = Box(modifier, contentAlignment = Alignment.CenterStart) {
+    Text(
+        band,
+        fontSize = MiuixTheme.textStyles.body1.fontSize,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+        color = bandColor(band) ?: MiuixTheme.colorScheme.onBackground
+    )
+}
+
+/** The SCS: picked from [NR_SCS_KHZ] only, with a small "SCS" label like a
+ *  filled text field's. */
+@Composable
+private fun ScsBox(scsKhz: Int, onScsChange: (Int) -> Unit, modifier: Modifier = Modifier) {
+    var show by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Row(
+            Modifier.fillMaxSize().clip(RoundedCornerShape(TextFieldDefaults.CornerRadius))
+                .background(MiuixTheme.colorScheme.secondaryContainer)
+                .clickable { show = true }
+                .padding(start = 14.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                MiuixIcons.Ok,
-                contentDescription = "Apply NR-ARFCN lock",
-                tint = if (canApply) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(22.dp)
-            )
+            Column(Modifier.weight(1f)) {
+                Text("SCS", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSecondaryContainer)
+                Text("$scsKhz", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onBackground)
+            }
+            DropdownChevron("SCS")
+        }
+        WindowListPopup(show = show, alignment = PopupPositionProvider.Align.End, onDismissRequest = { show = false }) {
+            val dismiss = LocalDismissState.current
+            ListPopupColumn {
+                NR_SCS_KHZ.forEachIndexed { i, scs ->
+                    DropdownImpl(
+                        text = "$scs kHz",
+                        optionSize = NR_SCS_KHZ.size,
+                        isSelected = scs == scsKhz,
+                        index = i,
+                        onSelectedIndexChange = {
+                            onScsChange(scs)
+                            dismiss?.invoke()
+                        }
+                    )
+                }
+            }
         }
     }
 }
