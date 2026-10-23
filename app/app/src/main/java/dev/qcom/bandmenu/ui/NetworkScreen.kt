@@ -747,7 +747,7 @@ private fun Chip(text: String, highlight: Boolean = false, compact: Boolean = fa
 
 /** Section titles start at the cards' inner text edge (16 dp), not
  *  SmallTitle's default 28 dp, so the page has one left line. */
-private val SectionTitleMargin = PaddingValues(16.dp, 8.dp)
+internal val SectionTitleMargin = PaddingValues(16.dp, 8.dp)
 
 @Composable
 private fun CellSection(cell: CellCard) {

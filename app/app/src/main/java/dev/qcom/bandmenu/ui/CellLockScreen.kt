@@ -271,6 +271,12 @@ fun CellLockScreen(
                                         simSlot = slot,
                                         snapshot = if (frozen) frozenSnaps[slot] else liveSnapshot(slot),
                                         error = live.error,
+                                        frozen = frozen,
+                                        onToggleFrozen = {
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            if (!frozen) frozenSnaps = (0..1).mapNotNull { s -> liveSnapshot(s)?.let { s to it } }.toMap()
+                                            frozen = !frozen
+                                        },
                                         cellLockState = cellLock,
                                         onLock = lock@{ target ->
                                             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -390,20 +396,6 @@ fun CellLockScreen(
                         .padding(top = topBarInset + 8.dp, end = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Padlock: holds this page's cell table still (as on the Network page).
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                            if (!frozen) frozenSnaps = (0..1).mapNotNull { slot -> liveSnapshot(slot)?.let { slot to it } }.toMap()
-                            frozen = !frozen
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
-                            contentDescription = if (frozen) "Resume the cell table" else "Freeze the cell table",
-                            tint = if (frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
-                        )
-                    }
                     WindowIconDropdownMenu(
                         entries = menuEntries,
                         collapseOnSelection = false
@@ -759,12 +751,24 @@ private fun CellLockTable(
     simSlot: Int,
     snapshot: NetworkSnapshot?,
     error: String?,
+    /** The padlock: the table holds its reading (this page only). */
+    frozen: Boolean,
+    onToggleFrozen: () -> Unit,
     cellLockState: CellLockState?,
     onLock: (LockTarget) -> Unit,
     onUnlock: (LockTarget) -> Unit
 ) {
     Spacer(modifier = Modifier.height(20.dp))
-    SmallTitle("Tap to lock cell")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SmallTitle("Tap to lock cell", modifier = Modifier.weight(1f), insideMargin = SectionTitleMargin)
+        IconButton(onClick = onToggleFrozen) {
+            Icon(
+                imageVector = if (frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
+                contentDescription = if (frozen) "Resume the cell table" else "Freeze the cell table",
+                tint = if (frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
+            )
+        }
+    }
     if (snapshot == null) {
         // No round yet for this SIM (first open, held before one came, or a
         // SIM the daemon can't read).

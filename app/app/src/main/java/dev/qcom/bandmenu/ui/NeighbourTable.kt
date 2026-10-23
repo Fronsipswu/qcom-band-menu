@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,9 +16,7 @@ import dev.qcom.bandmenu.CellLockState
 import dev.qcom.bandmenu.network.LockRequest
 import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
-import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -28,9 +25,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * rows already sorted, best RSRQ first. The Network page and the Cell-Lock
  * page's table both use it, so a neighbour looks the same on either page.
  * Serving-cell rows (the Cell-Lock table's first rows) show PCI and channel
- * in blue.
+ * in blue; the locked cell's are green.
  * With [onToggle] a row is the lock control for its cell: tapping it locks (or,
- * already locked, releases), and the locked one is marked.
+ * already locked, releases).
  */
 @Composable
 internal fun NeighbourTable(
@@ -72,28 +69,20 @@ internal fun NeighbourTable(
     cols({ head(first.idLabel) }, { head("Band") }, { head(first.channelLabel) }, metricLabels.map { l -> @Composable { head(l) } })
     rows.forEach { t ->
         val locked = lockedOf(t)
-        val serving = t.role == LockRole.SERVING
-        val servingColor = MiuixTheme.colorScheme.primary
+        val idColor = when {
+            locked -> LockGreen
+            t.role == LockRole.SERVING -> MiuixTheme.colorScheme.primary
+            else -> MiuixTheme.colorScheme.onBackground
+        }
         cols(
             {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (locked) {
-                        Icon(
-                            imageVector = MiuixIcons.Lock,
-                            contentDescription = "Locked",
-                            tint = LockGreen,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(Modifier.width(3.dp))
-                    }
-                    Text(
-                        t.id,
-                        style = idStyle,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                        color = if (locked) LockGreen else if (serving) servingColor else MiuixTheme.colorScheme.onBackground,
-                        maxLines = 1
-                    )
-                }
+                Text(
+                    t.id,
+                    style = idStyle,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    color = idColor,
+                    maxLines = 1
+                )
             },
             {
                 Text(
@@ -104,8 +93,7 @@ internal fun NeighbourTable(
                 )
             },
             {
-                Text(t.channel.toString(), style = valueStyle, maxLines = 1,
-                    color = if (serving) servingColor else MiuixTheme.colorScheme.onBackground)
+                Text(t.channel.toString(), style = valueStyle, maxLines = 1, color = idColor)
             },
             t.metrics.take(2).map { m -> @Composable {
                 CellValueBar(m.value, m.kind, rat = m.rat, style = valueStyle)
