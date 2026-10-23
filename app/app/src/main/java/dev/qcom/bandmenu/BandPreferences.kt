@@ -30,6 +30,7 @@ object BandPreferences {
     private val DEBUG_LOGGING = booleanPreferencesKey("debug_logging")
     private val NR_INDEPENDENT_SUPPORTED = booleanPreferencesKey("nr_independent_supported")
     private val QUICK_SELECT_HIDDEN = booleanPreferencesKey("quick_select_hidden")
+    private val NR_COMBINED = booleanPreferencesKey("nr_combined")
     private val USAGE_SETTING_HIDDEN = booleanPreferencesKey("usage_setting_hidden")
     private val NR_MODE_HIDDEN = booleanPreferencesKey("nr_mode_hidden")
     private val REPLAY_ENABLED = booleanPreferencesKey("replay_enabled")
@@ -194,6 +195,16 @@ object BandPreferences {
 
     suspend fun setQuickSelectHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
         dataStore.edit { it[QUICK_SELECT_HIDDEN] = hidden }
+    }
+
+    /** The Bands page's "Combine NR": one NR band list instead of NR-SA and
+     *  NR-NSA (on modems with separate SA/NSA masks). */
+    fun getNrCombined(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[NR_COMBINED] ?: false }.distinctUntilChanged()
+    }
+
+    suspend fun setNrCombined(dataStore: DataStore<Preferences>, combined: Boolean) {
+        dataStore.edit { it[NR_COMBINED] = combined }
     }
 
     fun getUsageSettingHidden(dataStore: DataStore<Preferences>): Flow<Boolean> {

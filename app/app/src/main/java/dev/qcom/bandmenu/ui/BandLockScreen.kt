@@ -143,6 +143,10 @@ fun BandLockScreen(
     onClearFilter: () -> Unit = {},
     quickSelectHidden: Boolean = false,
     onToggleQuickSelect: () -> Unit = {},
+    /** "Combine NR": one NR band list on a modem with separate SA/NSA masks;
+     *  Apply sends that list as both masks. */
+    nrCombined: Boolean = false,
+    onToggleNrCombined: () -> Unit = {},
     usageSettingHidden: Boolean = false,
     onToggleUsageSetting: () -> Unit = {},
     nrModeHidden: Boolean = false,
@@ -175,6 +179,8 @@ fun BandLockScreen(
 
     val hardware = modemState?.hardware
     val useIndependentLock = nrIndependentSupported == true
+    // NR-SA and NR-NSA band lists apart, unless "Combine NR" joins them.
+    val separateNr = useIndependentLock && !nrCombined
 
     var showFilterSheet by remember { mutableStateOf(false) }
     // The pager is the single source of truth for the selected page. Mirroring
@@ -273,6 +279,7 @@ fun BandLockScreen(
                                     simState = simState,
                                     hardware = hardware,
                                     useIndependentLock = useIndependentLock,
+                                    separateNr = separateNr,
                                     filter = SimBandFilter.effectiveFilter(bandFilter, hardware, slot),
                                     refreshKey = refreshKey,
                                     showQuickSelect = !quickSelectHidden,
@@ -350,6 +357,11 @@ fun BandLockScreen(
                             onClick = onToggleQuickSelect
                         ))
                     }))
+                    if (hardware.nr.isNotEmpty() && useIndependentLock) {
+                        add(DropdownEntry(items = listOf(
+                            DropdownItem(text = "Combine NR", selected = nrCombined, onClick = onToggleNrCombined)
+                        )))
+                    }
                     if (!(selectedSim == 1 && modemState?.sim2Available == false)) {
                         add(DropdownEntry(items = listOf(
                             DropdownItem("Reset to hardware defaults", onClick = {
@@ -395,8 +407,9 @@ fun BandLockScreen(
                         gsmBands = s.gsmChecked.filterValues { it }.keys.intersect(visibleGsm),
                         wcdmaBands = s.wcdmaChecked.filterValues { it }.keys.intersect(visibleWcdma),
                         lteBands = s.lteChecked.filterValues { it }.keys.intersect(visibleLte),
-                        nrNsaBands = if (useIndependentLock) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
-                        nrSaBands = if (useIndependentLock) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
+                        // Combined: the one list goes out as both the NSA and the SA mask.
+                        nrNsaBands = if (separateNr) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
+                        nrSaBands = if (separateNr) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
                         nrMode = s.nrMode,
                         usageMode = s.usageMode
                     )
@@ -496,6 +509,9 @@ private fun SimBandLockPage(
     simState: SimState?,
     hardware: HardwareBands,
     useIndependentLock: Boolean,
+    /** NR-SA and NR-NSA band lists apart (false: one NR list, also with
+     *  "Combine NR"). */
+    separateNr: Boolean,
     filter: SimBandFilter,
     refreshKey: Int,
     showQuickSelect: Boolean,
@@ -520,6 +536,14 @@ private fun SimBandLockPage(
     val sortedSa = remember(visibleSa) { visibleSa.sorted() }
     val sortedNr = remember(visibleNr) { visibleNr.sorted() }
 
+    // "Combine NR" turned on: the one NR list takes the SA list as it stands.
+    LaunchedEffect(separateNr) {
+        if (!separateNr && useIndependentLock) {
+            state.nrChecked.clear()
+            state.nrSaChecked.filterValues { it }.keys.forEach { state.nrChecked[it] = true }
+        }
+    }
+
     LaunchedEffect(simState, refreshKey) {
         simState?.let { s ->
             state.ratChecked.clear()
@@ -537,7 +561,9 @@ private fun SimBandLockPage(
             state.nrSaChecked.clear()
             s.nrSaBands.forEach { state.nrSaChecked[it] = true }
             state.nrChecked.clear()
-            (s.nrNsaBands + s.nrSaBands).forEach { state.nrChecked[it] = true }
+            // One NR list over separate masks starts from the SA mask (as NSG
+            // does); without separate masks both hold the one NR mask.
+            (if (useIndependentLock) s.nrSaBands else s.nrNsaBands + s.nrSaBands).forEach { state.nrChecked[it] = true }
             state.nrMode = s.nrMode
             state.usageMode = s.usageMode
         }
@@ -641,22 +667,22 @@ private fun SimBandLockPage(
         // Derived, so the page recomposes only when a flag flips, not on every
         // map write. Event handlers must read a flag once before mutating the
         // maps: a derived flag re-evaluates as soon as the first band changes.
-        val allNrEnabled by remember(state, visibleNr, useIndependentLock) {
+        val allNrEnabled by remember(state, visibleNr, separateNr) {
             derivedStateOf {
-                if (useIndependentLock)
+                if (separateNr)
                     visibleNr.all { state.nrNsaChecked[it] == true } && visibleNr.all { state.nrSaChecked[it] == true }
                 else
                     visibleNr.all { state.nrChecked[it] == true }
             }
         }
-        val allNsaEnabled by remember(state, visibleNsa, useIndependentLock) {
+        val allNsaEnabled by remember(state, visibleNsa, separateNr) {
             derivedStateOf {
-                if (useIndependentLock) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
+                if (separateNr) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
             }
         }
-        val allSaEnabled by remember(state, visibleSa, useIndependentLock) {
+        val allSaEnabled by remember(state, visibleSa, separateNr) {
             derivedStateOf {
-                if (useIndependentLock) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
+                if (separateNr) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
             }
         }
         val allLteEnabled by remember(state, visibleLte) {
@@ -685,7 +711,7 @@ private fun SimBandLockPage(
         }
 
         val hasNrHardware = hardware.nr.isNotEmpty()
-        val quickItems = if (useIndependentLock) {
+        val quickItems = if (separateNr) {
             if (hasNrHardware) {
                 listOf(
                     "All bands (all RATs)" to 0,
@@ -740,7 +766,7 @@ private fun SimBandLockPage(
                                     visibleGsm.forEach { state.gsmChecked[it] = newState }
                                     visibleWcdma.forEach { state.wcdmaChecked[it] = newState }
                                     visibleLte.forEach { state.lteChecked[it] = newState }
-                                    if (useIndependentLock) {
+                                    if (separateNr) {
                                         visibleNr.forEach {
                                             state.nrNsaChecked[it] = newState; state.nrSaChecked[it] = newState
                                         }
@@ -751,7 +777,7 @@ private fun SimBandLockPage(
                                 }
                                 1 -> {
                                     val newState = !all5gEnabled
-                                    if (useIndependentLock) {
+                                    if (separateNr) {
                                         visibleNr.forEach {
                                             state.nrNsaChecked[it] = newState; state.nrSaChecked[it] = newState
                                         }
@@ -799,7 +825,7 @@ private fun SimBandLockPage(
         Spacer(modifier = Modifier.height(6.dp))
 
         if (visibleNr.isNotEmpty()) {
-            if (useIndependentLock) {
+            if (separateNr) {
                 if (visibleSa.isNotEmpty()) {
                     val modified = !allSaEnabled
                     BandSectionTitle(
