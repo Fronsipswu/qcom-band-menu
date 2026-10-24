@@ -105,6 +105,11 @@ fun MainScreen(
     /** Info page menu: the floating navigation bar hidden (persisted by the caller); pages still swipe. */
     navbarHidden: Boolean = false,
     onNavbarHiddenToggle: (Boolean) -> Unit = {},
+    /** This launch opens on the Network page (the setting as read at start). */
+    startOnNetwork: Boolean = false,
+    /** Info page menu: "Network page at start" (persisted by the caller). */
+    networkAtStart: Boolean = false,
+    onNetworkAtStartToggle: (Boolean) -> Unit = {},
     debugEnabled: Boolean,
     onDebugToggle: () -> Unit,
     onCellLockSimSwitch: (Int) -> Unit,
@@ -137,8 +142,9 @@ fun MainScreen(
     // animateScrollToPage cancel the release fling (both run at
     // MutatePriority.Default), and when that effect was itself cancelled by its
     // key changing, the pager could stay between pages.
-    // Network | Bands | Cells | Info; the app still opens on Bands.
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 4 })
+    // Network | Bands | Cells | Info; the app opens on Bands, or on Network
+    // with "Network page at start".
+    val pagerState = rememberPagerState(initialPage = if (startOnNetwork) 0 else 1, pageCount = { 4 })
     val pagerScope = rememberCoroutineScope()
     val selectedIndex by remember { derivedStateOf { pagerState.targetPage } }
     fun selectPage(index: Int) {
@@ -295,7 +301,9 @@ fun MainScreen(
                             onAttach = onAttach,
                             onReattach = onReattach,
                             navbarHidden = navbarHidden,
-                            onNavbarHiddenToggle = onNavbarHiddenToggle
+                            onNavbarHiddenToggle = onNavbarHiddenToggle,
+                            networkAtStart = networkAtStart,
+                            onNetworkAtStartToggle = onNetworkAtStartToggle
                         )
                     }
                 }

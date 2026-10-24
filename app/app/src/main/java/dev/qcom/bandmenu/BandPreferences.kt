@@ -43,6 +43,7 @@ object BandPreferences {
     private val GNB_BITS_SIM1 = intPreferencesKey("gnb_bits_sim1")
     private val GNB_BITS_SIM2 = intPreferencesKey("gnb_bits_sim2")
     private val NAVBAR_HIDDEN = booleanPreferencesKey("navbar_hidden")
+    private val NETWORK_AT_START = booleanPreferencesKey("network_at_start")
 
     internal val BAND_FILTER_ENABLED = booleanPreferencesKey("band_filter_enabled")
     internal val BAND_FILTER_GSM_SIM1 = stringSetPreferencesKey("band_filter_gsm_sim1")
@@ -246,6 +247,15 @@ object BandPreferences {
 
     suspend fun setNavbarHidden(dataStore: DataStore<Preferences>, hidden: Boolean) {
         dataStore.edit { it[NAVBAR_HIDDEN] = hidden }
+    }
+
+    /** The app opens on the Network page instead of Bands. */
+    fun getNetworkAtStart(dataStore: DataStore<Preferences>): Flow<Boolean> {
+        return dataStore.data.map { it[NETWORK_AT_START] ?: false }.distinctUntilChanged()
+    }
+
+    suspend fun setNetworkAtStart(dataStore: DataStore<Preferences>, enabled: Boolean) {
+        dataStore.edit { it[NETWORK_AT_START] = enabled }
     }
 
     fun getEndcSeparate(dataStore: DataStore<Preferences>): Flow<Boolean> {

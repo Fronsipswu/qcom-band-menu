@@ -16,7 +16,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -29,7 +31,8 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
-/** Setup for [TrafficTest]: the two URLs, download or upload, and how long. */
+/** Setup for [TrafficTest]: the two URLs, parallel streams, download or
+ *  upload, and how long. */
 @Composable
 fun TestScriptDialog(
     show: Boolean,
@@ -41,6 +44,7 @@ fun TestScriptDialog(
     var postUrl by remember(show) { mutableStateOf(config.postUrl) }
     var upload by remember(show) { mutableStateOf(config.upload) }
     var seconds by remember(show) { mutableStateOf(if (config.seconds > 0) config.seconds.toString() else "") }
+    var streams by remember(show) { mutableStateOf(config.streams.coerceIn(1, TrafficTest.MAX_STREAMS)) }
 
     WindowDialog(
         show = show,
@@ -61,6 +65,17 @@ fun TestScriptDialog(
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
             )
+            Spacer(Modifier.height(12.dp))
+            Label("Streams")
+            // − n +: parallel connections (more fill a fast link).
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(text = "\u2212", onClick = { streams = (streams - 1).coerceAtLeast(1) },
+                    enabled = streams > 1, modifier = Modifier.width(64.dp))
+                Text("$streams", style = MiuixTheme.textStyles.title4, textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f))
+                TextButton(text = "+", onClick = { streams = (streams + 1).coerceAtMost(TrafficTest.MAX_STREAMS) },
+                    enabled = streams < TrafficTest.MAX_STREAMS, modifier = Modifier.width(64.dp))
+            }
             Spacer(Modifier.height(12.dp))
             Label("Mode")
             TabRowWithContour(
@@ -83,7 +98,7 @@ fun TestScriptDialog(
             TextButton(
                 text = "Save",
                 onClick = {
-                    onSave(TrafficTest.Config(getUrl.trim(), postUrl.trim(), upload, seconds.toIntOrNull() ?: 0))
+                    onSave(TrafficTest.Config(getUrl.trim(), postUrl.trim(), upload, seconds.toIntOrNull() ?: 0, streams))
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.textButtonColorsPrimary()

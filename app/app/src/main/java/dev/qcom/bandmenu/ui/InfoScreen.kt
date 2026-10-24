@@ -41,7 +41,10 @@ fun InfoScreen(
     onAttach: () -> Unit = {},
     onReattach: () -> Unit = {},
     navbarHidden: Boolean = false,
-    onNavbarHiddenToggle: (Boolean) -> Unit = {}
+    onNavbarHiddenToggle: (Boolean) -> Unit = {},
+    /** The app opens on the Network page (from the next launch). */
+    networkAtStart: Boolean = false,
+    onNetworkAtStartToggle: (Boolean) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
@@ -124,6 +127,10 @@ fun InfoScreen(
                         DropdownItem(
                             text = "Hide navigation bar", selected = navbarHidden,
                             onClick = { onNavbarHiddenToggle(!navbarHidden) }
+                        ),
+                        DropdownItem(
+                            text = "Network page at start", selected = networkAtStart,
+                            onClick = { onNetworkAtStartToggle(!networkAtStart) }
                         )
                     )
                 )

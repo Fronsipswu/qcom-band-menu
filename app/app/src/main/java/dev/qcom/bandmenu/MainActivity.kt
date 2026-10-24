@@ -35,6 +35,7 @@ import dev.qcom.bandmenu.ui.CellLockResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -80,6 +81,12 @@ class MainActivity : ComponentActivity() {
             }
         })
 
+        // Read before the first frame: the pager's first page depends on it
+        // (one small preferences read).
+        val startOnNetwork = kotlinx.coroutines.runBlocking {
+            BandPreferences.getNetworkAtStart(bandDataStore).first()
+        }
+
         setContent {
             MiuixTheme(colors = darkColorScheme()) {
                 val snackbarHostState = remember { SnackbarHostState() }
@@ -117,6 +124,7 @@ class MainActivity : ComponentActivity() {
                 var gnbBitsSim1 by remember { mutableIntStateOf(22) }
                 var gnbBitsSim2 by remember { mutableIntStateOf(22) }
                 var navbarHidden by remember { mutableStateOf(false) }
+                var networkAtStart by remember { mutableStateOf(startOnNetwork) }
 
                 LaunchedEffect(Unit) {
                     BandPreferences.getDebugLogging(bandDataStore).collectLatest { enabled ->
@@ -215,6 +223,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getNavbarHidden(bandDataStore).collectLatest { hidden ->
                         navbarHidden = hidden
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getNetworkAtStart(bandDataStore).collectLatest { enabled ->
+                        networkAtStart = enabled
                     }
                 }
 
@@ -1237,6 +1251,12 @@ class MainActivity : ComponentActivity() {
                     onNavbarHiddenToggle = { hidden ->
                         navbarHidden = hidden
                         scope.launch { BandPreferences.setNavbarHidden(bandDataStore, hidden) }
+                    },
+                    startOnNetwork = startOnNetwork,
+                    networkAtStart = networkAtStart,
+                    onNetworkAtStartToggle = { enabled ->
+                        networkAtStart = enabled
+                        scope.launch { BandPreferences.setNetworkAtStart(bandDataStore, enabled) }
                     },
                     debugEnabled = debugEnabled,
                     onDebugToggle = {
