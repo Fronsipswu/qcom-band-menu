@@ -76,6 +76,7 @@
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
+#define DIAG_PROC_MDM 1               /* an external modem: the X55 of an SM8250 */
 #define DIAG_CON_MPSS (1 << 1)
 #define DCI_NO_ERROR 1001
 #define SLOTS 8
@@ -88,6 +89,7 @@ typedef int (*reg_client_t)(int *, uint16_t *, int, void *);
 typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
+typedef int (*dci_list_t)(int, uint16_t *);
 
 static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, 0xB16D, /* LTE */
                             0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, 0xB884, /* NR */
@@ -2155,6 +2157,24 @@ static void *open_libdiag(void) {
     return h;
 }
 
+/*
+ * Which processor carries the modem. On Snapdragon 865/870 the modem is an
+ * X55 on PCIe: its DIAG, DCI included, reaches the phone as a remote
+ * processor (MDM), and the SoC's own side has no MPSS at all, so a client
+ * registered there gets no modem logs. When the SoC side has no MPSS that
+ * supports DCI and the external modem has one, register there instead.
+ * Everything else (an integrated modem, a libdiag without the
+ * per-processor query, a failed query) keeps the SoC side as before.
+ */
+static int modem_proc(void *h) {
+    dci_list_t dci_list = (dci_list_t)dlsym(h, "diag_get_dci_support_list_proc");
+    uint16_t soc = 0, mdm = 0;
+    if (dci_list && dci_list(DIAG_PROC_MSM, &soc) == DCI_NO_ERROR && !(soc & DIAG_CON_MPSS) &&
+        dci_list(DIAG_PROC_MDM, &mdm) == DCI_NO_ERROR && (mdm & DIAG_CON_MPSS))
+        return DIAG_PROC_MDM;
+    return DIAG_PROC_MSM;
+}
+
 #define SYM(T, name) T name = (T)dlsym(h, #name); if (!name) { fprintf(stderr, "libdiag: missing %s\n", #name); return 1; }
 
 int main(int argc, char **argv) {
@@ -2181,8 +2201,13 @@ int main(int argc, char **argv) {
     if (!Diag_LSM_Init(NULL)) { fprintf(stderr, "Diag_LSM_Init failed\n"); return 1; }
     int client = 0, sig = SIGCONT;
     uint16_t periph = DIAG_CON_MPSS;
-    int r = diag_register_dci_client(&client, &periph, DIAG_PROC_MSM, &sig);
-    if (r != DCI_NO_ERROR) { fprintf(stderr, "DCI register failed: %d\n", r); Diag_LSM_DeInit(); return 1; }
+    int proc = modem_proc(h);
+    int r = diag_register_dci_client(&client, &periph, proc, &sig);
+    if (r != DCI_NO_ERROR) {
+        fprintf(stderr, "DCI register failed%s: %d\n", proc == DIAG_PROC_MDM ? " (external modem)" : "", r);
+        Diag_LSM_DeInit();
+        return 1;
+    }
     /* The extended header names each log's subscription (dual SIM). */
     set_version_t diag_dci_set_version = (set_version_t)dlsym(h, "diag_dci_set_version");
     sim_tags = diag_dci_set_version && diag_dci_set_version(client, 1) == DCI_NO_ERROR;
