@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,6 +56,7 @@ import com.kyant.backdrop.effects.blur
 import dev.qcom.bandmenu.CellLockState
 import dev.qcom.bandmenu.ModemState
 import dev.qcom.bandmenu.PlmnLockState
+import dev.qcom.bandmenu.network.LockRequest
 import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
 import dev.qcom.bandmenu.network.servingLockTargets
@@ -82,6 +84,10 @@ import androidx.compose.ui.draw.rotate
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.theme.LocalDismissState
 import top.yukonga.miuix.kmp.window.WindowListPopup
+import top.yukonga.miuix.kmp.window.WindowBottomSheet
+import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Unlock
@@ -306,15 +312,16 @@ fun CellLockScreen(
                                             frozen = !frozen
                                         },
                                         cellLockState = cellLock,
-                                        onLock = lock@{ target ->
+                                        seenNrArfcns = live.nrArfcnsBySim[slot + 1].orEmpty(),
+                                        nrHardwareBands = modemState.hardware.nr,
+                                        onLock = lock@{ request ->
                                             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                            val field = target.lock ?: return@lock
-                                            val (index, input) = field.args()
+                                            val (index, input) = request.args()
                                             onApplyLock(slot + 1, index, input)
                                         },
-                                        onUnlock = { target ->
+                                        onUnlock = { rat ->
                                             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                            if (target.rat == Rat.LTE) onClear4G(slot + 1) else onClear5G(slot + 1)
+                                            if (rat == Rat.LTE) onClear4G(slot + 1) else onClear5G(slot + 1)
                                         }
                                     )
                                 }
@@ -682,7 +689,8 @@ private fun SimCellLockPage(
                 Text(
                     fieldTitles[2]!!,
                     style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 val o2 = labelOverrides[2]
@@ -709,7 +717,8 @@ private fun SimCellLockPage(
                 Text(
                     fieldTitles[3]!!,
                     style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 val o3 = labelOverrides[3]
@@ -818,9 +827,10 @@ private fun DropdownChevron(description: String, modifier: Modifier = Modifier) 
     modifier = modifier.size(18.dp).rotate(90f)
 )
 
-/** Section titles flush with the fields' own titles (the default margin
- *  indents them). */
-private val FieldTitleMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp)
+/** Section titles at the cell table's title inset: the table's SmallTitle sits
+ *  inside the page's 16 dp, so the titles here need the same 16 dp of their
+ *  own to line up with "Tap to lock cell". */
+private val FieldTitleMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
 
 /** The SCS box and the band field: narrow, the same width so they line up. */
 private val NR_SIDE_WIDTH = 104.dp
@@ -876,7 +886,12 @@ private fun NrLockFields(
             ApplyButton(canApplyArfcn, onApply, "Apply NR-ARFCN lock")
         }
         Spacer(Modifier.height(12.dp))
-        Text(pciTitle, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(
+            pciTitle,
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
             DropdownField(
@@ -1090,10 +1105,15 @@ private fun ScsBox(scsKhz: Int, onScsChange: (Int) -> Unit, modifier: Modifier =
 // ── Cell table ───────────────────────────────────────────────────────────
 
 /**
- * The cells the modem reports, one tap to lock: the serving cells first (the
+ * The cells the modem reports, tapped to lock: the serving cells first (the
  * primary, then its SCells, PCI and channel in blue), then the neighbours;
  * in NSA the NR cells and the LTE ones in separate cards, NR first.
- * A locked row's tap clears that RAT's lock (the menu's "Clear 4G"/"Clear 5G").
+ *
+ * The tapped column picks the lock: a channel (NR-ARFCN) locks that frequency
+ * alone, a PCI locks the cell (frequency + PCI). Tapping elsewhere on a 5G row
+ * asks which of the two, its NARFCN's cells would all be pinned by the former.
+ * LTE has one lock shape, so any tap there is the cell lock. A locked row
+ * unlocks on a tap wherever it lands (the menu's "Clear 4G"/"Clear 5G").
  */
 @Composable
 private fun CellLockTable(
@@ -1104,8 +1124,10 @@ private fun CellLockTable(
     frozen: Boolean,
     onToggleFrozen: () -> Unit,
     cellLockState: CellLockState?,
-    onLock: (LockTarget) -> Unit,
-    onUnlock: (LockTarget) -> Unit
+    seenNrArfcns: List<SeenNrArfcn>,
+    nrHardwareBands: Set<Int>,
+    onLock: (LockRequest) -> Unit,
+    onUnlock: (Rat) -> Unit
 ) {
     Spacer(modifier = Modifier.height(20.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1137,6 +1159,70 @@ private fun CellLockTable(
         NoticeText("No cells reported.")
         return
     }
+    val hapticFeedback = LocalHapticFeedback.current
+    // The row whose 5G lock shape is being chosen (a tap off the PCI/NARFCN
+    // columns), and the row waiting for a PCI the modem didn't report.
+    var chooseFor by remember { mutableStateOf<LockTarget?>(null) }
+    var pciFor by remember { mutableStateOf<LockTarget?>(null) }
+
+    /** The row's NR-ARFCN and SCS: the frequency alone. */
+    fun frequencyLockOf(t: LockTarget): LockRequest.NrFrequency? = when (val l = t.lock) {
+        is LockRequest.NrCell -> LockRequest.NrFrequency(l.arfcn, l.scsKhz)
+        is LockRequest.NrFrequency -> l
+        else -> null
+    }
+
+    /** The band an NR cell lock needs: the row's own, else the NR-ARFCN's. */
+    fun bandFor(t: LockTarget, arfcn: Long): Int? =
+        t.band?.number ?: nrLockBand(arfcn, seenNrArfcns, nrHardwareBands)
+            ?: nrBandsForArfcn(arfcn, nrHardwareBands).firstOrNull()
+
+    /** The cell lock (frequency + PCI) this row sends, built from its own
+     *  values where the request it carries is a frequency one. Null when no
+     *  PCI is known: the caller asks for it. */
+    fun cellLockFor(t: LockTarget, pci: Int? = null): LockRequest? = when (val l = t.lock) {
+        is LockRequest.LteCell -> l
+        is LockRequest.NrCell -> l
+        is LockRequest.NrFrequency -> {
+            val p = pci ?: t.id.toIntOrNull() ?: return null
+            val band = bandFor(t, l.arfcn) ?: return null
+            LockRequest.NrCell(l.arfcn, p, l.scsKhz, band)
+        }
+        null -> null
+    }
+
+    fun apply(request: LockRequest?) {
+        if (request == null) return
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+        onLock(request)
+    }
+
+    fun tap(t: LockTarget, part: CellTap) {
+        // A locked row releases on a tap wherever it lands.
+        if (t.lockKindIn(cellLockState) != LockKind.NONE) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+            onUnlock(t.rat)
+            return
+        }
+        when {
+            // The NARFCN locks the frequency alone; LTE's EARFCN has no
+            // frequency-only lock, so it locks the cell as the PCI does.
+            part == CellTap.CHANNEL && t.rat == Rat.NR -> apply(frequencyLockOf(t))
+            // A PCI locks the cell; a row the modem gave no PCI for asks for it.
+            part == CellTap.ID -> {
+                val request = cellLockFor(t)
+                if (request != null) apply(request) else pciFor = t
+            }
+            // The rest of an LTE row: the cell lock.
+            t.rat != Rat.NR -> {
+                val request = cellLockFor(t)
+                if (request != null) apply(request) else pciFor = t
+            }
+            // The rest of a 5G row: which of the two?
+            else -> chooseFor = t
+        }
+    }
+
     // NSA: the NR cells (the SCG, then NR neighbours) in a card of their own
     // above the LTE ones, each card as SA's or LTE's table would be.
     val cards = if (snapshot.mode == ServiceMode.NR_NSA) {
@@ -1147,11 +1233,111 @@ private fun CellLockTable(
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 NeighbourTable(
                     rows = cardRows,
-                    lockedOf = { it.isLockedIn(cellLockState) },
-                    onToggle = { t -> if (t.isLockedIn(cellLockState)) onUnlock(t) else onLock(t) },
+                    lockOf = { it.lockKindIn(cellLockState) },
+                    onTap = { t, part -> tap(t, part) },
                     roomy = true
                 )
             }
+        }
+    }
+
+    LockChoiceSheet(
+        target = chooseFor,
+        onDismiss = { chooseFor = null },
+        onFrequency = {
+            val t = chooseFor
+            chooseFor = null
+            apply(t?.let(::frequencyLockOf))
+        },
+        onCell = {
+            val t = chooseFor
+            chooseFor = null
+            val request = t?.let { cellLockFor(it) }
+            if (request != null) apply(request) else if (t != null) pciFor = t
+        }
+    )
+
+    PciEntryDialog(
+        show = pciFor != null,
+        onDismiss = { pciFor = null },
+        onConfirm = { pci ->
+            val t = pciFor
+            pciFor = null
+            apply(t?.let { cellLockFor(it, pci) })
+        }
+    )
+}
+
+/** The 5G lock shape choice: the whole cell, or only its frequency (every
+ *  cell the modem reports on that NARFCN then stays). */
+@Composable
+private fun LockChoiceSheet(
+    target: LockTarget?,
+    onDismiss: () -> Unit,
+    onFrequency: () -> Unit,
+    onCell: () -> Unit
+) {
+    WindowBottomSheet(
+        show = target != null,
+        title = "Lock 5G cell",
+        onDismissRequest = onDismiss
+    ) {
+        val t = target ?: return@WindowBottomSheet
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            Text(
+                listOfNotNull(t.band?.label, "${t.channel}", t.id.takeIf { it != "\u2014" }?.let { "PCI $it" })
+                    .joinToString("  "),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Spacer(Modifier.height(12.dp))
+            TextButton(
+                text = "Frequency only",
+                onClick = onFrequency,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                text = "Frequency + PCI",
+                onClick = onCell,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary()
+            )
+        }
+    }
+}
+
+/** Asks for a PCI the modem didn't report: the cell lock needs one. */
+@Composable
+private fun PciEntryDialog(show: Boolean, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+    var text by rememberSaveable(show) { mutableStateOf("") }
+    val pci = text.trim().toIntOrNull()?.takeIf { it in 0..1007 }
+    WindowDialog(show = show, title = "PCI", onDismissRequest = onDismiss) {
+        Text(
+            "The modem reports no PCI for this frequency. Enter the cell's PCI (0-1007).",
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+        Spacer(Modifier.height(12.dp))
+        TextField(
+            value = text,
+            onValueChange = { v -> text = v.filter(Char::isDigit).take(4) },
+            label = "PCI",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { if (pci != null) onConfirm(pci) })
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(text = "Cancel", onClick = onDismiss, modifier = Modifier.weight(1f))
+            TextButton(
+                text = "Lock",
+                onClick = { pci?.let(onConfirm) },
+                enabled = pci != null,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary()
+            )
         }
     }
 }
