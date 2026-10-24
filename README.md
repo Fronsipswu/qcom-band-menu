@@ -374,6 +374,8 @@ diag_dci_set_version(1)       extended header: SIM of each log
 diag_log_stream_config        subscribe to the log codes below
 ```
 
+On Snapdragon 865/870 the modem is an external X55, reached as a remote processor (MDM) rather than through the SoC's own MPSS. When the SoC side has no MPSS with DCI support and the external modem has one, the client is registered on the external modem instead.
+
 ### Log Codes
 
 LTE:
