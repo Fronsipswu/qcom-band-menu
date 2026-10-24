@@ -915,7 +915,7 @@ private fun CaTable(
         if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
         // LTE as NR: the mean scheduled layers; B126's rank when no TBs came.
         row("Rank") {
-            text((it.diag?.let { d -> d.layers ?: d.rank?.toDouble() } ?: it.nr?.layers)?.let { l -> String.format(Locale.US, "%.1f", l) })
+            text((it.diag?.let { d -> d.layers ?: d.rank?.toDouble() } ?: it.nr?.layers)?.let { l -> String.format(Locale.US, "%.0f", l) })
         }
         row("RBs") {
             val (value, fill) = rbCell(it)
@@ -961,7 +961,7 @@ private fun NrRows(
     r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
     r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
-    r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+    r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.0f", l) }) }
     r("RBs") {
         val (value, fill) = rbCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
@@ -1018,7 +1018,7 @@ private fun UplinkRows(
     r("Mod") { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
     // NR only: left out in LTE and NSA (no LTE uplink rank or TX mode decoded).
     if (sa) {
-        r("Rank") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.1f", l) }) }
+        r("Rank") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.0f", l) }) }
         r("TX mode") { t(it.nr?.ulTxMode) }
     }
     // Transmit power per channel, dBm.
