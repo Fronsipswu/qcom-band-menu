@@ -50,8 +50,9 @@ class TrafficTest private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _config = MutableStateFlow(
         Config(
-            getUrl = prefs.getString("get", DEFAULT_GET) ?: "",
-            postUrl = prefs.getString("post", DEFAULT_POST) ?: "",
+            // No built-in server: the user enters both URLs (Start opens the setup until then).
+            getUrl = prefs.getString("get", "") ?: "",
+            postUrl = prefs.getString("post", "") ?: "",
             upload = prefs.getBoolean("upload", false),
             seconds = prefs.getInt("seconds", 0),
             streams = prefs.getInt("streams", 1).coerceIn(1, MAX_STREAMS)
@@ -164,8 +165,6 @@ class TrafficTest private constructor(context: Context) {
         const val MAX_STREAMS = 8
         private const val REQUEST_MAX_NS = 60_000_000_000L
         private const val UPLOAD_BYTES = 25_000_000L
-        private const val DEFAULT_GET = "https://speedtest-sp1.3bb.co.th.prod.hosts.ooklaserver.net:8080/download?size=25000000"
-        private const val DEFAULT_POST = "https://speedtest-sp1.3bb.co.th.prod.hosts.ooklaserver.net:8080/upload"
 
         @Volatile private var instance: TrafficTest? = null
         fun get(context: Context): TrafficTest =
