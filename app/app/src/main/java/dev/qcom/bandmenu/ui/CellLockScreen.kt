@@ -88,6 +88,7 @@ import top.yukonga.miuix.kmp.icon.extended.Unlock
 import dev.qcom.bandmenu.network.NetworkMonitor
 import dev.qcom.bandmenu.network.NetworkSnapshot
 import dev.qcom.bandmenu.network.Rat
+import dev.qcom.bandmenu.network.ServiceMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
@@ -1090,7 +1091,8 @@ private fun ScsBox(scsKhz: Int, onScsChange: (Int) -> Unit, modifier: Modifier =
 
 /**
  * The cells the modem reports, one tap to lock: the serving cells first (the
- * primary, then its SCells, PCI and channel in blue), then the neighbours.
+ * primary, then its SCells, PCI and channel in blue), then the neighbours;
+ * in NSA the NR cells and the LTE ones in separate cards, NR first.
  * A locked row's tap clears that RAT's lock (the menu's "Clear 4G"/"Clear 5G").
  */
 @Composable
@@ -1135,14 +1137,21 @@ private fun CellLockTable(
         NoticeText("No cells reported.")
         return
     }
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            NeighbourTable(
-                rows = rows,
-                lockedOf = { it.isLockedIn(cellLockState) },
-                onToggle = { t -> if (t.isLockedIn(cellLockState)) onUnlock(t) else onLock(t) },
-                roomy = true
-            )
+    // NSA: the NR cells (the SCG, then NR neighbours) in a card of their own
+    // above the LTE ones, each card as SA's or LTE's table would be.
+    val cards = if (snapshot.mode == ServiceMode.NR_NSA) {
+        rows.partition { it.rat == Rat.NR }.toList().filter { it.isNotEmpty() }
+    } else listOf(rows)
+    cards.forEach { cardRows ->
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                NeighbourTable(
+                    rows = cardRows,
+                    lockedOf = { it.isLockedIn(cellLockState) },
+                    onToggle = { t -> if (t.isLockedIn(cellLockState)) onUnlock(t) else onLock(t) },
+                    roomy = true
+                )
+            }
         }
     }
 }
