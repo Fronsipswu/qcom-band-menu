@@ -34,8 +34,8 @@ internal enum class CellTap { ID, CHANNEL, ROW }
  * after the PCI (Band | PCI | Beam | NARFCN | RSRP | RSRQ, as NSG lists them). The Network page and the Cell-Lock
  * page's table both use it, so a neighbour looks the same on either page.
  * Serving-cell rows (the Cell-Lock table's first rows) show PCI and channel
- * in blue; the locked cell's are green, its PCI and channel in brackets
- * ("[269 156510]") — a frequency lock brackets every row on the frequency.
+ * in blue; the locked cell's are green, bracketed to show what the lock pins
+ * ("[269 156510]" for a cell, "269 [156510]" for a frequency).
  * With [onTap] a row is a lock control and reports the tapped column.
  */
 @Composable
@@ -103,16 +103,10 @@ internal fun NeighbourTable(
                 t.role == LockRole.SERVING -> MiuixTheme.colorScheme.primary
                 else -> MiuixTheme.colorScheme.onBackground
             }
-            // A locked row brackets its identity ("[269 156510]"), as the
-            // manual lock's inputs read: the PCI opens, the channel closes.
-            // A row with no PCI (an NR frequency) wraps its channel alone.
-            val noId = t.id == "\u2014"
-            val idText = if (locked && !noId) "[${t.id}" else t.id
-            val chText = when {
-                !locked -> t.channel.toString()
-                noId -> "[${t.channel}]"
-                else -> "${t.channel}]"
-            }
+            // The brackets show what the lock pins, as the manual fields read:
+            // a cell lock wraps both ("[269 156510]"), a frequency lock only
+            // the NARFCN ("269 [156510]").
+            val (idText, chText) = lockTexts(kind, t.id, t.channel)
             cols(
                 {
                     Text(
@@ -171,6 +165,17 @@ internal enum class LockKind {
 
     /** The frequency only (an NR-ARFCN lock): every cell on it is pinned. */
     FREQUENCY
+}
+
+/**
+ * The PCI and channel as the table shows them: the brackets mark what the
+ * lock pins, as the manual lock fields read them. A cell lock wraps both
+ * ("[269", "156510]"), a frequency lock only the NARFCN ("269", "[156510]").
+ */
+internal fun lockTexts(kind: LockKind, id: String, channel: Long): Pair<String, String> = when (kind) {
+    LockKind.CELL -> "[$id" to "$channel]"
+    LockKind.FREQUENCY -> id to "[$channel]"
+    LockKind.NONE -> id to channel.toString()
 }
 
 /**

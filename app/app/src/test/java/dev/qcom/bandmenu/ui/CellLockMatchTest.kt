@@ -105,4 +105,20 @@ class CellLockMatchTest {
     fun noStateLocksNothing() {
         assertEquals(LockKind.NONE, nrRow("269", 156510, LockRequest.NrCell(156510, 269, 15, 28)).lockKindIn(null))
     }
+
+    @Test
+    fun bracketsShowWhatTheLockPins() {
+        // A cell lock brackets the pair; a frequency lock only the NARFCN.
+        assertEquals("[269" to "156510]", lockTexts(LockKind.CELL, "269", 156510))
+        assertEquals("269" to "[156510]", lockTexts(LockKind.FREQUENCY, "269", 156510))
+        assertEquals("269" to "156510", lockTexts(LockKind.NONE, "269", 156510))
+    }
+
+    @Test
+    fun frequencyBracketsSkipThePciAndWrapRowsWithoutOne() {
+        val same = nrRow("271", 156510, LockRequest.NrCell(156510, 271, 15, 28))
+        val noPci = nrRow("\u2014", 156510, LockRequest.NrFrequency(156510, 15))
+        assertEquals("271" to "[156510]", lockTexts(same.lockKindIn(arfcnState), same.id, same.channel))
+        assertEquals("\u2014" to "[156510]", lockTexts(noPci.lockKindIn(arfcnState), noPci.id, noPci.channel))
+    }
 }
