@@ -84,9 +84,13 @@ class BandValidatorTest {
         assertEquals(listOf("44", "20"), BandValidator.plmnParts("44-20"))
         assertEquals(listOf("44", "20"), BandValidator.plmnParts("44 20"))
         assertEquals(listOf("310", "260"), BandValidator.plmnParts("310 - 260"))
-        // Without one, five or six digits (a 3-digit MNC); anything else is left for the caller to reject.
+        // Without one, the first three digits are the MCC, the rest (one to
+        // three digits) the MNC; anything else is left for the caller to reject.
         assertEquals(listOf("310", "980"), BandValidator.plmnParts("310980"))
-        assertEquals(listOf("5200"), BandValidator.plmnParts("5200"))
+        assertEquals(listOf("520", "4"), BandValidator.plmnParts("5204"))
+        assertEquals(listOf("520", "0"), BandValidator.plmnParts("5200"))
         assertEquals(listOf("5200401"), BandValidator.plmnParts("5200401"))
+        assertEquals(listOf("52000004"), BandValidator.plmnParts("52000004"))
+        assertEquals(listOf("520"), BandValidator.plmnParts("520"))
     }
 }

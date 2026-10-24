@@ -637,6 +637,8 @@ class MainActivity : ComponentActivity() {
                                         5 -> {
                                             val plmn = BandValidator.plmnParts(input)
                                             if (plmn.size != 2) { errorMsg = "Need: mcc mnc"; null }
+                                            // A longer MNC with leading zeros would pass as a number.
+                                            else if (plmn[1].length > 3) { errorMsg = "MNC is up to 3 digits"; null }
                                             else {
                                                 val mcc = plmn[0].toIntOrNull()
                                                 val mnc = plmn[1].toIntOrNull()

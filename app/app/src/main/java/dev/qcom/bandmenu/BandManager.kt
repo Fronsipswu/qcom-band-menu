@@ -530,15 +530,16 @@ object BandValidator {
 
     /**
      * A PLMN as typed. A space or "-" splits exactly where it is ("520 04",
-     * "520-04", and also an unusual "44-20" = MCC 44, MNC 20). Without one,
-     * only the standard five or six digits are taken: three for the MCC, the
-     * rest the MNC ("52004" = 520 04, "310980" = 310 980). Anything else comes
-     * back as typed, for the caller to reject.
+     * "520-04", and also an unusual "44-20" = MCC 44, MNC 20). Without one, the
+     * first three digits are the MCC and the rest the MNC ("52004" = 520 04,
+     * "310980" = 310 980, and also "5204" = 520 4). An MNC is one to three
+     * digits, so four to six digits are split; anything else comes back as
+     * typed, for the caller to reject.
      */
     fun plmnParts(input: String): List<String> {
         val parts = input.trim().split(Regex("[\\s-]+")).filter { it.isNotEmpty() }
         val one = parts.singleOrNull()
-        return if (one != null && one.length in 5..6 && one.all(Char::isDigit)) listOf(one.take(3), one.drop(3)) else parts
+        return if (one != null && one.length in 4..6 && one.all(Char::isDigit)) listOf(one.take(3), one.drop(3)) else parts
     }
 
     fun validateGsm(bands: Set<Int>, hw: HardwareBands): Set<Int> = bands.intersect(hw.gsm)
