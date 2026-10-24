@@ -477,7 +477,9 @@ class SnapshotBuilder(
 
     // ── Carriers ─────────────────────────────────────────────────────────
 
-    private fun lteCarriers(): CarrierGroup? {
+    private fun lteCarriers(): CarrierGroup? = lteCarrierTable()?.distinctCells()
+
+    private fun lteCarrierTable(): CarrierGroup? {
         if (mode != ServiceMode.LTE && mode != ServiceMode.NR_NSA) return null
         diagCarriers()?.let { return it }
         // Always shown in LTE/NSA (just the P column without CA), so the card
@@ -586,7 +588,9 @@ class SnapshotBuilder(
      * cell's NR-ARFCN is in it; else derived from the NR-ARFCN when only one
      * band covers it; else "–" until the modem names it.
      */
-    private fun diagNrCarriers(): CarrierGroup? {
+    private fun diagNrCarriers(): CarrierGroup? = diagNrCarrierTable()?.distinctCells()
+
+    private fun diagNrCarrierTable(): CarrierGroup? {
         val list = diag?.nr?.takeIf { it.isNotEmpty() } ?: return null
         val qmiPci = sys?.nrPci ?: loc?.nr?.pci
         val qmiArfcn = primaryNrArfcn()
@@ -920,4 +924,19 @@ class SnapshotBuilder(
         }
         return AntennaGroup(rat, chains, null, null, carrier = name, band = c.band, channel = c.channel, pci = c.pci)
     }
+}
+
+/**
+ * One column per cell: a table never shows the same channel and PCI twice
+ * (the same PCI on another channel is another cell). Seen with LTE CA
+ * after a reconfiguration, two slots naming one SCell; of such columns the
+ * one with an RSRP reading stays, else the first (the primary, then the
+ * lower slot). Columns without a PCI (QMI's NR SCells) are left alone.
+ */
+internal fun CarrierGroup.distinctCells(): CarrierGroup {
+    fun key(c: Carrier) = c.channel.substringBefore(' ') to c.pci
+    val keep = carriers.filter { it.pci != null }.groupBy(::key).filterValues { it.size > 1 }
+        .mapValues { (_, same) -> same.firstOrNull { it.rsrp != null } ?: same.first() }
+    if (keep.isEmpty()) return this
+    return copy(carriers = carriers.filter { c -> keep[key(c)]?.let { it === c } ?: true })
 }
