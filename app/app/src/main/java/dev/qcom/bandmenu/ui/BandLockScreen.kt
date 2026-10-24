@@ -1,8 +1,9 @@
 package dev.qcom.bandmenu.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,9 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.captionBar
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +26,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
@@ -41,20 +46,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
@@ -72,8 +79,6 @@ import dev.qcom.bandmenu.SimBandFilter
 import dev.qcom.bandmenu.SimState
 import dev.qcom.bandmenu.UsageMode
 import dev.qcom.bandmenu.copyForOtherSim
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -89,13 +94,13 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.icon.extended.Reset
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.LocalDismissState
@@ -138,6 +143,10 @@ fun BandLockScreen(
     onClearFilter: () -> Unit = {},
     quickSelectHidden: Boolean = false,
     onToggleQuickSelect: () -> Unit = {},
+    /** "Combine NR": one NR band list on a modem with separate SA/NSA masks;
+     *  Apply sends that list as both masks. */
+    nrCombined: Boolean = false,
+    onToggleNrCombined: () -> Unit = {},
     usageSettingHidden: Boolean = false,
     onToggleUsageSetting: () -> Unit = {},
     nrModeHidden: Boolean = false,
@@ -147,7 +156,8 @@ fun BandLockScreen(
 ) {
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
-    val applyResetSpace = 72.dp
+    // Clearance for the floating action button at the content's bottom.
+    val fabSpace = 72.dp
     // Match the overlay SmallTopAppBar's own inset source (systemBars top) so
     // the content offset equals the bar's real height in every window mode.
     // statusBars alone is equal in full screen but diverges in a floating /
@@ -169,6 +179,8 @@ fun BandLockScreen(
 
     val hardware = modemState?.hardware
     val useIndependentLock = nrIndependentSupported == true
+    // NR-SA and NR-NSA band lists apart, unless "Combine NR" joins them.
+    val separateNr = useIndependentLock && !nrCombined
 
     var showFilterSheet by remember { mutableStateOf(false) }
     // The pager is the single source of truth for the selected page. Mirroring
@@ -216,7 +228,7 @@ fun BandLockScreen(
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
                             .padding(top = topBarHeight)
-                            .padding(bottom = navbarSpace + applyResetSpace)
+                            .padding(bottom = navbarSpace + fabSpace)
                     ) {
                         TabRowWithContour(
                             tabs = simLabels,
@@ -267,6 +279,7 @@ fun BandLockScreen(
                                     simState = simState,
                                     hardware = hardware,
                                     useIndependentLock = useIndependentLock,
+                                    separateNr = separateNr,
                                     filter = SimBandFilter.effectiveFilter(bandFilter, hardware, slot),
                                     refreshKey = refreshKey,
                                     showQuickSelect = !quickSelectHidden,
@@ -344,6 +357,19 @@ fun BandLockScreen(
                             onClick = onToggleQuickSelect
                         ))
                     }))
+                    if (hardware.nr.isNotEmpty() && useIndependentLock) {
+                        add(DropdownEntry(items = listOf(
+                            DropdownItem(text = "Combine NR", selected = nrCombined, onClick = onToggleNrCombined)
+                        )))
+                    }
+                    if (!(selectedSim == 1 && modemState?.sim2Available == false)) {
+                        add(DropdownEntry(items = listOf(
+                            DropdownItem("Reset to hardware defaults", onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                onReset(selectedSim)
+                            })
+                        )))
+                    }
                     add(DropdownEntry(items = listOf(
                         DropdownItem("Detach", onClick = onDetach),
                         DropdownItem("Attach", onClick = onAttach),
@@ -364,56 +390,32 @@ fun BandLockScreen(
                 }
             }
 
-            if (!(selectedSim == 1 && modemState?.sim2Available == false)) Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = floatingControlBottom(24.dp)),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TextButton(
-                    text = "Reset",
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                        onReset(selectedSim)
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(16.dp))
-                )
-                Button(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                        val s = slotStates[selectedSim]
-                        val f = SimBandFilter.effectiveFilter(bandFilter, hardware, selectedSim)
-                        val visibleGsm = SimBandFilter.visibleBands(hardware.gsm, f.gsm)
-                        val visibleWcdma = SimBandFilter.visibleBands(hardware.wcdma, f.wcdma)
-                        val visibleLte = SimBandFilter.visibleBands(hardware.lte, f.lte)
-                        val visibleNsa = SimBandFilter.visibleBands(hardware.nr, f.nrNsa)
-                        val visibleSa = SimBandFilter.visibleBands(hardware.nr, f.nrSa)
-                        val visibleNr = SimBandFilter.visibleBands(hardware.nr, f.nrNsa + f.nrSa)
-                        val nrBands = s.nrChecked.filterValues { it }.keys.intersect(visibleNr)
-                        val state = SimState(
-                            ratMask = s.ratChecked.filterValues { it }.keys,
-                            gsmBands = s.gsmChecked.filterValues { it }.keys.intersect(visibleGsm),
-                            wcdmaBands = s.wcdmaChecked.filterValues { it }.keys.intersect(visibleWcdma),
-                            lteBands = s.lteChecked.filterValues { it }.keys.intersect(visibleLte),
-                            nrNsaBands = if (useIndependentLock) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
-                            nrSaBands = if (useIndependentLock) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
-                            nrMode = s.nrMode,
-                            usageMode = s.usageMode
-                        )
-                        onApply(selectedSim, state)
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(16.dp)),
-                    colors = ButtonDefaults.buttonColorsPrimary()
-                ) {
-                    Text("Apply")
+            if (!(selectedSim == 1 && modemState?.sim2Available == false)) BandLockApplyFab(
+                onApply = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                    val s = slotStates[selectedSim]
+                    val f = SimBandFilter.effectiveFilter(bandFilter, hardware, selectedSim)
+                    val visibleGsm = SimBandFilter.visibleBands(hardware.gsm, f.gsm)
+                    val visibleWcdma = SimBandFilter.visibleBands(hardware.wcdma, f.wcdma)
+                    val visibleLte = SimBandFilter.visibleBands(hardware.lte, f.lte)
+                    val visibleNsa = SimBandFilter.visibleBands(hardware.nr, f.nrNsa)
+                    val visibleSa = SimBandFilter.visibleBands(hardware.nr, f.nrSa)
+                    val visibleNr = SimBandFilter.visibleBands(hardware.nr, f.nrNsa + f.nrSa)
+                    val nrBands = s.nrChecked.filterValues { it }.keys.intersect(visibleNr)
+                    val state = SimState(
+                        ratMask = s.ratChecked.filterValues { it }.keys,
+                        gsmBands = s.gsmChecked.filterValues { it }.keys.intersect(visibleGsm),
+                        wcdmaBands = s.wcdmaChecked.filterValues { it }.keys.intersect(visibleWcdma),
+                        lteBands = s.lteChecked.filterValues { it }.keys.intersect(visibleLte),
+                        // Combined: the one list goes out as both the NSA and the SA mask.
+                        nrNsaBands = if (separateNr) s.nrNsaChecked.filterValues { it }.keys.intersect(visibleNsa) else nrBands,
+                        nrSaBands = if (separateNr) s.nrSaChecked.filterValues { it }.keys.intersect(visibleSa) else nrBands,
+                        nrMode = s.nrMode,
+                        usageMode = s.usageMode
+                    )
+                    onApply(selectedSim, state)
                 }
-            }
+            )
 
             BandFilterSheet(
                 show = showFilterSheet,
@@ -430,12 +432,86 @@ fun BandLockScreen(
     }
 }
 
+private val FabSize = 56.dp
+
+/**
+ * Immediate, long-press-safe press tracking for the band-lock buttons: the
+ * scale follows the raw pointer stream — shrink on touch-down, stay shrunk
+ * for the whole touch, restore on lift. Deliberately not clickable's own
+ * press state: that one cancels after the system long-press timeout, which
+ * made the button pop back while the finger was still down. Everything is
+ * remembered and driven without recomposition (the scale is only read inside
+ * graphicsLayer), so the tracker can never restart mid-gesture. Returns the
+ * animated scale and the tracking modifier.
+ */
+@Composable
+private fun rememberPressFeedback(): Pair<Animatable<Float, AnimationVector1D>, Modifier> {
+    val scale = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+    val tracker = remember {
+        Modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                scope.launch { scale.animateTo(0.88f, tween(durationMillis = 70)) }
+                do {
+                    val event = awaitPointerEvent()
+                } while (event.changes.any { it.pressed })
+                scope.launch { scale.animateTo(1f, tween(durationMillis = 90)) }
+            }
+        }
+    }
+    return scale to tracker
+}
+
+/**
+ * Apply as one round check button floating at the screen's bottom right (as
+ * on KernelSU's modules page): a tap applies the page's band locks. (Reset is
+ * in the menu.)
+ */
+@Composable
+private fun BandLockApplyFab(onApply: () -> Unit) {
+    val (pressScale, pressTracker) = rememberPressFeedback()
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp)
+                .padding(bottom = floatingControlBottom(24.dp))
+                .size(FabSize)
+                .graphicsLayer {
+                    val sc = pressScale.value
+                    scaleX = sc
+                    scaleY = sc
+                }
+                .then(pressTracker)
+                .background(MiuixTheme.colorScheme.primary, CircleShape)
+                .clickable(
+                    interactionSource = null,
+                    indication = null,
+                    role = Role.Button,
+                    onClick = onApply
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = MiuixIcons.Ok,
+                contentDescription = "Apply band locks",
+                tint = MiuixTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+    }
+}
+
 @Composable
 private fun SimBandLockPage(
     state: SlotBandState,
     simState: SimState?,
     hardware: HardwareBands,
     useIndependentLock: Boolean,
+    /** NR-SA and NR-NSA band lists apart (false: one NR list, also with
+     *  "Combine NR"). */
+    separateNr: Boolean,
     filter: SimBandFilter,
     refreshKey: Int,
     showQuickSelect: Boolean,
@@ -460,6 +536,14 @@ private fun SimBandLockPage(
     val sortedSa = remember(visibleSa) { visibleSa.sorted() }
     val sortedNr = remember(visibleNr) { visibleNr.sorted() }
 
+    // "Combine NR" turned on: the one NR list takes the SA list as it stands.
+    LaunchedEffect(separateNr) {
+        if (!separateNr && useIndependentLock) {
+            state.nrChecked.clear()
+            state.nrSaChecked.filterValues { it }.keys.forEach { state.nrChecked[it] = true }
+        }
+    }
+
     LaunchedEffect(simState, refreshKey) {
         simState?.let { s ->
             state.ratChecked.clear()
@@ -477,7 +561,9 @@ private fun SimBandLockPage(
             state.nrSaChecked.clear()
             s.nrSaBands.forEach { state.nrSaChecked[it] = true }
             state.nrChecked.clear()
-            (s.nrNsaBands + s.nrSaBands).forEach { state.nrChecked[it] = true }
+            // One NR list over separate masks starts from the SA mask (as NSG
+            // does); without separate masks both hold the one NR mask.
+            (if (useIndependentLock) s.nrSaBands else s.nrNsaBands + s.nrSaBands).forEach { state.nrChecked[it] = true }
             state.nrMode = s.nrMode
             state.usageMode = s.usageMode
         }
@@ -581,22 +667,22 @@ private fun SimBandLockPage(
         // Derived, so the page recomposes only when a flag flips, not on every
         // map write. Event handlers must read a flag once before mutating the
         // maps: a derived flag re-evaluates as soon as the first band changes.
-        val allNrEnabled by remember(state, visibleNr, useIndependentLock) {
+        val allNrEnabled by remember(state, visibleNr, separateNr) {
             derivedStateOf {
-                if (useIndependentLock)
+                if (separateNr)
                     visibleNr.all { state.nrNsaChecked[it] == true } && visibleNr.all { state.nrSaChecked[it] == true }
                 else
                     visibleNr.all { state.nrChecked[it] == true }
             }
         }
-        val allNsaEnabled by remember(state, visibleNsa, useIndependentLock) {
+        val allNsaEnabled by remember(state, visibleNsa, separateNr) {
             derivedStateOf {
-                if (useIndependentLock) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
+                if (separateNr) visibleNsa.all { state.nrNsaChecked[it] == true } else allNrEnabled
             }
         }
-        val allSaEnabled by remember(state, visibleSa, useIndependentLock) {
+        val allSaEnabled by remember(state, visibleSa, separateNr) {
             derivedStateOf {
-                if (useIndependentLock) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
+                if (separateNr) visibleSa.all { state.nrSaChecked[it] == true } else allNrEnabled
             }
         }
         val allLteEnabled by remember(state, visibleLte) {
@@ -625,7 +711,7 @@ private fun SimBandLockPage(
         }
 
         val hasNrHardware = hardware.nr.isNotEmpty()
-        val quickItems = if (useIndependentLock) {
+        val quickItems = if (separateNr) {
             if (hasNrHardware) {
                 listOf(
                     "All bands (all RATs)" to 0,
@@ -680,7 +766,7 @@ private fun SimBandLockPage(
                                     visibleGsm.forEach { state.gsmChecked[it] = newState }
                                     visibleWcdma.forEach { state.wcdmaChecked[it] = newState }
                                     visibleLte.forEach { state.lteChecked[it] = newState }
-                                    if (useIndependentLock) {
+                                    if (separateNr) {
                                         visibleNr.forEach {
                                             state.nrNsaChecked[it] = newState; state.nrSaChecked[it] = newState
                                         }
@@ -691,7 +777,7 @@ private fun SimBandLockPage(
                                 }
                                 1 -> {
                                     val newState = !all5gEnabled
-                                    if (useIndependentLock) {
+                                    if (separateNr) {
                                         visibleNr.forEach {
                                             state.nrNsaChecked[it] = newState; state.nrSaChecked[it] = newState
                                         }
@@ -739,7 +825,7 @@ private fun SimBandLockPage(
         Spacer(modifier = Modifier.height(6.dp))
 
         if (visibleNr.isNotEmpty()) {
-            if (useIndependentLock) {
+            if (separateNr) {
                 if (visibleSa.isNotEmpty()) {
                     val modified = !allSaEnabled
                     BandSectionTitle(

@@ -151,7 +151,8 @@ private val NR_BAND_DL = listOf(
     39 to 376000..384000, 48 to 636667..646666, 50 to 286400..303400, 51 to 285400..286400,
     53 to 496700..499000, 65 to 422000..440000, 70 to 399000..404000, 74 to 295000..303600,
     75 to 286400..303400, 76 to 285400..286400, 79 to 693334..733333,
-    257 to 2054166..2104165, 258 to 2016667..2070832, 261 to 2070833..2084999, 260 to 2229166..2279165
+    257 to 2054166..2104165, 258 to 2016667..2070832, 261 to 2070833..2084999, 260 to 2229166..2279165,
+    46 to 743334..795000
 )
 
 /*
@@ -187,6 +188,13 @@ fun nrBandLabelForArfcn(arfcn: Long, supported: Set<Int> = emptySet(), pairs: Bo
 fun nrBandFitsArfcn(band: Int, arfcn: Long): Boolean =
     NR_BAND_DL.filter { it.first == band }.let { r -> r.isEmpty() || r.any { arfcn in it.second.first.toLong()..it.second.last.toLong() } }
 
+/** Every band whose downlink holds [arfcn], in [NR_BAND_DL]'s order; only
+ *  the modem's ([supported]) when that leaves any. */
+fun nrBandsForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): List<Int> {
+    val candidates = NR_BAND_DL.filter { (_, r) -> arfcn in r.first.toLong()..r.last.toLong() }.map { it.first }.distinct()
+    return candidates.filter { it in supported }.ifEmpty { candidates }
+}
+
 fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
     val candidates = NR_BAND_DL.filter { (_, r) -> arfcn in r.first.toLong()..r.last.toLong() }.map { it.first }
     if (candidates.isEmpty()) return null
@@ -197,13 +205,13 @@ fun nrBandForArfcn(arfcn: Long, supported: Set<Int> = emptySet()): Int? {
 /**
  * The SCS to assume for an NR frequency the modem reported without one
  * (neighbour frequencies carry none). FR2 uses 120 kHz; in FR1 the TDD bands
- * deployed with the wider numerology (n38/n40/n41/n48/n77/n78/n79/n90) use
+ * deployed with the wider numerology (n38/n40/n41/n46/n48/n77/n78/n79/n90) use
  * 30 kHz, the rest 15. Only a default: a lock made from a live row shows the
  * SCS it used, and Manual mode takes any of them.
  */
 fun nrDefaultScsKhz(band: Int?): Int = when {
     band != null && band >= 257 -> 120
-    band != null && band in setOf(38, 40, 41, 48, 77, 78, 79, 90) -> 30
+    band != null && band in setOf(38, 40, 41, 46, 48, 77, 78, 79, 90) -> 30
     else -> 15
 }
 

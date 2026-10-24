@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                 var nrIndependentSupported by daemonHolder.nrIndependentSupported
                 var bandFilter by remember { mutableStateOf(BandFilterState()) }
                 var quickSelectHidden by remember { mutableStateOf(false) }
+                var nrCombined by remember { mutableStateOf(false) }
                 var usageSettingHidden by remember { mutableStateOf(false) }
                 var nrModeHidden by remember { mutableStateOf(false) }
                 var servingHidden by remember { mutableStateOf(false) }
@@ -133,6 +134,12 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     BandPreferences.getQuickSelectHidden(bandDataStore).collectLatest { hidden ->
                         quickSelectHidden = hidden
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    BandPreferences.getNrCombined(bandDataStore).collectLatest { combined ->
+                        nrCombined = combined
                     }
                 }
 
@@ -903,6 +910,12 @@ class MainActivity : ComponentActivity() {
                         val hidden = !quickSelectHidden
                         quickSelectHidden = hidden
                         scope.launch { BandPreferences.setQuickSelectHidden(bandDataStore, hidden) }
+                    },
+                    nrCombined = nrCombined,
+                    onToggleNrCombined = {
+                        val combined = !nrCombined
+                        nrCombined = combined
+                        scope.launch { BandPreferences.setNrCombined(bandDataStore, combined) }
                     },
                     usageSettingHidden = usageSettingHidden,
                     onToggleUsageSetting = {

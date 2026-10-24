@@ -18,9 +18,14 @@ import dev.qcom.bandmenu.CellLockState
 import dev.qcom.bandmenu.network.LockRequest
 import dev.qcom.bandmenu.network.LockRole
 import dev.qcom.bandmenu.network.LockTarget
+import dev.qcom.bandmenu.network.Rat
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/** Which part of a Cell-Lock row was tapped: its PCI, its channel
+ *  (EARFCN/NARFCN), or the rest of the row. */
+internal enum class CellTap { ID, CHANNEL, ROW }
 
 /**
  * The neighbour table: Band | PCI | EARFCN | RSRP bar | RSRQ bar, rows already
@@ -29,15 +34,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * after the PCI (Band | PCI | Beam | NARFCN | RSRP | RSRQ, as NSG lists them). The Network page and the Cell-Lock
  * page's table both use it, so a neighbour looks the same on either page.
  * Serving-cell rows (the Cell-Lock table's first rows) show PCI and channel
- * in blue; the locked cell's are green.
- * With [onToggle] a row is the lock control for its cell: tapping it locks (or,
- * already locked, releases).
+ * in blue; the locked cell's are green, bracketed to show what the lock pins
+ * ("[269 156510]" for a cell, "269 [156510]" for a frequency).
+ * With [onTap] a row is a lock control and reports the tapped column.
  */
 @Composable
 internal fun NeighbourTable(
     rows: List<LockTarget>,
-    lockedOf: (LockTarget) -> Boolean = { false },
-    onToggle: ((LockTarget) -> Unit)? = null,
+    lockOf: (LockTarget) -> LockKind = { LockKind.NONE },
+    onTap: ((LockTarget, CellTap) -> Unit)? = null,
     /** Taller rows with bigger values: the Cell-Lock page's list is tapped,
      *  the Network page's is read. */
     roomy: Boolean = false
@@ -51,7 +56,8 @@ internal fun NeighbourTable(
     @Composable
     fun cols(
         id: @Composable () -> Unit, band: @Composable () -> Unit, beam: (@Composable () -> Unit)?, ch: @Composable () -> Unit,
-        metrics: List<@Composable () -> Unit>, modifier: Modifier = Modifier
+        metrics: List<@Composable () -> Unit>, modifier: Modifier = Modifier,
+        idModifier: Modifier = Modifier, chModifier: Modifier = Modifier
     ) {
         Row(
             modifier.fillMaxWidth().padding(vertical = rowPadding),
@@ -62,7 +68,7 @@ internal fun NeighbourTable(
             // same gap.
             val bar = if (beam != null) 1.0f else 1.15f
             Box(Modifier.weight(if (beam != null) 0.67f else 0.7f), Alignment.CenterStart) { band() }
-            Box(Modifier.weight(if (beam != null) 0.58f else 0.75f), Alignment.CenterStart) { id() }
+            Box(Modifier.weight(if (beam != null) 0.58f else 0.75f).then(idModifier), Alignment.CenterStart) { id() }
             // A beam index is one or two digits: centred under the header's
             // word (an invisible copy sizes the cell), left like the others.
             if (beam != null) Box(Modifier.weight(0.72f), Alignment.CenterStart) {
@@ -71,7 +77,7 @@ internal fun NeighbourTable(
                     beam()
                 }
             }
-            Box(Modifier.weight(if (beam != null) 1.04f else 1.15f), Alignment.CenterStart) { ch() }
+            Box(Modifier.weight(if (beam != null) 1.04f else 1.15f).then(chModifier), Alignment.CenterStart) { ch() }
             metrics.forEach { m -> Box(Modifier.weight(bar).padding(horizontal = 3.dp), Alignment.Center) { m() } }
             repeat(2 - metrics.size) { Spacer(Modifier.weight(bar)) }
         }
@@ -90,16 +96,21 @@ internal fun NeighbourTable(
         cols({ head(first.idLabel) }, { head("Band") }, if (beams) ({ head("Beam") }) else null, { head(first.channelLabel) },
             first.metrics.take(2).map { m -> @Composable { head(m.label) } })
         run.forEach { t ->
-            val locked = lockedOf(t)
+            val kind = lockOf(t)
+            val locked = kind != LockKind.NONE
             val idColor = when {
                 locked -> LockGreen
                 t.role == LockRole.SERVING -> MiuixTheme.colorScheme.primary
                 else -> MiuixTheme.colorScheme.onBackground
             }
+            // The brackets show what the lock pins, as the manual fields read:
+            // a cell lock wraps both ("[269 156510]"), a frequency lock only
+            // the NARFCN ("269 [156510]").
+            val (idText, chText) = lockTexts(kind, t.id, t.channel)
             cols(
                 {
                     Text(
-                        t.id,
+                        idText,
                         style = idStyle,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                         color = idColor,
@@ -117,12 +128,14 @@ internal fun NeighbourTable(
                 if (beams) ({ Text(t.beam?.toString() ?: "\u2013", style = valueStyle, maxLines = 1,
                     color = if (t.beam == null) grey else MiuixTheme.colorScheme.onBackground) }) else null,
                 {
-                    Text(t.channel.toString(), style = valueStyle, maxLines = 1, color = idColor)
+                    Text(chText, style = valueStyle, maxLines = 1, color = idColor)
                 },
                 t.metrics.take(2).map { m -> @Composable {
                     CellValueBar(m.value, m.kind, rat = m.rat, style = valueStyle)
                 } },
-                modifier = if (onToggle == null) Modifier else Modifier.clickable { onToggle(t) }
+                modifier = if (onTap == null) Modifier else Modifier.clickable { onTap(t, CellTap.ROW) },
+                idModifier = if (onTap == null) Modifier else Modifier.clickable { onTap(t, CellTap.ID) },
+                chModifier = if (onTap == null) Modifier else Modifier.clickable { onTap(t, CellTap.CHANNEL) }
             )
         }
     }
@@ -142,15 +155,62 @@ internal fun LockRequest.args(): Pair<Int, String> = when (this) {
     is LockRequest.NrFrequency -> 0 to "$arfcn $scsKhz"
 }
 
-/** This row is the cell the modem is currently pinned to. */
-internal fun LockTarget.isLockedIn(state: CellLockState?): Boolean = when (val l = lock) {
-    is LockRequest.LteCell ->
-        state?.lte?.locks?.any { it.earfcn == l.earfcn.toInt() && it.pci == l.pci } == true
-    is LockRequest.NrCell ->
-        state?.nr?.pciLock?.let { it.arfcn == l.arfcn.toInt() && it.pci == l.pci } == true
-    is LockRequest.NrFrequency -> state?.nr?.let { nr ->
-        nr.arfcnLock?.any { it.arfcn == l.arfcn.toInt() } == true ||
-            nr.pciLock?.arfcn == l.arfcn.toInt()
-    } == true
-    null -> false
+/** How a row's cell is pinned: the whole cell (frequency + PCI), only its
+ *  frequency, or not at all. */
+internal enum class LockKind {
+    NONE,
+
+    /** Frequency + PCI (an LTE cell lock, or an NR PCI lock). */
+    CELL,
+
+    /** The frequency only (an NR-ARFCN lock): every cell on it is pinned. */
+    FREQUENCY
 }
+
+/**
+ * The PCI and channel as the table shows them: the brackets mark what the
+ * lock pins, as the manual lock fields read them. A cell lock wraps both
+ * ("[269", "156510]"), a frequency lock only the NARFCN ("269", "[156510]").
+ */
+internal fun lockTexts(kind: LockKind, id: String, channel: Long): Pair<String, String> = when (kind) {
+    LockKind.CELL -> "[$id" to "$channel]"
+    LockKind.FREQUENCY -> id to "[$channel]"
+    LockKind.NONE -> id to channel.toString()
+}
+
+/**
+ * How [state] pins this row, matched on the row's own identity rather than on
+ * the [LockRequest] the row was built with. That matters once a cell becomes
+ * the serving one: the modem then reports it with its PCI and band, so its
+ * lock request may change shape (an NR-ARFCN lock row becomes a cell lock),
+ * but it is the same locked cell and must stay green.
+ */
+internal fun LockTarget.lockKindIn(state: CellLockState?): LockKind {
+    if (state == null) return LockKind.NONE
+    return when (rat) {
+        Rat.LTE ->
+            if (state.lte.locks.any { it.earfcn == channel.toInt() && it.pci.toString() == id })
+                LockKind.CELL else LockKind.NONE
+        Rat.NR -> {
+            val nr = state.nr
+            val ch = channel.toInt()
+            val pciLock = nr.pciLock?.takeIf { nr.type != "arfcn" }
+            val freqLocks = nr.arfcnLock.orEmpty()
+            when {
+                // A cell lock wins when the modem names the PCI: an NR-ARFCN
+                // lock's cells (each without a PCI, or with one the lock
+                // doesn't name) are matched below instead.
+                pciLock != null && pciLock.arfcn == ch && pciLock.pci.toString() == id ->
+                    LockKind.CELL
+                freqLocks.any { it.arfcn == ch } -> LockKind.FREQUENCY
+                else -> LockKind.NONE
+            }
+        }
+        else -> LockKind.NONE
+    }
+}
+
+/** This row is the cell the modem is currently pinned to (or, for a
+ *  frequency lock, one of the cells on the locked frequency). */
+internal fun LockTarget.isLockedIn(state: CellLockState?): Boolean =
+    lockKindIn(state) != LockKind.NONE
