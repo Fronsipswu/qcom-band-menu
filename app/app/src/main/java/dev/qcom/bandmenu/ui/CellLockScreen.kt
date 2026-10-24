@@ -179,6 +179,11 @@ fun CellLockScreen(
 
     val scope = rememberCoroutineScope()
     var experimentalEnabled by rememberSaveable { mutableStateOf(false) }
+    // Clear ALL empties the lock fields, pre-filled values included: a cached
+    // lock must not linger as input text. The slot scopes it to the SIM the
+    // menu acted on (both SIM pages stay composed).
+    var fieldsWipeKey by rememberSaveable { mutableIntStateOf(0) }
+    var fieldsWipeSlot by rememberSaveable { mutableIntStateOf(-1) }
     val live by networkMonitor.state.collectAsState()
     // The cell table at the bottom of each SIM page shows the Network page's
     // poller rounds. This page's padlock holds it still: polling for this
@@ -289,6 +294,8 @@ fun CellLockScreen(
                                 cellLockState = if (slot == 0) modemState.sim1CellLock else modemState.sim2CellLock,
                                 plmnLockState = if (slot == 0) modemState.sim1PlmnLock else modemState.sim2PlmnLock,
                                 refreshKey = refreshKey,
+                                fieldsWipeKey = fieldsWipeKey,
+                                fieldsWipeSlot = fieldsWipeSlot,
                                 lockResult = lockResult,
                                 onLockResultConsumed = onLockResultConsumed,
                                 onApplyLock = onApplyLock,
@@ -358,7 +365,11 @@ fun CellLockScreen(
                         DropdownEntry(items = listOf(
                             DropdownItem(
                                 text = "Clear ALL",
-                                onClick = { onClearAll(selectedSim + 1) }
+                                onClick = {
+                                    fieldsWipeKey++
+                                    fieldsWipeSlot = selectedSim
+                                    onClearAll(selectedSim + 1)
+                                }
                             )
                         )),
                         DropdownEntry(items = listOf(
@@ -402,7 +413,11 @@ fun CellLockScreen(
                         DropdownEntry(items = listOf(
                             DropdownItem(
                                 text = "Clear ALL",
-                                onClick = { onClearAll(selectedSim + 1) }
+                                onClick = {
+                                    fieldsWipeKey++
+                                    fieldsWipeSlot = selectedSim
+                                    onClearAll(selectedSim + 1)
+                                }
                             )
                         )),
                         DropdownEntry(items = listOf(
@@ -453,6 +468,10 @@ private fun SimCellLockPage(
     cellLockState: CellLockState?,
     plmnLockState: PlmnLockState?,
     refreshKey: Int,
+    /** A Clear ALL empties every field, pre-filled values included. */
+    fieldsWipeKey: Int = 0,
+    /** The SIM slot that Clear ALL acted on. */
+    fieldsWipeSlot: Int = -1,
     lockResult: CellLockResult?,
     onLockResultConsumed: () -> Unit,
     onApplyLock: (sim: Int, fieldIndex: Int, input: String) -> Unit,
@@ -494,13 +513,36 @@ private fun SimCellLockPage(
     var lteSent by rememberSaveable { mutableStateOf<String?>(null) }
     var plmnText by rememberSaveable { mutableStateOf("") }
     var syncedStateKey by rememberSaveable { mutableStateOf("") }
+    // The Clear ALL this page has already applied: the wipe is a one-shot
+    // event, not a state the fields keep matching.
+    var appliedWipeKey by rememberSaveable { mutableIntStateOf(0) }
 
     var labelOverrides by remember { mutableStateOf<Map<Int, LabelOverride>>(emptyMap()) }
     val overrideJobs = remember { mutableMapOf<Int, kotlinx.coroutines.Job>() }
     val pageScope = rememberCoroutineScope()
 
-    LaunchedEffect(cellLockState, plmnLockState, refreshKey) {
+    LaunchedEffect(cellLockState, plmnLockState, refreshKey, fieldsWipeKey) {
         val currentKey = "$refreshKey|$cellLockState|$plmnLockState"
+        // Clear ALL empties every field, pre-filled values included. It runs
+        // before the state early-return: the modem state can come back the
+        // same (nothing was locked), yet the fields must still empty.
+        if (fieldsWipeSlot == simSlot && fieldsWipeKey != appliedWipeKey) {
+            nrArfcnValue = ""
+            nrScs = 30
+            nrPciValue = ""
+            nrBandValue = ""
+            nrBandAuto = false
+            nrMultiPciText = ""
+            nrGnbText = ""
+            lteEarfcnValue = ""
+            ltePciValue = ""
+            nrSent = null
+            lteSent = null
+            // The state's own sync below must not put the lock back: the
+            // wipe is the newer input.
+            syncedStateKey = currentKey
+            appliedWipeKey = fieldsWipeKey
+        }
         if (currentKey == syncedStateKey) return@LaunchedEffect
         syncedStateKey = currentKey
         val nr = cellLockState?.nr
