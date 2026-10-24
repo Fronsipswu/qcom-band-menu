@@ -635,10 +635,11 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                         5 -> {
-                                            if (parts.size != 2) { errorMsg = "Need: mcc mnc"; null }
+                                            val plmn = BandValidator.plmnParts(input)
+                                            if (plmn.size != 2) { errorMsg = "Need: mcc mnc"; null }
                                             else {
-                                                val mcc = parts[0].toIntOrNull()
-                                                val mnc = parts[1].toIntOrNull()
+                                                val mcc = plmn[0].toIntOrNull()
+                                                val mnc = plmn[1].toIntOrNull()
                                                 if (mcc == null || mcc < 0 || mcc > 999 || mnc == null || mnc < 0 || mnc > 999) {
                                                     errorMsg = "MCC and MNC must be 0-999"; null
                                                 } else ({ daemonManager.plmnLockSet(mcc, mnc) })

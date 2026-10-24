@@ -73,4 +73,20 @@ class BandValidatorTest {
         // Unknown RAT mask: nothing to check.
         assertEquals(null, BandValidator.noBandsForRatLock(SimState()))
     }
+
+    @Test
+    fun plmnAcceptsSpaceDashOrNoSeparator() {
+        assertEquals(listOf("520", "04"), BandValidator.plmnParts("520 04"))
+        assertEquals(listOf("520", "04"), BandValidator.plmnParts("520-04"))
+        assertEquals(listOf("520", "04"), BandValidator.plmnParts(" 52004 "))
+        assertEquals(listOf("440", "20"), BandValidator.plmnParts("44020"))
+        // A separator is explicit, whatever the lengths.
+        assertEquals(listOf("44", "20"), BandValidator.plmnParts("44-20"))
+        assertEquals(listOf("44", "20"), BandValidator.plmnParts("44 20"))
+        assertEquals(listOf("310", "260"), BandValidator.plmnParts("310 - 260"))
+        // Without one, five or six digits (a 3-digit MNC); anything else is left for the caller to reject.
+        assertEquals(listOf("310", "980"), BandValidator.plmnParts("310980"))
+        assertEquals(listOf("5200"), BandValidator.plmnParts("5200"))
+        assertEquals(listOf("5200401"), BandValidator.plmnParts("5200401"))
+    }
 }
