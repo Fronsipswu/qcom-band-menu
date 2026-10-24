@@ -374,7 +374,7 @@ diag_dci_set_version(1)       extended header: SIM of each log
 diag_log_stream_config        subscribe to the log codes below
 ```
 
-On Snapdragon 865/870 the modem is an external X55, reached as a remote processor (MDM) rather than through the SoC's own MPSS. When the SoC side has no MPSS with DCI support and the external modem has one, the client is registered on the external modem instead.
+On Snapdragon 865/870 the modem is an external X55, reached as a remote processor (MDM) rather than through the SoC's own MPSS. libdiag only reports which processor's MPSS supports DCI once a client is registered, so the helper registers on the SoC side first, then asks: with no MPSS there and one on the external modem, it moves to a client on the external modem. When the answer is unclear and the driver reports a remote device, it keeps a client on both and decodes whichever delivers logs first.
 
 ### Log Codes
 

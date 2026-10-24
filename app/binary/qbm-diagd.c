@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.29"
+#define HELPER_VERSION "1.22.32"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -90,6 +90,7 @@ typedef int (*rel_client_t)(int *);
 typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
 typedef int (*log_cfg_t)(int, int, uint16_t *, int);
 typedef int (*dci_list_t)(int, uint16_t *);
+typedef int (*remote_dev_t)(uint16_t *);
 
 static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, 0xB16D, /* LTE */
                             0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, 0xB884, /* NR */
@@ -1681,7 +1682,12 @@ static void b8a7(const uint8_t *payload, int size) {
 /* DCI log: [u16 len][u16 code][u64 timestamp][payload]. With the extended
  * header: [0x98][1][2 reserved][u32 subscription][i32 -1][log] (seen on
  * SM8550 with two SIMs; every log carries it). */
-static void on_log(unsigned char *ptr, int len) {
+/* Which DCI client feeds the decoders when two are open (see main): the
+ * first one to deliver a log. 0 is the SoC-side client, 1 the external
+ * modem's. */
+static int decode_src = -1;
+
+static void on_log_from(int src, unsigned char *ptr, int len) {
     if (len < 12 || stopping) return;
     int sub = 1;
     if (len >= 24 && (int32_t)le32(ptr + 8) == -1 && le16(ptr + 12) + 12 == len) {
@@ -1694,6 +1700,8 @@ static void on_log(unsigned char *ptr, int len) {
     const uint8_t *pl = ptr + 12;
     int pn = len - 12;
     pthread_mutex_lock(&lock);
+    if (decode_src < 0) decode_src = src;
+    if (src != decode_src) { pthread_mutex_unlock(&lock); return; }
     sim = sub - 1;
     rrc_csi_select(sim);
     last_log_ms = now_ms();
@@ -1721,6 +1729,8 @@ static void on_log(unsigned char *ptr, int len) {
     else if (code == 0xB821) rrc_csi_b821(pl, pn);
     pthread_mutex_unlock(&lock);
 }
+static void on_log(unsigned char *ptr, int len) { on_log_from(0, ptr, len); }
+static void on_log_external(unsigned char *ptr, int len) { on_log_from(1, ptr, len); }
 static void on_event(unsigned char *p, int len) { (void)p; (void)len; }
 
 /* ── Stats ───────────────────────────────────────────────────────────────── */
@@ -2158,21 +2168,15 @@ static void *open_libdiag(void) {
 }
 
 /*
- * Which processor carries the modem. On Snapdragon 865/870 the modem is an
- * X55 on PCIe: its DIAG, DCI included, reaches the phone as a remote
- * processor (MDM), and the SoC's own side has no MPSS at all, so a client
- * registered there gets no modem logs. When the SoC side has no MPSS that
- * supports DCI and the external modem has one, register there instead.
- * Everything else (an integrated modem, a libdiag without the
- * per-processor query, a failed query) keeps the SoC side as before.
+ * Whether a processor's MPSS (the modem) supports DCI: 1 yes, 0 no, -1
+ * unknown (no query in this libdiag, or it failed). libdiag only knows its
+ * DCI processors once a client is registered: asked before, every processor
+ * is out of range (1008), so main asks after the first registration.
  */
-static int modem_proc(void *h) {
-    dci_list_t dci_list = (dci_list_t)dlsym(h, "diag_get_dci_support_list_proc");
-    uint16_t soc = 0, mdm = 0;
-    if (dci_list && dci_list(DIAG_PROC_MSM, &soc) == DCI_NO_ERROR && !(soc & DIAG_CON_MPSS) &&
-        dci_list(DIAG_PROC_MDM, &mdm) == DCI_NO_ERROR && (mdm & DIAG_CON_MPSS))
-        return DIAG_PROC_MDM;
-    return DIAG_PROC_MSM;
+static int proc_has_modem(dci_list_t query, int proc) {
+    uint16_t mask = 0;
+    if (!query || query(proc, &mask) != DCI_NO_ERROR) return -1;
+    return (mask & DIAG_CON_MPSS) != 0;
 }
 
 #define SYM(T, name) T name = (T)dlsym(h, #name); if (!name) { fprintf(stderr, "libdiag: missing %s\n", #name); return 1; }
@@ -2201,10 +2205,9 @@ int main(int argc, char **argv) {
     if (!Diag_LSM_Init(NULL)) { fprintf(stderr, "Diag_LSM_Init failed\n"); return 1; }
     int client = 0, sig = SIGCONT;
     uint16_t periph = DIAG_CON_MPSS;
-    int proc = modem_proc(h);
-    int r = diag_register_dci_client(&client, &periph, proc, &sig);
+    int r = diag_register_dci_client(&client, &periph, DIAG_PROC_MSM, &sig);
     if (r != DCI_NO_ERROR) {
-        fprintf(stderr, "DCI register failed%s: %d\n", proc == DIAG_PROC_MDM ? " (external modem)" : "", r);
+        fprintf(stderr, "DCI register failed: %d\n", r);
         Diag_LSM_DeInit();
         return 1;
     }
@@ -2218,6 +2221,49 @@ int main(int argc, char **argv) {
         diag_release_dci_client(&client);
         Diag_LSM_DeInit();
         return 1;
+    }
+
+    /*
+     * An external modem. On Snapdragon 865/870 the modem is an X55 on PCIe:
+     * its DCI reaches the phone as a remote processor (1), and the SoC side
+     * (0) has no MPSS, so the client above gets no modem logs. Now that
+     * libdiag knows its processors, ask which one has the modem:
+     *   SoC side yes (an integrated modem): the client above stays alone.
+     *   SoC side no, processor 1 yes (the X55): a client there, and the one
+     *     above goes.
+     *   Unclear (a query missing or failing) and the driver reports a remote
+     *     device: a client on processor 1 too; the first client to deliver
+     *     feeds the decoders (decode_src).
+     */
+    int client2 = 0, external = 0, soc_open = 1;
+    dci_list_t dci_query = (dci_list_t)dlsym(h, "diag_get_dci_support_list_proc");
+    int soc = proc_has_modem(dci_query, DIAG_PROC_MSM), mdm = proc_has_modem(dci_query, DIAG_PROC_MDM);
+    uint16_t remote_mask = 0;
+    remote_dev_t has_remote = (remote_dev_t)dlsym(h, "diag_has_remote_device");
+    if (has_remote) has_remote(&remote_mask);
+    if (soc != 1 && (mdm == 1 || ((soc < 0 || mdm < 0) && remote_mask))) {
+        uint16_t periph2 = DIAG_CON_MPSS;
+        int sig2 = SIGCONT;
+        int r2 = diag_register_dci_client(&client2, &periph2, DIAG_PROC_MDM, &sig2);
+        if (r2 == DCI_NO_ERROR) {
+            int tags2 = diag_dci_set_version && diag_dci_set_version(client2, 1) == DCI_NO_ERROR;
+            diag_register_dci_stream_proc(client2, on_log_external, on_event);
+            r2 = diag_log_stream_config(client2, 1, CODES, NCODES);
+            if (r2 == DCI_NO_ERROR) {
+                external = 1;
+                if (soc == 0 && mdm == 1) {
+                    /* The modem is only on processor 1: the SoC-side client goes. */
+                    diag_log_stream_config(client, 0, CODES, NCODES);
+                    usleep(200 * 1000);
+                    diag_release_dci_client(&client);
+                    soc_open = 0;
+                    sim_tags = tags2;
+                }
+            } else {
+                diag_release_dci_client(&client2);
+            }
+        }
+        if (!external) fprintf(stderr, "DCI on the external modem failed: %d\n", r2);
     }
     window_start = now_ms();
 
@@ -2274,11 +2320,13 @@ int main(int argc, char **argv) {
 
     /* Unsubscribe, let in-flight callbacks drain, then release (releasing
      * under load without the drain segfaulted in Diag_LSM_DeInit). */
-    diag_log_stream_config(client, 0, CODES, NCODES);
+    if (soc_open) diag_log_stream_config(client, 0, CODES, NCODES);
+    if (external) diag_log_stream_config(client2, 0, CODES, NCODES);
     usleep(500 * 1000);
     stopping = 1;
     usleep(200 * 1000);
-    diag_release_dci_client(&client);
+    if (external) diag_release_dci_client(&client2);
+    if (soc_open) diag_release_dci_client(&client);
     Diag_LSM_DeInit();
     if (cfd >= 0) close(cfd);
     close(lfd);
