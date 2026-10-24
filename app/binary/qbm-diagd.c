@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.32"
+#define HELPER_VERSION "1.22.33"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -343,8 +343,11 @@ static void b16e(const uint8_t *p, int n) {
  * records retransmitted (NSG's retransmission rate within 0.3 points on
  * three phones). The other records are PUCCH: their
  * total transmit power (signed 8 bits at 86, 182 with CA, dBm) is the PUCCH
- * power (NSG's within 0.1 dB on three phones). Walked completely first. */
+ * power (NSG's within 0.1 dB on three phones). Walked completely first.
+ * v48 (X55) is b16d_v48(). */
+static void b16d_v48(const uint8_t *p, int n);
 static void b16d(const uint8_t *p, int n) {
+    if (n >= 1 && p[0] == 48) { b16d_v48(p, n); return; }
     if (n < 4 || (p[0] != 49 && p[0] != 52)) return;
     long add_mcs[SLOTS] = { 0 }, add_n[SLOTS] = { 0 }, add_pucch[SLOTS] = { 0 }, add_pucch_n[SLOTS] = { 0 };
     long add_pusch[SLOTS] = { 0 }, add_retx[SLOTS] = { 0 };
@@ -378,6 +381,33 @@ static void b16d(const uint8_t *p, int n) {
         win[i].n_ul_pucch += add_pucch_n[i];
         win[i].ul_pusch_n += add_pusch[i];
         win[i].ul_retx_n += add_retx[i];
+    }
+}
+
+/* B16D v48 (X55): fixed 52-byte records from byte 4, count at byte 3,
+ * channel type at bit 32 (1 PUSCH). PUSCH: carrier 33/3, retransmission
+ * index 288/5, MCS 325/5; PUCCH: total transmit power, signed 8 bits at 47
+ * (dBm), on the primary carrier. Checked on two X55 phones against B139 of
+ * the same subframe (RBs, TB size and retransmission index agree on every
+ * record; the MCS fits the modulation in the 64QAM or 256QAM table). Same
+ * outputs as v49/v52. */
+static void b16d_v48(const uint8_t *p, int n) {
+    if (n < 4 || 4 + 52 * p[3] != n) return;
+    for (int i = 0; i < p[3]; i++) {
+        const uint8_t *r = p + 4 + 52 * i;
+        if (!bits(r, 32, 1)) {
+            int power = (int)bits(r, 47, 8);
+            win[0].ul_pucch_sum += power >= 128 ? power - 256 : power;
+            win[0].n_ul_pucch++;
+            continue;
+        }
+        int carrier = (int)bits(r, 33, 3), mcs = (int)bits(r, 325, 5);
+        if (carrier >= SLOTS) continue;
+        win[carrier].ul_pusch_n++;
+        if (bits(r, 288, 5)) win[carrier].ul_retx_n++;
+        if (mcs > 28) continue;
+        win[carrier].ul_mcs_sum += mcs;
+        win[carrier].ul_mcs_n++;
     }
 }
 
