@@ -36,6 +36,10 @@ Apply cellular forcings such as RAT preferences, band locking, and 5G-NR modes t
 
 Compatibility may vary between Qualcomm modem generations, device manufacturers, firmware versions, and dual-SIM implementations.
 
+# Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before you open an issue or a pull request.
+
 # Usage and Installation
 
 ## Android App
