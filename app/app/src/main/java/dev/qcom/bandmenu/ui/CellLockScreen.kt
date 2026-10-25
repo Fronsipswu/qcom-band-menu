@@ -687,7 +687,11 @@ private fun SimCellLockPage(
                     else -> null
                 }
             }
-            val freqCanApply = arfcn != null && "f:$freqInput" != nrSent && "f:$freqInput" != nrLockedKey
+            // While a cell lock (NR-ARFCN + PCI) is active the top button stays
+            // grey: clear that lock first (the PCI row's button) to set a
+            // frequency-only one.
+            val freqCanApply = arfcn != null && nrState?.type != "pci" &&
+                "f:$freqInput" != nrSent && "f:$freqInput" != nrLockedKey
             val cellCanApply = arfcn != null && withPci && pci != null && band != null &&
                 "c:$cellInput" != nrSent && "c:$cellInput" != nrLockedKey
             // A row whose values are the active lock's clears it instead: the
