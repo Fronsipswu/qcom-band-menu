@@ -16,7 +16,7 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
-        manifestPlaceholders["appLabel"] = "Qualcomm Band Menu"
+        manifestPlaceholders["appLabel"] = "高通频段菜单"
     }
 
     buildTypes {
@@ -43,7 +43,7 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
-            manifestPlaceholders["appLabel"] = "QBM Staging"
+            manifestPlaceholders["appLabel"] = "高通频段菜单（测试版）"
             signingConfig = signingConfigs.getByName("debug")
             isProfileable = true
             matchingFallbacks += listOf("release")
