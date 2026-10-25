@@ -137,6 +137,8 @@ fun BandLockScreen(
     onAttach: () -> Unit = {},
     onReattach: () -> Unit = {},
     nrIndependentSupported: Boolean? = null,
+    /** False once the modem rejected an NR mode change: the row only shows the mode. */
+    nrModeSettable: Boolean = true,
     simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     bandFilter: BandFilterState = BandFilterState(),
     onSaveFilter: (BandFilterState) -> Unit = {},
@@ -284,7 +286,8 @@ fun BandLockScreen(
                                     refreshKey = refreshKey,
                                     showQuickSelect = !quickSelectHidden,
                                     showUsageSetting = !usageSettingHidden,
-                                    showNrMode = !nrModeHidden
+                                    showNrMode = !nrModeHidden,
+                                    nrModeSettable = nrModeSettable
                                 )
                             }
                         }
@@ -516,7 +519,8 @@ private fun SimBandLockPage(
     refreshKey: Int,
     showQuickSelect: Boolean,
     showUsageSetting: Boolean,
-    showNrMode: Boolean
+    showNrMode: Boolean,
+    nrModeSettable: Boolean
 ) {
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -620,7 +624,9 @@ private fun SimBandLockPage(
                 NrMode.SA -> 1
                 NrMode.NSA -> 2
             }
-            val nrModeEnabled = useIndependentLock
+            // Greyed, showing the modem's mode, once the modem rejected a
+            // change (the X55 reports the mode but can't set it).
+            val nrModeEnabled = nrModeSettable
             TabRowWithContour(
                 tabs = listOf("SA/NSA", "SA", "NSA"),
                 selectedTabIndex = nrModeIndex,

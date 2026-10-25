@@ -46,6 +46,9 @@ class DaemonHolder(val daemonManager: DaemonManager, diagClient: DiagClient, rep
     val cellLockRefreshKey = mutableIntStateOf(0)
     val cellLockSelectedSim = mutableIntStateOf(0)
     val nrIndependentSupported = mutableStateOf<Boolean?>(null)
+    /** False once the modem rejected an NR mode change (the X55 reports the
+     *  mode but can't set it): the Bands page's NR mode row then only shows it. */
+    val nrModeSettable = mutableStateOf(true)
     val initGeneration = mutableIntStateOf(0)
     val sim2BindRetries = mutableIntStateOf(0)
     val simLabels = mutableStateOf(listOf("SIM 1", "SIM 2"))

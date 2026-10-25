@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
                 var cellLockRefreshKey by daemonHolder.cellLockRefreshKey
                 var cellLockSelectedSim by daemonHolder.cellLockSelectedSim
                 var nrIndependentSupported by daemonHolder.nrIndependentSupported
+                var nrModeSettable by daemonHolder.nrModeSettable
                 var bandFilter by remember { mutableStateOf(BandFilterState()) }
                 var quickSelectHidden by remember { mutableStateOf(false) }
                 var nrCombined by remember { mutableStateOf(false) }
@@ -914,6 +915,7 @@ class MainActivity : ComponentActivity() {
                     },
                     cellLockRefreshKey = cellLockRefreshKey,
                     nrIndependentSupported = nrIndependentSupported,
+                    nrModeSettable = nrModeSettable,
                     simLabels = simLabels,
                     bandFilter = bandFilter,
                     onSaveFilter = { state ->
@@ -962,6 +964,7 @@ class MainActivity : ComponentActivity() {
                                 var firstError: DaemonError? = null
                                 var newState: SimState? = null
                                 var errorMsg: String? = null
+                                var nrModeRejected = false
 
                                 withContext(Dispatchers.IO) {
                                     try {
@@ -979,6 +982,12 @@ class MainActivity : ComponentActivity() {
 
                                         val hasNrHardware = hw != null && hw.nr.isNotEmpty()
                                         val useIndependentLock = nrIndependentSupported == true
+                                        // The NR mode only when it changes, so a modem that
+                                        // can't set it (the X55) doesn't fail every Apply.
+                                        val modeCmd = if (hasNrHardware && nrModeSettable &&
+                                            validatedState.nrMode != NrMode.UNKNOWN &&
+                                            validatedState.nrMode != simResp.simState?.nrMode
+                                        ) JsonRequestBuilder.modeSet(validatedState.nrMode) else null
                                         val commands = buildList {
                                             add(JsonRequestBuilder.gsmSet(validatedState.gsmBands))
                                             add(JsonRequestBuilder.wcdmaSet(validatedState.wcdmaBands))
@@ -990,7 +999,7 @@ class MainActivity : ComponentActivity() {
                                                 } else {
                                                     add(JsonRequestBuilder.nrSet(validatedState.nrNsaBands))
                                                 }
-                                                add(JsonRequestBuilder.modeSet(validatedState.nrMode))
+                                                modeCmd?.let { add(it) }
                                             }
                                             if (validatedState.usageMode != UsageMode.UNKNOWN) {
                                                 add(JsonRequestBuilder.usagePrefSet(validatedState.usageMode))
@@ -1002,7 +1011,11 @@ class MainActivity : ComponentActivity() {
                                         var lastResp: DaemonResponse = simResp
                                         for (cmd in commands) {
                                             lastResp = JsonStateParser.parseResponse(daemonManager.sendRequest(cmd))
-                                            if (!lastResp.ok && firstError == null) {
+                                            // A rejected NR mode change greys the NR mode row
+                                            // out instead of failing the Apply.
+                                            if (!lastResp.ok && cmd === modeCmd) {
+                                                nrModeRejected = true
+                                            } else if (!lastResp.ok && firstError == null) {
                                                 firstError = lastResp.error
                                             }
                                         }
@@ -1029,14 +1042,19 @@ class MainActivity : ComponentActivity() {
                                         modemState?.copy(sim2 = newState) ?: ModemState(sim2 = newState)
                                 }
                                 if (slot == 0) refreshKey0++ else refreshKey1++
-                                snackbarIsError = errorMsg != null || firstError != null
+                                if (nrModeRejected) {
+                                    nrModeSettable = false
+                                    AppLog.i(TAG, "Apply SIM $sim: NR mode change rejected, NR mode read-only")
+                                }
+                                snackbarIsError = errorMsg != null || firstError != null || nrModeRejected
                                 snackbarMessage = if (errorMsg != null) errorMsg
                                     else if (firstError != null) {
                                         val msg = firstError.message
                                         val rejected = firstError.rejectedBands
                                         if (rejected != null && rejected.isNotEmpty())
                                             "$msg (rejected: $rejected)" else msg
-                                    } else "Settings applied for SIM $sim"
+                                    } else if (nrModeRejected) "Bands applied. This modem can't change the NR mode."
+                                    else "Settings applied for SIM $sim"
                                 if (errorMsg == null && firstError == null) {
                                     AppLog.i(TAG, "Apply SIM $sim: success")
                                 }
