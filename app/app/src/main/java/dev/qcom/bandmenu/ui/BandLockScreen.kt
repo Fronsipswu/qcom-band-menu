@@ -1,5 +1,7 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -306,12 +308,12 @@ fun BandLockScreen(
                             )
                     ) {
                         SmallTopAppBar(
-                            title = "Bands",
+                            title = stringResource(R.string.bands_title),
                             color = Color.Transparent
                         )
                     }
                 } else {
-                    SmallTopAppBar(title = "Bands")
+                    SmallTopAppBar(title = stringResource(R.string.bands_title))
                 }
 
                 // Sits in the bar row, left of the centered title, so an active
@@ -331,14 +333,14 @@ fun BandLockScreen(
                 val menuEntries = buildList {
                     add(DropdownEntry(items = listOf(
                         DropdownItem(
-                            text = "Filter shown bands",
+                            text = stringResource(R.string.bands_filter_shown),
                             onClick = { showFilterSheet = true }
                         )
                     )))
                     if (bandFilter.enabled) {
                         add(DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear filter",
+                                text = stringResource(R.string.bands_clear_filter),
                                 onClick = { onClearFilter() }
                             )
                         )))
@@ -347,36 +349,36 @@ fun BandLockScreen(
                     add(DropdownEntry(items = buildList {
                         if (hardware.nr.isNotEmpty()) {
                             add(DropdownItem(
-                                text = "Hide NR mode", selected = nrModeHidden,
+                                text = stringResource(R.string.bands_hide_nr_mode), selected = nrModeHidden,
                                 onClick = onToggleNrMode
                             ))
                         }
                         add(DropdownItem(
-                            text = "Hide usage setting", selected = usageSettingHidden,
+                            text = stringResource(R.string.bands_hide_usage), selected = usageSettingHidden,
                             onClick = onToggleUsageSetting
                         ))
                         add(DropdownItem(
-                            text = "Hide quick select", selected = quickSelectHidden,
+                            text = stringResource(R.string.bands_hide_quick_select), selected = quickSelectHidden,
                             onClick = onToggleQuickSelect
                         ))
                     }))
                     if (hardware.nr.isNotEmpty() && useIndependentLock) {
                         add(DropdownEntry(items = listOf(
-                            DropdownItem(text = "Combine NR", selected = nrCombined, onClick = onToggleNrCombined)
+                            DropdownItem(text = stringResource(R.string.bands_combine_nr), selected = nrCombined, onClick = onToggleNrCombined)
                         )))
                     }
                     if (!(selectedSim == 1 && modemState?.sim2Available == false)) {
                         add(DropdownEntry(items = listOf(
-                            DropdownItem("Reset to hardware defaults", onClick = {
+                            DropdownItem(stringResource(R.string.bands_reset_defaults), onClick = {
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                 onReset(selectedSim)
                             })
                         )))
                     }
                     add(DropdownEntry(items = listOf(
-                        DropdownItem("Detach", onClick = onDetach),
-                        DropdownItem("Attach", onClick = onAttach),
-                        DropdownItem("Re-Attach", onClick = onReattach)
+                        DropdownItem(stringResource(R.string.common_detach), onClick = onDetach),
+                        DropdownItem(stringResource(R.string.common_attach), onClick = onAttach),
+                        DropdownItem(stringResource(R.string.common_reattach), onClick = onReattach)
                     )))
                 }
                 WindowIconDropdownMenu(
@@ -387,7 +389,7 @@ fun BandLockScreen(
                 ) {
                     Icon(
                         imageVector = MiuixIcons.More,
-                        contentDescription = "Menu",
+                        contentDescription = stringResource(R.string.common_menu),
                         tint = MiuixTheme.colorScheme.onBackground
                     )
                 }
@@ -498,7 +500,7 @@ private fun BandLockApplyFab(onApply: () -> Unit) {
         ) {
             Icon(
                 imageVector = MiuixIcons.Ok,
-                contentDescription = "Apply band locks",
+                contentDescription = stringResource(R.string.bands_apply_description),
                 tint = MiuixTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(26.dp)
             )
@@ -583,15 +585,15 @@ private fun SimBandLockPage(
             }
         }
         val isAuto = supportedRats.all { state.ratChecked[it] == true }
-        val ratSummary = if (isAuto && supportedRats.isNotEmpty()) "AUTO (All RATs)"
-            else if (state.ratChecked.values.all { it != true } || supportedRats.isEmpty()) "None"
+        val ratSummary = if (isAuto && supportedRats.isNotEmpty()) stringResource(R.string.bands_auto_all_rats)
+            else if (state.ratChecked.values.all { it != true } || supportedRats.isEmpty()) stringResource(R.string.common_none)
             else supportedRats.filter { state.ratChecked[it] == true }.joinToString(", ") { it.name }
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
             WindowDropdownPreference(
                 entries = listOf(
                     DropdownEntry(items = listOf(
                         DropdownItem(
-                            text = "AUTO (All RATs)",
+                            text = stringResource(R.string.bands_auto_all_rats),
                             selected = isAuto,
                             onClick = {
                                 val newAuto = !isAuto
@@ -609,7 +611,7 @@ private fun SimBandLockPage(
                         )
                     })
                 ),
-                title = "RAT lock",
+                title = stringResource(R.string.bands_rat_lock),
                 summary = ratSummary,
                 showValue = false,
                 collapseOnSelection = false
@@ -618,7 +620,7 @@ private fun SimBandLockPage(
 
         if (showNrMode && hardware.nr.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
-            SmallTitle("NR mode")
+            SmallTitle(stringResource(R.string.bands_nr_mode))
             val nrModeIndex = when (state.nrMode) {
                 NrMode.BOTH, NrMode.UNKNOWN -> 0
                 NrMode.SA -> 1
@@ -649,10 +651,10 @@ private fun SimBandLockPage(
 
         if (showUsageSetting) {
             Spacer(modifier = Modifier.height(12.dp))
-            SmallTitle("Usage setting")
+            SmallTitle(stringResource(R.string.bands_usage_setting))
             val usageEnabled = state.usageMode != UsageMode.UNKNOWN
             TabRowWithContour(
-                tabs = listOf("Voice-centric", "Data-centric"),
+                tabs = listOf(stringResource(R.string.bands_voice_centric), stringResource(R.string.bands_data_centric)),
                 selectedTabIndex = if (state.usageMode == UsageMode.DATA) 1 else 0,
                 onTabSelected = { index ->
                     if (usageEnabled) {
@@ -720,37 +722,37 @@ private fun SimBandLockPage(
         val quickItems = if (separateNr) {
             if (hasNrHardware) {
                 listOf(
-                    "All bands (all RATs)" to 0,
-                    "All 5G bands (NSA+SA)" to 1,
-                    "All NR-SA bands" to 2,
-                    "All NR-NSA bands" to 3,
-                    "All LTE bands" to 4,
-                    "All WCDMA bands" to 5,
-                    "All GSM bands" to 6
+                    stringResource(R.string.bands_all_bands) to 0,
+                    stringResource(R.string.bands_all_5g) to 1,
+                    stringResource(R.string.bands_all_nr_sa) to 2,
+                    stringResource(R.string.bands_all_nr_nsa) to 3,
+                    stringResource(R.string.bands_all_lte) to 4,
+                    stringResource(R.string.bands_all_wcdma) to 5,
+                    stringResource(R.string.bands_all_gsm) to 6
                 )
             } else {
                 listOf(
-                    "All bands (all RATs)" to 0,
-                    "All LTE bands" to 4,
-                    "All WCDMA bands" to 5,
-                    "All GSM bands" to 6
+                    stringResource(R.string.bands_all_bands) to 0,
+                    stringResource(R.string.bands_all_lte) to 4,
+                    stringResource(R.string.bands_all_wcdma) to 5,
+                    stringResource(R.string.bands_all_gsm) to 6
                 )
             }
         } else {
             if (hasNrHardware) {
                 listOf(
-                    "All bands (all RATs)" to 0,
-                    "All NR bands" to 1,
-                    "All LTE bands" to 4,
-                    "All WCDMA bands" to 5,
-                    "All GSM bands" to 6
+                    stringResource(R.string.bands_all_bands) to 0,
+                    stringResource(R.string.bands_all_nr) to 1,
+                    stringResource(R.string.bands_all_lte) to 4,
+                    stringResource(R.string.bands_all_wcdma) to 5,
+                    stringResource(R.string.bands_all_gsm) to 6
                 )
             } else {
                 listOf(
-                    "All bands (all RATs)" to 0,
-                    "All LTE bands" to 4,
-                    "All WCDMA bands" to 5,
-                    "All GSM bands" to 6
+                    stringResource(R.string.bands_all_bands) to 0,
+                    stringResource(R.string.bands_all_lte) to 4,
+                    stringResource(R.string.bands_all_wcdma) to 5,
+                    stringResource(R.string.bands_all_gsm) to 6
                 )
             }
         }
@@ -821,8 +823,8 @@ private fun SimBandLockPage(
                         })
                     })
                 },
-                title = "Quick selections",
-                summary = "Toggle band groups",
+                title = stringResource(R.string.bands_quick_selections),
+                summary = stringResource(R.string.bands_toggle_groups),
                 showValue = false,
                 collapseOnSelection = false
             )
@@ -1069,7 +1071,7 @@ private fun BandFilterSheet(
         (if (useIndependentLock) selection.nrNsa.size + selection.nrSa.size else selection.nrNsa.size)
 
     WindowBottomSheet(
-        title = "Filter shown bands",
+        title = stringResource(R.string.bands_filter_shown),
         show = show,
         onDismissRequest = onDismiss,
         startAction = {
@@ -1080,7 +1082,7 @@ private fun BandFilterSheet(
             }) {
                 Icon(
                     imageVector = MiuixIcons.Close,
-                    contentDescription = "Cancel",
+                    contentDescription = stringResource(R.string.common_cancel),
                     tint = MiuixTheme.colorScheme.onBackground
                 )
             }
@@ -1103,7 +1105,7 @@ private fun BandFilterSheet(
             ) {
                 Icon(
                     imageVector = MiuixIcons.Ok,
-                    contentDescription = "Save",
+                    contentDescription = stringResource(R.string.common_save),
                     tint = saveTint
                 )
             }
@@ -1130,7 +1132,7 @@ private fun BandFilterSheet(
             }
             item {
                 CopySelectionRow(
-                    label = if (tabIndex == 0) "Copy selection to SIM 2" else "Copy selection to SIM 1",
+                    label = if (tabIndex == 0) stringResource(R.string.bands_copy_to_sim2) else stringResource(R.string.bands_copy_to_sim1),
                     hapticFeedback = hapticFeedback
                 ) {
                     if (tabIndex == 0) {
@@ -1370,14 +1372,13 @@ internal fun Sim2UnavailableNote() {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "SIM 2 is not available",
+                text = stringResource(R.string.bands_sim2_unavailable),
                 style = MiuixTheme.textStyles.title4,
                 color = MiuixTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "The modem refused to select SIM 2. This is expected on single-SIM " +
-                    "phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.",
+                text = stringResource(R.string.bands_sim2_refused),
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
@@ -1388,7 +1389,7 @@ internal fun Sim2UnavailableNote() {
 @Composable
 private fun FilterActiveHint() {
     Text(
-        text = "Filter active",
+        text = stringResource(R.string.bands_filter_active),
         fontSize = 14.sp,
         fontWeight = FontWeight.Bold,
         color = MiuixTheme.colorScheme.primary,

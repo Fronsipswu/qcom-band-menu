@@ -6,13 +6,13 @@
     <string name="info_package">包名：%1$s</string>
     <string name="info_credits">致谢</string>
     <string name="info_powered_by">技术支持</string>
-    <string name="info_menu">菜单</string>
+    <string name="common_menu">菜单</string>
     <string name="info_debug_logging">调试日志</string>
     <string name="info_hide_navbar">隐藏导航栏</string>
     <string name="info_network_at_start">启动时显示网络页</string>
-    <string name="info_detach">去附着</string>
-    <string name="info_attach">附着</string>
-    <string name="info_reattach">重新附着</string>
+    <string name="common_detach">去附着</string>
+    <string name="common_attach">附着</string>
+    <string name="common_reattach">重新附着</string>
     <string name="info_language">语言</string>
     <string name="info_language_system">跟随系统</string>
     <string name="language_name">中文（简体）</string>

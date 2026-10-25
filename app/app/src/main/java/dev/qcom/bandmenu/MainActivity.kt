@@ -1061,8 +1061,8 @@ class MainActivity : ComponentActivity() {
                                         val rejected = firstError.rejectedBands
                                         if (rejected != null && rejected.isNotEmpty())
                                             "$msg (rejected: $rejected)" else msg
-                                    } else if (nrModeRejected) "Bands applied. This modem can't change the NR mode."
-                                    else "Settings applied for SIM $sim"
+                                    } else if (nrModeRejected) getString(R.string.bands_applied_nr_refused)
+                                    else getString(R.string.bands_applied_sim, sim)
                                 if (errorMsg == null && firstError == null) {
                                     AppLog.i(TAG, "Apply SIM $sim: success")
                                 }

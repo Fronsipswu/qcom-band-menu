@@ -135,9 +135,9 @@ fun InfoScreen(
                 ),
                 DropdownEntry(
                     items = listOf(
-                        DropdownItem(stringResource(R.string.info_detach), onClick = onDetach),
-                        DropdownItem(stringResource(R.string.info_attach), onClick = onAttach),
-                        DropdownItem(stringResource(R.string.info_reattach), onClick = onReattach)
+                        DropdownItem(stringResource(R.string.common_detach), onClick = onDetach),
+                        DropdownItem(stringResource(R.string.common_attach), onClick = onAttach),
+                        DropdownItem(stringResource(R.string.common_reattach), onClick = onReattach)
                     )
                 ),
                 DropdownEntry(
@@ -166,7 +166,7 @@ fun InfoScreen(
         ) {
             Icon(
                 imageVector = MiuixIcons.More,
-                contentDescription = stringResource(R.string.info_menu),
+                contentDescription = stringResource(R.string.common_menu),
                 tint = MiuixTheme.colorScheme.onBackground
             )
         }
