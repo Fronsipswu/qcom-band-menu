@@ -1007,6 +1007,8 @@ private fun UplinkRows(
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
     @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
     r("Band") { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
+    // The carrier's bandwidth, as in the CA tables.
+    r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("RBs") {
         val (value, fill) = ulRbCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
