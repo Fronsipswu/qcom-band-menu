@@ -21,6 +21,8 @@ jobs:
     name: Build staging APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - name: Checkout app repository
         uses: actions/checkout@v4
