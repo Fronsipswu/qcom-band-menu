@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
                 var errorMessage by daemonHolder.errorMessage
                 var snackbarMessage by daemonHolder.snackbarMessage
                 var snackbarIsError by daemonHolder.snackbarIsError
+                var snackbarIsWarning by daemonHolder.snackbarIsWarning
                 var refreshingSlots by daemonHolder.refreshingSlots
                 var refreshKey0 by daemonHolder.refreshKey0
                 var refreshKey1 by daemonHolder.refreshKey1
@@ -1046,7 +1047,9 @@ class MainActivity : ComponentActivity() {
                                     nrModeSettable = false
                                     AppLog.i(TAG, "Apply SIM $sim: NR mode change rejected, NR mode read-only")
                                 }
-                                snackbarIsError = errorMsg != null || firstError != null || nrModeRejected
+                                snackbarIsError = errorMsg != null || firstError != null
+                                // Bands applied, only the NR mode refused: a warning, not an error.
+                                snackbarIsWarning = !snackbarIsError && nrModeRejected
                                 snackbarMessage = if (errorMsg != null) errorMsg
                                     else if (firstError != null) {
                                         val msg = firstError.message
@@ -1267,7 +1270,8 @@ class MainActivity : ComponentActivity() {
                     snackbarHostState = snackbarHostState,
                     snackbarMessage = snackbarMessage,
                     snackbarIsError = snackbarIsError,
-                    onSnackbarShown = { snackbarMessage = null },
+                    snackbarIsWarning = snackbarIsWarning,
+                    onSnackbarShown = { snackbarMessage = null; snackbarIsWarning = false },
                     navbarHidden = navbarHidden,
                     onNavbarHiddenToggle = { hidden ->
                         navbarHidden = hidden

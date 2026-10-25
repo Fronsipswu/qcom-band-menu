@@ -38,6 +38,8 @@ class DaemonHolder(val daemonManager: DaemonManager, diagClient: DiagClient, rep
     val errorMessage = mutableStateOf("")
     val snackbarMessage = mutableStateOf<String?>(null)
     val snackbarIsError = mutableStateOf(false)
+    /** A partial success (yellow), e.g. bands applied but not the NR mode; reset once shown. */
+    val snackbarIsWarning = mutableStateOf(false)
     val refreshingSlots = mutableStateOf(emptySet<Int>())
     val refreshKey0 = mutableIntStateOf(0)
     val refreshKey1 = mutableIntStateOf(0)

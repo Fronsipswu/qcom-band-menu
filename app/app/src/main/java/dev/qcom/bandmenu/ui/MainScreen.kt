@@ -101,6 +101,7 @@ fun MainScreen(
     snackbarHostState: top.yukonga.miuix.kmp.basic.SnackbarHostState,
     snackbarMessage: String?,
     snackbarIsError: Boolean,
+    snackbarIsWarning: Boolean = false,
     onSnackbarShown: () -> Unit,
     /** Info page menu: the floating navigation bar hidden (persisted by the caller); pages still swipe. */
     navbarHidden: Boolean = false,
@@ -366,8 +367,14 @@ fun MainScreen(
                 top.yukonga.miuix.kmp.basic.Snackbar(
                     data = data,
                     colors = top.yukonga.miuix.kmp.basic.SnackbarDefaults.snackbarColors(
-                        containerColor = if (snackbarIsError) androidx.compose.ui.graphics.Color(0xFFF44336) else androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                        contentColor = androidx.compose.ui.graphics.Color.White,
+                        // Yellow (dark text) for a partial success, red for an error, else green.
+                        containerColor = when {
+                            snackbarIsWarning -> androidx.compose.ui.graphics.Color(0xFFFBC02D)
+                            snackbarIsError -> androidx.compose.ui.graphics.Color(0xFFF44336)
+                            else -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                        },
+                        contentColor = if (snackbarIsWarning) androidx.compose.ui.graphics.Color(0xFF212121)
+                            else androidx.compose.ui.graphics.Color.White,
                     )
                 )
             }
