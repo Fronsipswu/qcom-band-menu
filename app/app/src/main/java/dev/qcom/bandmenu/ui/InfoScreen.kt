@@ -16,21 +16,34 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.qcom.bandmenu.AppLanguage
 import dev.qcom.bandmenu.BuildConfig
+import dev.qcom.bandmenu.R
+import android.app.Activity
 import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.ListPopupColumn
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowListPopup
 
 @Composable
 fun InfoScreen(
@@ -49,6 +62,11 @@ fun InfoScreen(
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
     val statusBarInset = WindowInsets.statusBars.asPaddingValues(density).calculateTopPadding()
+    val context = LocalContext.current
+    var showLanguage by remember { mutableStateOf(false) }
+    val language = remember { AppLanguage.saved(context) }
+    val languages = remember { AppLanguage.supported(context) }
+    val names = remember(languages) { languages.associateWith { AppLanguage.name(context, it) } }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -62,7 +80,7 @@ fun InfoScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            SmallTitle("About")
+            SmallTitle(stringResource(R.string.info_about))
             Text(
                 "Qualcomm Band Menu",
                 style = MiuixTheme.textStyles.title2,
@@ -71,20 +89,20 @@ fun InfoScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                stringResource(R.string.info_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Package: ${BuildConfig.APPLICATION_ID}",
+                stringResource(R.string.info_package, BuildConfig.APPLICATION_ID),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            SmallTitle("Credits")
+            SmallTitle(stringResource(R.string.info_credits))
             Text(
                 "@pasapong",
                 style = MiuixTheme.textStyles.title2,
@@ -94,7 +112,7 @@ fun InfoScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            SmallTitle("Powered by")
+            SmallTitle(stringResource(R.string.info_powered_by))
             Text(
                 "miuix UI framework\nlibsu\nAndroidLiquidGlass\nasn1c (Lev Walkin; mouse07410 fork)",
                 textAlign = TextAlign.Center,
@@ -109,7 +127,7 @@ fun InfoScreen(
                 DropdownEntry(
                     items = listOf(
                         DropdownItem(
-                            text = "Debug logging",
+                            text = stringResource(R.string.info_debug_logging),
                             selected = debugEnabled,
                             onClick = { onDebugToggle() }
                         )
@@ -117,20 +135,28 @@ fun InfoScreen(
                 ),
                 DropdownEntry(
                     items = listOf(
-                        DropdownItem("Detach", onClick = onDetach),
-                        DropdownItem("Attach", onClick = onAttach),
-                        DropdownItem("Re-Attach", onClick = onReattach)
+                        DropdownItem(stringResource(R.string.info_detach), onClick = onDetach),
+                        DropdownItem(stringResource(R.string.info_attach), onClick = onAttach),
+                        DropdownItem(stringResource(R.string.info_reattach), onClick = onReattach)
                     )
                 ),
                 DropdownEntry(
                     items = listOf(
                         DropdownItem(
-                            text = "Hide navigation bar", selected = navbarHidden,
+                            text = stringResource(R.string.info_hide_navbar), selected = navbarHidden,
                             onClick = { onNavbarHiddenToggle(!navbarHidden) }
                         ),
                         DropdownItem(
-                            text = "Network page at start", selected = networkAtStart,
+                            text = stringResource(R.string.info_network_at_start), selected = networkAtStart,
                             onClick = { onNetworkAtStartToggle(!networkAtStart) }
+                        )
+                    )
+                ),
+                DropdownEntry(
+                    items = listOf(
+                        DropdownItem(
+                            text = stringResource(R.string.info_language),
+                            onClick = { showLanguage = true }
                         )
                     )
                 )
@@ -140,9 +166,37 @@ fun InfoScreen(
         ) {
             Icon(
                 imageVector = MiuixIcons.More,
-                contentDescription = "Menu",
+                contentDescription = stringResource(R.string.info_menu),
                 tint = MiuixTheme.colorScheme.onBackground
             )
+        }
+
+        // Second level: the languages, the phone's own first. Picking one saves
+        // it and recreates the activity so every text is drawn in it.
+        WindowListPopup(
+            show = showLanguage,
+            alignment = PopupPositionProvider.Align.End,
+            onDismissRequest = { showLanguage = false }
+        ) {
+            val options = listOf("" to stringResource(R.string.info_language_system)) +
+                languages.map { it to names.getValue(it) }
+            ListPopupColumn {
+                options.forEachIndexed { index, (tag, text) ->
+                    DropdownImpl(
+                        item = DropdownItem(text = text),
+                        optionSize = options.size,
+                        isSelected = tag == language,
+                        index = index,
+                        onSelectedIndexChange = {
+                            showLanguage = false
+                            if (tag != language) {
+                                AppLanguage.save(context, tag)
+                                (context as? Activity)?.recreate()
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 }

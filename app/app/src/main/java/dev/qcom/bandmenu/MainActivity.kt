@@ -54,6 +54,11 @@ class MainActivity : ComponentActivity() {
             "SIM 2 is not available (single-SIM mode or DSDS off)"
     }
 
+    // The language chosen on the Info page, applied before any screen is drawn.
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(AppLanguage.wrap(newBase))
+    }
+
     // Held by a ViewModel so a configuration change (dark mode, font scale,
     // window resize...) keeps the daemon and its connection instead of
     // killing and relaunching it. Stopped in DaemonHolder.onCleared().
