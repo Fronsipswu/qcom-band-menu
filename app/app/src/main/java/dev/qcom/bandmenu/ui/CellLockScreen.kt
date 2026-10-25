@@ -82,6 +82,7 @@ import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import androidx.compose.ui.draw.rotate
 import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.icon.extended.Reset
 import top.yukonga.miuix.kmp.theme.LocalDismissState
 import top.yukonga.miuix.kmp.window.WindowListPopup
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
@@ -304,6 +305,8 @@ fun CellLockScreen(
                                 navbarSpace = navbarSpace,
                                 hasNrHardware = hasNrHardware,
                                 onClearPlmn = onClearPlmn,
+                                onClear5G = onClear5G,
+                                onClear4G = onClear4G,
                                 seenNrArfcns = live.nrArfcnsBySim[slot + 1].orEmpty(),
                                 nrHardwareBands = modemState.hardware.nr,
                                 seenEarfcns = live.earfcnsBySim[slot + 1].orEmpty(),
@@ -480,6 +483,9 @@ private fun SimCellLockPage(
     navbarSpace: androidx.compose.ui.unit.Dp,
     hasNrHardware: Boolean,
     onClearPlmn: (Int) -> Unit,
+    /** Clear the 5G / 4G lock (a row's clear button, as the menu's Clear 5G / 4G). */
+    onClear5G: (Int) -> Unit = {},
+    onClear4G: (Int) -> Unit = {},
     /** The NR-ARFCNs this SIM's readings reported (the NR-ARFCN field's list). */
     seenNrArfcns: List<SeenNrArfcn> = emptyList(),
     /** The EARFCNs this SIM's readings reported (the EARFCN field's list). */
@@ -652,33 +658,53 @@ private fun SimCellLockPage(
         if (hasNrHardware) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            SmallTitle("5G", insideMargin = FieldTitleMargin)
+            // A lock's result for a few seconds, else the active lock (green).
+            val nrState = cellLockState?.nr
+            val nrStatus = (labelOverrides[0] ?: labelOverrides[1])?.let { it.text to it.color } ?: when {
+                nrState?.type == "arfcn" -> "NR-ARFCN locked \u2713" to GreenColor
+                nrState?.type == "pci" -> "NR-ARFCN + PCI locked \u2713" to GreenColor
+                nrState?.type == "gnb_allowlist" -> "gNB locked \u2713" to GreenColor
+                nrState?.multiPciLock == true -> "Multi-PCI locked \u2713" to GreenColor
+                else -> null
+            }
+            SectionTitle("5G", nrStatus)
 
             // Fields 0 and 1: the NR-ARFCN lock, or with a PCI the full cell lock.
-            val o0 = labelOverrides[0]
-            val o1 = labelOverrides[1]
             val arfcn = nrArfcnValue.trim().toLongOrNull()
             val withPci = nrPciValue.isNotBlank()
             val pci = nrPciValue.trim().toIntOrNull()?.takeIf { it in 0..1007 }
             val band = nrBandValue.trim().removePrefix("n").toIntOrNull()?.takeIf { it > 0 }
-            val nrInput = if (withPci) "$arfcn $pci $nrScs $band" else "$arfcn $nrScs"
-            val nrLocked = cellLockState?.nr?.let { nr ->
+            // Each row's check button sends its own lock, both live when both
+            // rows are filled: the top one the frequency lock (NR-ARFCN + SCS,
+            // the PCI row aside), the bottom one the cell lock. nrSent and the
+            // locked keys are prefixed with the lock kind ("f:" / "c:").
+            val freqInput = "$arfcn $nrScs"
+            val cellInput = "$arfcn $pci $nrScs $band"
+            val nrLockedKey = cellLockState?.nr?.let { nr ->
                 when (nr.type) {
-                    "arfcn" -> nr.arfcnLock?.firstOrNull()?.let { "${it.arfcn} ${it.scsKhz}" }
-                    "pci" -> nr.pciLock?.let { "${it.arfcn} ${it.pci} ${it.scsKhz} ${it.bands.firstOrNull()}" }
+                    "arfcn" -> nr.arfcnLock?.firstOrNull()?.let { "f:${it.arfcn} ${it.scsKhz}" }
+                    "pci" -> nr.pciLock?.let { "c:${it.arfcn} ${it.pci} ${it.scsKhz} ${it.bands.firstOrNull()}" }
                     else -> null
                 }
             }
-            val nrCanApply = arfcn != null && (!withPci || (pci != null && band != null)) &&
-                nrInput != nrSent && nrInput != nrLocked
-            // Each row's check button sends its own lock: the top one only
-            // without a PCI, the bottom one only with.
+            val freqCanApply = arfcn != null && "f:$freqInput" != nrSent && "f:$freqInput" != nrLockedKey
+            val cellCanApply = arfcn != null && withPci && pci != null && band != null &&
+                "c:$cellInput" != nrSent && "c:$cellInput" != nrLockedKey
+            // A row whose values are the active lock's clears it instead: the
+            // top row a frequency lock, the PCI row a cell lock.
+            val clear5G = { keyboard?.hide(); onClear5G(simSlot + 1) }
             fun autoBand(a: Long?) = a?.let { nrLockBand(it, seenNrArfcns, nrHardwareBands) }?.toString().orEmpty()
-            fun applyNr() {
-                if (!nrCanApply) return
+            fun applyFreq() {
+                if (!freqCanApply) return
                 keyboard?.hide()
-                nrSent = nrInput
-                onApplyLock(simSlot + 1, if (withPci) 1 else 0, nrInput)
+                nrSent = "f:$freqInput"
+                onApplyLock(simSlot + 1, 0, freqInput)
+            }
+            fun applyCell() {
+                if (!cellCanApply) return
+                keyboard?.hide()
+                nrSent = "c:$cellInput"
+                onApplyLock(simSlot + 1, 1, cellInput)
             }
             NrLockFields(
                 arfcn = nrArfcnValue,
@@ -714,15 +740,20 @@ private fun SimCellLockPage(
                 },
                 seen = seenNrArfcns,
                 hardwareBands = nrHardwareBands,
-                arfcnLabel = o0?.text ?: defaultLabels[0]!!,
-                arfcnLabelColor = o0?.color ?: defaultLabelColor,
+                arfcnLabel = defaultLabels[0]!!,
+                arfcnLabelColor = defaultLabelColor,
                 pciTitle = fieldTitles[1]!!,
-                pciLabel = o1?.text ?: "PCI",
-                pciLabelColor = o1?.color ?: defaultLabelColor,
+                pciLabel = "PCI",
+                pciLabelColor = defaultLabelColor,
                 keyboardOptions = switchableNumericKeyboard,
-                canApplyArfcn = nrCanApply && !withPci,
-                canApplyCell = nrCanApply && withPci,
-                onApply = { applyNr() }
+                canApplyArfcn = freqCanApply,
+                canApplyCell = cellCanApply,
+                // Done on the keyboard: the cell lock with a PCI, else the frequency lock.
+                onApply = { if (withPci) applyCell() else applyFreq() },
+                onApplyArfcn = { applyFreq() },
+                onApplyCell = { applyCell() },
+                onClearArfcn = clear5G.takeIf { nrLockedKey == "f:$freqInput" },
+                onClearCell = clear5G.takeIf { withPci && nrLockedKey == "c:$cellInput" }
             )
 
             if (experimentalEnabled) {
@@ -786,19 +817,26 @@ private fun SimCellLockPage(
 
         // The section title over the EARFCN box, a note over the PCI box (the
         // columns as LteLockFields' row), on one line.
+        val lteState = cellLockState?.lte?.takeIf { it.valid && it.locks.isNotEmpty() }
+        val lteResult = labelOverrides[4] ?: labelOverrides[6]
+        val lteStatus = lteResult?.let { it.text to it.color } ?: lteState?.let {
+            (if (it.locks.size > 1) "Multi-cell locked \u2713" else "Cell locked \u2713") to GreenColor
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            SmallTitle("4G", modifier = Modifier.weight(1f), insideMargin = FieldTitleMargin)
-            Spacer(Modifier.width(8.dp))
-            // From the PCI box's text on, over its check button too (the box alone is narrow).
-            Text(
-                "(Multi-PCI allowed)", style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1,
-                modifier = Modifier.width(NR_SIDE_WIDTH + 60.dp).padding(start = 14.dp, bottom = 8.dp)
-            )
+            SectionTitle("4G", lteStatus, Modifier.weight(1f))
+            // From the PCI box's text on, over its check button too (the box
+            // alone is narrow). A lock's result message takes the line instead.
+            if (lteResult == null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "(Multi-PCI allowed)", style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1,
+                    modifier = Modifier.width(NR_SIDE_WIDTH + 60.dp).padding(start = 14.dp, bottom = 8.dp)
+                )
+            }
         }
 
         // Fields 4 and 6: one PCI is the cell lock, more the multi-cell lock.
-        val o4 = labelOverrides[4] ?: labelOverrides[6]
         val earfcn = lteEarfcnValue.trim().toLongOrNull()
         val pciTokens = ltePciValue.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         val ltePcis = pciTokens.mapNotNull { it.toIntOrNull()?.takeIf { p -> p in 0..503 } }
@@ -821,25 +859,28 @@ private fun SimCellLockPage(
             pcis = ltePciValue,
             onPcisChange = { ltePciValue = it },
             seen = seenEarfcns,
-            pciLabel = o4?.text ?: "PCI",
-            pciLabelColor = o4?.color ?: defaultLabelColor,
+            pciLabel = "PCI",
+            pciLabelColor = defaultLabelColor,
             keyboardOptions = switchableNumericKeyboard,
             canApply = lteCanApply,
-            onApply = { applyLte() }
+            onApply = { applyLte() },
+            // The fields show the active lock: the button clears it.
+            onClear = { keyboard?.hide(); onClear4G(simSlot + 1) }
+                .takeIf { lteLocked != null && earfcn != null && lteKey(earfcn, ltePcis) == lteLocked }
         )
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        SmallTitle("PLMN lock", insideMargin = FieldTitleMargin)
+        // A lock's result for a few seconds, else the locked PLMN (MCC-MNC).
+        val plmnStatus = labelOverrides[5]?.let { it.text to it.color }
+            ?: plmnLockState?.lockedPlmn?.let { lp -> "${lp.mcc}-${lp.mncDisplay.ifBlank { lp.mnc.toString() }} locked \u2713" to GreenColor }
+        SectionTitle("PLMN lock", plmnStatus)
 
-        val o5 = labelOverrides[5]
         TextField(
             value = plmnText,
             onValueChange = { plmnText = it },
-            label = o5?.text ?: defaultLabels[5]!!,
-            colors = TextFieldDefaults.textFieldColors(
-                labelColor = o5?.color ?: defaultLabelColor
-            ),
+            label = defaultLabels[5]!!,
+            colors = TextFieldDefaults.textFieldColors(labelColor = defaultLabelColor),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = switchableNumericKeyboard,
@@ -905,7 +946,14 @@ private fun NrLockFields(
     keyboardOptions: KeyboardOptions,
     canApplyArfcn: Boolean,
     canApplyCell: Boolean,
-    onApply: () -> Unit
+    /** Done on the keyboard. */
+    onApply: () -> Unit,
+    /** The two rows' check buttons: the frequency lock, the cell lock. */
+    onApplyArfcn: () -> Unit,
+    onApplyCell: () -> Unit,
+    /** Set when the row shows the active lock: its button clears it. */
+    onClearArfcn: (() -> Unit)? = null,
+    onClearCell: (() -> Unit)? = null
 ) {
     val arfcnN = arfcn.trim().toLongOrNull()
     val defaultLabelColor = MiuixTheme.colorScheme.onSecondaryContainer
@@ -925,7 +973,7 @@ private fun NrLockFields(
             Spacer(Modifier.width(8.dp))
             ScsBox(scsKhz, onScsChange, Modifier.width(NR_SIDE_WIDTH).fillMaxHeight())
             Spacer(Modifier.width(8.dp))
-            ApplyButton(canApplyArfcn, onApply, "Apply NR-ARFCN lock")
+            ApplyButton(canApplyArfcn, onApplyArfcn, "Apply NR-ARFCN lock", onClearArfcn)
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -951,7 +999,7 @@ private fun NrLockFields(
                 modifier = Modifier.width(NR_SIDE_WIDTH)
             )
             Spacer(Modifier.width(8.dp))
-            ApplyButton(canApplyCell, onApply, "Apply NR cell lock")
+            ApplyButton(canApplyCell, onApplyCell, "Apply NR cell lock", onClearCell)
         }
     }
 }
@@ -973,7 +1021,9 @@ private fun LteLockFields(
     pciLabelColor: Color,
     keyboardOptions: KeyboardOptions,
     canApply: Boolean,
-    onApply: () -> Unit
+    onApply: () -> Unit,
+    /** Set when the row shows the active lock: its button clears it. */
+    onClear: (() -> Unit)? = null
 ) {
     val earfcnN = earfcn.trim().toLongOrNull()
     val labelColor = MiuixTheme.colorScheme.onSecondaryContainer
@@ -996,26 +1046,44 @@ private fun LteLockFields(
             multi = true, popupAlignment = PopupPositionProvider.Align.End, modifier = Modifier.width(NR_SIDE_WIDTH)
         )
         Spacer(Modifier.width(8.dp))
-        ApplyButton(canApply, onApply, "Apply LTE lock")
+        ApplyButton(canApply, onApply, "Apply LTE lock", onClear)
     }
 }
 
-/** A lock row's check button: blue when it has something to send, grey (the
- *  fields' own background) when not. */
+/** A lock row's button: a check, blue when it has something to send, grey
+ *  (the fields' own background) when not; with [onClear] (the row shows the
+ *  active lock) a blue reset (back) arrow that clears the lock. */
 @Composable
-private fun ApplyButton(enabled: Boolean, onClick: () -> Unit, description: String) {
+private fun ApplyButton(enabled: Boolean, onClick: () -> Unit, description: String, onClear: (() -> Unit)? = null) {
+    val active = onClear != null || enabled
     Box(
         Modifier.width(52.dp).fillMaxHeight().clip(RoundedCornerShape(TextFieldDefaults.CornerRadius))
-            .background(if (enabled) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
+            .clickable(enabled = active, onClick = onClear ?: onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            MiuixIcons.Ok,
-            contentDescription = description,
-            tint = if (enabled) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            if (onClear != null) MiuixIcons.Reset else MiuixIcons.Ok,
+            contentDescription = if (onClear != null) "Clear the lock" else description,
+            tint = if (active) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.size(22.dp)
         )
+    }
+}
+
+/** A lock section's title ("5G", "4G") and, beside it, [status]: a lock's
+ *  result for a few seconds, else the active lock. */
+@Composable
+private fun SectionTitle(title: String, status: Pair<String, Color>?, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.Bottom) {
+        SmallTitle(title, insideMargin = FieldTitleMargin)
+        if (status != null) {
+            Text(
+                status.first, style = MiuixTheme.textStyles.footnote1, color = status.second, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 10.dp, bottom = 8.dp)
+            )
+        }
     }
 }
 
@@ -1326,12 +1394,18 @@ private fun LockChoiceSheet(
     ) {
         val t = target ?: return@WindowBottomSheet
         Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-            Text(
-                listOfNotNull(t.band?.label, "${t.channel}", t.id.takeIf { it != "\u2014" }?.let { "PCI $it" })
-                    .joinToString("  "),
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+            // The band in its colour (as in the table), then NARFCN and PCI.
+            Row {
+                t.band?.label?.let { b ->
+                    Text("$b  ", style = MiuixTheme.textStyles.body2,
+                        color = bandColor(b) ?: MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                Text(
+                    listOfNotNull("${t.channel}", t.id.takeIf { it != "\u2014" }?.let { "PCI $it" }).joinToString("  "),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
             Spacer(Modifier.height(12.dp))
             TextButton(
                 text = "Frequency only",
