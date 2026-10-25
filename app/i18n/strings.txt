@@ -109,12 +109,12 @@ zh = 无
 
 [bands.title]
 en = Bands
-th = ย่านความถี่
+th = แบนด์
 zh = 频段
 
 [bands.filter_shown]
 en = Filter shown bands
-th = กรองย่านความถี่ที่แสดง
+th = กรองแบนด์ที่แสดง
 zh = 筛选显示的频段
 
 [bands.clear_filter]
@@ -124,7 +124,7 @@ zh = 清除筛选
 
 [bands.filter_active]
 en = Filter active
-th = ตัวกรองทำงานอยู่
+th = กำลังกรองอยู่
 zh = 筛选生效中
 
 [bands.hide_nr_mode]
@@ -149,17 +149,17 @@ zh = 合并 NR
 
 [bands.reset_defaults]
 en = Reset to hardware defaults
-th = รีเซ็ตเป็นค่าเริ่มต้นของฮาร์ดแวร์
+th = รีเซ็ตเป็นค่าเริ่มต้นของเครื่อง
 zh = 重置为硬件默认
 
 [bands.apply_description]
 en = Apply band locks
-th = ใช้การล็อกย่านความถี่
+th = ใช้การล็อกแบนด์
 zh = 应用频段锁定
 
 [bands.rat_lock]
 en = RAT lock
-th = ล็อก RAT
+th = ชนิดเครือข่าย
 zh = RAT 锁定
 
 [bands.nr_mode]
@@ -189,7 +189,7 @@ zh = 快捷选择
 
 [bands.toggle_groups]
 en = Toggle band groups
-th = สลับกลุ่มย่านความถี่
+th = สลับกลุ่มแบนด์
 zh = 切换频段组
 
 [bands.auto_all_rats]
@@ -199,52 +199,52 @@ zh = AUTO（全部 RAT）
 
 [bands.all_bands]
 en = All bands (all RATs)
-th = ทุกย่านความถี่ (ทุก RAT)
+th = แบนด์ทั้งหมด (ทุก RAT)
 zh = 全部频段（全部 RAT）
 
 [bands.all_5g]
 en = All 5G bands (NSA+SA)
-th = ทุกย่าน 5G (NSA+SA)
+th = แบนด์ 5G ทั้งหมด (NSA+SA)
 zh = 全部 5G 频段（NSA+SA）
 
 [bands.all_nr_sa]
 en = All NR-SA bands
-th = ทุกย่าน NR-SA
+th = แบนด์ NR-SA ทั้งหมด
 zh = 全部 NR-SA 频段
 
 [bands.all_nr_nsa]
 en = All NR-NSA bands
-th = ทุกย่าน NR-NSA
+th = แบนด์ NR-NSA ทั้งหมด
 zh = 全部 NR-NSA 频段
 
 [bands.all_nr]
 en = All NR bands
-th = ทุกย่าน NR
+th = แบนด์ NR ทั้งหมด
 zh = 全部 NR 频段
 
 [bands.all_lte]
 en = All LTE bands
-th = ทุกย่าน LTE
+th = แบนด์ LTE ทั้งหมด
 zh = 全部 LTE 频段
 
 [bands.all_wcdma]
 en = All WCDMA bands
-th = ทุกย่าน WCDMA
+th = แบนด์ WCDMA ทั้งหมด
 zh = 全部 WCDMA 频段
 
 [bands.all_gsm]
 en = All GSM bands
-th = ทุกย่าน GSM
+th = แบนด์ GSM ทั้งหมด
 zh = 全部 GSM 频段
 
 [bands.copy_to_sim2]
 en = Copy selection to SIM 2
-th = คัดลอกที่เลือกไปยัง SIM 2
+th = คัดลอกที่เลือกไป SIM 2
 zh = 复制选择到 SIM 2
 
 [bands.copy_to_sim1]
 en = Copy selection to SIM 1
-th = คัดลอกที่เลือกไปยัง SIM 1
+th = คัดลอกที่เลือกไป SIM 1
 zh = 复制选择到 SIM 1
 
 [bands.sim2_unavailable]
@@ -259,12 +259,12 @@ zh = 调制解调器拒绝选择 SIM 2。单卡手机或关闭双卡双待（DSD
 
 [bands.applied_sim]
 en = Settings applied for SIM {sim}
-th = นำการตั้งค่าไปใช้แล้วสำหรับ SIM {sim}
+th = ใช้การตั้งค่าแล้วสำหรับ SIM {sim}
 zh = 已为 SIM {sim} 应用设置
 
 [bands.applied_nr_refused]
 en = Bands applied. This modem can't change the NR mode.
-th = นำย่านความถี่ไปใช้แล้ว แต่โมเด็มนี้เปลี่ยนโหมด NR ไม่ได้
+th = ใช้แบนด์แล้ว แต่โมเด็มนี้เปลี่ยนโหมด NR ไม่ได้
 zh = 频段已应用，但此调制解调器无法更改 NR 模式。
 
 # ── Navigation and root access ──────────────────────────
