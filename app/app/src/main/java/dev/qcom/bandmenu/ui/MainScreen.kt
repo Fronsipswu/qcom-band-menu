@@ -1,5 +1,7 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -329,22 +331,22 @@ fun MainScreen(
                     tabsCount = 4
                 ) {
                     FloatingBottomBarItem(onClick = { selectPage(0) }) {
-                        Icon(imageVector = dev.qcom.bandmenu.ui.component.SignalBarsIcon, contentDescription = "Network",
+                        Icon(imageVector = dev.qcom.bandmenu.ui.component.SignalBarsIcon, contentDescription = stringResource(R.string.nav_network),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Network", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(1) }) {
-                        Icon(imageVector = dev.qcom.bandmenu.ui.component.WrenchIcon, contentDescription = "Bands",
+                        Icon(imageVector = dev.qcom.bandmenu.ui.component.WrenchIcon, contentDescription = stringResource(R.string.bands_title),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Bands", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(2) }) {
-                        Icon(imageVector = MiuixIcons.Lock, contentDescription = "Cell-Lock",
+                        Icon(imageVector = MiuixIcons.Lock, contentDescription = stringResource(R.string.nav_cell_lock),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Cell-Lock", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp), maxLines = 1, softWrap = false)
                     }
                     FloatingBottomBarItem(onClick = { selectPage(3) }) {
-                        Icon(imageVector = MiuixIcons.Info, contentDescription = "Info",
+                        Icon(imageVector = MiuixIcons.Info, contentDescription = stringResource(R.string.nav_info),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
                         Text("Info", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
@@ -409,12 +411,12 @@ fun MainScreen(
             if (showRootDeniedDialog) {
                 top.yukonga.miuix.kmp.window.WindowDialog(
                     show = true,
-                    title = "Root Access Required",
-                    summary = "This app requires root access to communicate with the Qualcomm modem. Please grant root access and retry.",
+                    title = stringResource(R.string.root_title),
+                    summary = stringResource(R.string.root_summary),
                     onDismissRequest = onDismissRootDialog,
                     content = {
                         top.yukonga.miuix.kmp.basic.TextButton(
-                            text = "Retry",
+                            text = stringResource(R.string.common_retry),
                             onClick = onRootRetry,
                             modifier = Modifier.fillMaxWidth(),
                             colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary()
@@ -431,7 +433,7 @@ fun MainScreen(
                     onDismissRequest = onDismissErrorDialog,
                     content = {
                         top.yukonga.miuix.kmp.basic.TextButton(
-                            text = "OK",
+                            text = stringResource(R.string.common_ok),
                             onClick = onDismissErrorDialog,
                             modifier = Modifier.fillMaxWidth()
                         )

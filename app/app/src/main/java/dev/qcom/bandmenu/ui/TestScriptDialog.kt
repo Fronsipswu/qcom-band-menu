@@ -1,5 +1,7 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,25 +50,25 @@ fun TestScriptDialog(
 
     WindowDialog(
         show = show,
-        title = "Test script",
+        title = stringResource(R.string.test_title),
         onDismissRequest = onDismiss
     ) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-            Label("HTTP GET (download)")
+            Label(stringResource(R.string.test_http_get))
             TextField(
                 value = getUrl, onValueChange = { getUrl = it }, label = "https://…",
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
             )
             Spacer(Modifier.height(12.dp))
-            Label("HTTP POST (upload)")
+            Label(stringResource(R.string.test_http_post))
             TextField(
                 value = postUrl, onValueChange = { postUrl = it }, label = "https://…",
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next)
             )
             Spacer(Modifier.height(12.dp))
-            Label("Streams")
+            Label(stringResource(R.string.test_streams))
             // − n +: parallel connections (more fill a fast link).
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(text = "\u2212", onClick = { streams = (streams - 1).coerceAtLeast(1) },
@@ -77,15 +79,15 @@ fun TestScriptDialog(
                     enabled = streams < TrafficTest.MAX_STREAMS, modifier = Modifier.width(64.dp))
             }
             Spacer(Modifier.height(12.dp))
-            Label("Mode")
+            Label(stringResource(R.string.test_mode))
             TabRowWithContour(
-                tabs = listOf("Download", "Upload"),
+                tabs = listOf(stringResource(R.string.common_download), stringResource(R.string.common_upload)),
                 selectedTabIndex = if (upload) 1 else 0,
                 onTabSelected = { upload = it == 1 },
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(12.dp))
-            Label("Duration (seconds)")
+            Label(stringResource(R.string.test_duration))
             TextField(
                 value = seconds, onValueChange = { v -> seconds = v.filter(Char::isDigit).take(6) },
                 label = "", singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -96,7 +98,7 @@ fun TestScriptDialog(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(text = "Cancel", onClick = onDismiss, modifier = Modifier.weight(1f))
             TextButton(
-                text = "Save",
+                text = stringResource(R.string.common_save),
                 onClick = {
                     onSave(TrafficTest.Config(getUrl.trim(), postUrl.trim(), upload, seconds.toIntOrNull() ?: 0, streams))
                 },

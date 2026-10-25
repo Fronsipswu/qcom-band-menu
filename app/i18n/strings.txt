@@ -54,7 +54,7 @@ zh = 隐藏导航栏
 [info.network_at_start]
 en = Network page at start
 th = เปิดหน้าเครือข่ายตอนเริ่มแอป
-zh = 启动时显示网络页
+zh = 启动时打开网络页
 
 [common.detach]
 en = Detach
@@ -93,141 +93,372 @@ zh = 中文（简体）
 [common.cancel]
 en = Cancel
 th = ยกเลิก
+zh = 取消
 
 [common.save]
 en = Save
 th = บันทึก
+zh = 保存
 
 [common.none]
 en = None
 th = ไม่มี
+zh = 无
 
 # ── Bands page ──────────────────────────
 
 [bands.title]
 en = Bands
 th = ย่านความถี่
+zh = 频段
 
 [bands.filter_shown]
 en = Filter shown bands
 th = กรองย่านความถี่ที่แสดง
+zh = 筛选显示的频段
 
 [bands.clear_filter]
 en = Clear filter
 th = ล้างตัวกรอง
+zh = 清除筛选
 
 [bands.filter_active]
 en = Filter active
 th = ตัวกรองทำงานอยู่
+zh = 筛选生效中
 
 [bands.hide_nr_mode]
 en = Hide NR mode
 th = ซ่อนโหมด NR
+zh = 隐藏 NR 模式
 
 [bands.hide_usage]
 en = Hide usage setting
 th = ซ่อนการตั้งค่าการใช้งาน
+zh = 隐藏使用设置
 
 [bands.hide_quick_select]
 en = Hide quick select
 th = ซ่อนการเลือกด่วน
+zh = 隐藏快捷选择
 
 [bands.combine_nr]
 en = Combine NR
 th = รวม NR
+zh = 合并 NR
 
 [bands.reset_defaults]
 en = Reset to hardware defaults
 th = รีเซ็ตเป็นค่าเริ่มต้นของฮาร์ดแวร์
+zh = 重置为硬件默认
 
 [bands.apply_description]
 en = Apply band locks
 th = ใช้การล็อกย่านความถี่
+zh = 应用频段锁定
 
 [bands.rat_lock]
 en = RAT lock
 th = ล็อก RAT
+zh = RAT 锁定
 
 [bands.nr_mode]
 en = NR mode
 th = โหมด NR
+zh = NR 模式
 
 [bands.usage_setting]
 en = Usage setting
 th = การตั้งค่าการใช้งาน
+zh = 使用设置
 
 [bands.voice_centric]
 en = Voice-centric
 th = เน้นเสียง
+zh = 语音优先
 
 [bands.data_centric]
 en = Data-centric
 th = เน้นข้อมูล
+zh = 数据优先
 
 [bands.quick_selections]
 en = Quick selections
 th = เลือกด่วน
+zh = 快捷选择
 
 [bands.toggle_groups]
 en = Toggle band groups
 th = สลับกลุ่มย่านความถี่
+zh = 切换频段组
 
 [bands.auto_all_rats]
 en = AUTO (All RATs)
 th = อัตโนมัติ (ทุก RAT)
+zh = AUTO（全部 RAT）
 
 [bands.all_bands]
 en = All bands (all RATs)
 th = ทุกย่านความถี่ (ทุก RAT)
+zh = 全部频段（全部 RAT）
 
 [bands.all_5g]
 en = All 5G bands (NSA+SA)
 th = ทุกย่าน 5G (NSA+SA)
+zh = 全部 5G 频段（NSA+SA）
 
 [bands.all_nr_sa]
 en = All NR-SA bands
 th = ทุกย่าน NR-SA
+zh = 全部 NR-SA 频段
 
 [bands.all_nr_nsa]
 en = All NR-NSA bands
 th = ทุกย่าน NR-NSA
+zh = 全部 NR-NSA 频段
 
 [bands.all_nr]
 en = All NR bands
 th = ทุกย่าน NR
+zh = 全部 NR 频段
 
 [bands.all_lte]
 en = All LTE bands
 th = ทุกย่าน LTE
+zh = 全部 LTE 频段
 
 [bands.all_wcdma]
 en = All WCDMA bands
 th = ทุกย่าน WCDMA
+zh = 全部 WCDMA 频段
 
 [bands.all_gsm]
 en = All GSM bands
 th = ทุกย่าน GSM
+zh = 全部 GSM 频段
 
 [bands.copy_to_sim2]
 en = Copy selection to SIM 2
 th = คัดลอกที่เลือกไปยัง SIM 2
+zh = 复制选择到 SIM 2
 
 [bands.copy_to_sim1]
 en = Copy selection to SIM 1
 th = คัดลอกที่เลือกไปยัง SIM 1
+zh = 复制选择到 SIM 1
 
 [bands.sim2_unavailable]
 en = SIM 2 is not available
 th = SIM 2 ใช้งานไม่ได้
+zh = SIM 2 不可用
 
 [bands.sim2_refused]
 en = The modem refused to select SIM 2. This is expected on single-SIM phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.
 th = โมเด็มไม่ยอมเลือก SIM 2 ซึ่งเป็นเรื่องปกติในโทรศัพท์ที่มีซิมเดียว หรือเมื่อปิดดูอัลซิม (DSDS) SIM 1 ใช้งานได้ตามปกติ
+zh = 调制解调器拒绝选择 SIM 2。单卡手机或关闭双卡双待（DSDS）时属正常现象，SIM 1 可正常使用。
 
 [bands.applied_sim]
 en = Settings applied for SIM {sim}
 th = นำการตั้งค่าไปใช้แล้วสำหรับ SIM {sim}
+zh = 已为 SIM {sim} 应用设置
 
 [bands.applied_nr_refused]
 en = Bands applied. This modem can't change the NR mode.
 th = นำย่านความถี่ไปใช้แล้ว แต่โมเด็มนี้เปลี่ยนโหมด NR ไม่ได้
+zh = 频段已应用，但此调制解调器无法更改 NR 模式。
+
+# ── Navigation and root access ──────────────────────────
+
+[nav.network]
+en = Network
+th = เครือข่าย
+zh = 网络
+
+[nav.cell_lock]
+en = Cell-Lock
+th = ล็อกเซลล์
+zh = 小区锁定
+
+[nav.info]
+en = Info
+th = ข้อมูล
+zh = 关于
+
+[root.title]
+en = Root Access Required
+th = ต้องใช้สิทธิ์รูท
+zh = 需要 Root 权限
+
+[root.summary]
+en = This app requires root access to communicate with the Qualcomm modem. Please grant root access and retry.
+th = แอปนี้ต้องใช้สิทธิ์รูทเพื่อสื่อสารกับโมเด็ม Qualcomm กรุณาให้สิทธิ์รูทแล้วลองอีกครั้ง
+zh = 此应用需要 Root 权限才能与高通调制解调器通信。请授予 Root 权限后重试。
+
+[common.retry]
+en = Retry
+th = ลองอีกครั้ง
+zh = 重试
+
+[common.ok]
+en = OK
+th = ตกลง
+zh = 确定
+
+[common.download]
+en = Download
+th = ดาวน์โหลด
+zh = 下载
+
+[common.upload]
+en = Upload
+th = อัปโหลด
+zh = 上传
+
+# ── Test script ──────────────────────────
+
+[test.title]
+en = Test script
+th = สคริปต์ทดสอบ
+zh = 测试脚本
+
+[test.http_get]
+en = HTTP GET (download)
+th = HTTP GET (ดาวน์โหลด)
+zh = HTTP GET（下载）
+
+[test.http_post]
+en = HTTP POST (upload)
+th = HTTP POST (อัปโหลด)
+zh = HTTP POST（上传）
+
+[test.streams]
+en = Streams
+th = จำนวนสตรีม
+zh = 并发流数
+
+[test.mode]
+en = Mode
+th = โหมด
+zh = 模式
+
+[test.duration]
+en = Duration (seconds)
+th = ระยะเวลา (วินาที)
+zh = 时长（秒）
+
+# ── Cell-Lock page ──────────────────────────
+
+[lock.clear_all]
+en = Clear ALL
+th = ล้างทั้งหมด
+zh = 全部清除
+
+[lock.clear_5g]
+en = Clear 5G
+th = ล้าง 5G
+zh = 清除 5G
+
+[lock.clear_4g]
+en = Clear 4G
+th = ล้าง 4G
+zh = 清除 4G
+
+[lock.clear_plmn]
+en = Clear PLMN
+th = ล้าง PLMN
+zh = 清除 PLMN
+
+[lock.enable_experimental]
+en = Enable Experimental
+th = เปิดโหมดทดลอง
+zh = 启用实验功能
+
+[lock.success]
+en = Success locking {type} ✓
+th = ล็อก {type} สำเร็จ ✓
+zh = 锁定成功：{type} ✓
+
+[lock.rejected]
+en = Rejected by modem
+th = โมเด็มปฏิเสธ
+zh = 被调制解调器拒绝
+
+[lock.status_nr_arfcn]
+en = NR-ARFCN locked ✓
+th = ล็อก NR-ARFCN แล้ว ✓
+zh = NR-ARFCN 已锁定 ✓
+
+[lock.status_nr_pci]
+en = NR-ARFCN + PCI locked ✓
+th = ล็อก NR-ARFCN + PCI แล้ว ✓
+zh = NR-ARFCN + PCI 已锁定 ✓
+
+[lock.status_gnb]
+en = gNB locked ✓
+th = ล็อก gNB แล้ว ✓
+zh = gNB 已锁定 ✓
+
+[lock.status_multi_pci]
+en = Multi-PCI locked ✓
+th = ล็อกหลาย PCI แล้ว ✓
+zh = 多 PCI 锁定 ✓
+
+[lock.status_cell]
+en = Cell locked ✓
+th = ล็อกเซลล์แล้ว ✓
+zh = 小区锁定 ✓
+
+[lock.status_multi_cell]
+en = Multi-cell locked ✓
+th = ล็อกหลายเซลล์แล้ว ✓
+zh = 多小区锁定 ✓
+
+[lock.status_plmn]
+en = {plmn} locked ✓
+th = ล็อก {plmn} แล้ว ✓
+zh = {plmn} 已锁定 ✓
+
+[lock.lock_5g_title]
+en = Lock 5G cell
+th = ล็อกเซลล์ 5G
+zh = 锁定 5G 小区
+
+[lock.frequency_only]
+en = Frequency only
+th = เฉพาะความถี่
+zh = 仅频率
+
+[lock.frequency_pci]
+en = Frequency + PCI
+th = ความถี่ + PCI
+zh = 频率 + PCI
+
+[lock.pci_missing]
+en = The modem reports no PCI for this frequency. Enter the cell's PCI (0-1007).
+th = โมเด็มไม่รายงาน PCI สำหรับความถี่นี้ กรุณาใส่ PCI ของเซลล์ (0-1007)
+zh = 该频率下调制解调器未报告 PCI。请输入小区 PCI（0-1007）。
+
+[lock.button_lock]
+en = Lock
+th = ล็อก
+zh = 锁定
+
+[lock.waiting]
+en = Waiting for the first reading from SIM {sim}…
+th = กำลังรอค่าที่อ่านได้ครั้งแรกจาก SIM {sim}…
+zh = 正在等待 SIM {sim} 的首次读取…
+
+[lock.no_cells]
+en = No cells reported.
+th = ไม่มีเซลล์ที่รายงาน
+zh = 未报告任何小区。
+
+[lock.resume_table]
+en = Resume the cell table
+th = เริ่มตารางเซลล์ต่อ
+zh = 恢复小区列表
+
+[lock.freeze_table]
+en = Freeze the cell table
+th = หยุดตารางเซลล์ชั่วคราว
+zh = 冻结小区列表

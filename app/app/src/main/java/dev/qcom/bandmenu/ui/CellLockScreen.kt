@@ -1,5 +1,7 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -352,13 +354,13 @@ fun CellLockScreen(
                             )
                     ) {
                         SmallTopAppBar(
-                            title = "Cell-Lock",
+                            title = stringResource(R.string.nav_cell_lock),
                             color = Color.Transparent
                         )
                     }
                 } else {
                     SmallTopAppBar(
-                        title = "Cell-Lock"
+                        title = stringResource(R.string.nav_cell_lock)
                     )
                 }
 
@@ -367,7 +369,7 @@ fun CellLockScreen(
                     listOf(
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear ALL",
+                                text = stringResource(R.string.lock_clear_all),
                                 onClick = {
                                     fieldsWipeKey++
                                     fieldsWipeSlot = selectedSim
@@ -377,7 +379,7 @@ fun CellLockScreen(
                         )),
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear 5G",
+                                text = stringResource(R.string.lock_clear_5g),
                                 onClick = {
                                     val nrType = if (selectedSim == 0)
                                         modemState.sim1CellLock.nr.type
@@ -393,19 +395,19 @@ fun CellLockScreen(
                                 }
                             ),
                             DropdownItem(
-                                text = "Clear 4G",
+                                text = stringResource(R.string.lock_clear_4g),
                                 onClick = { onClear4G(selectedSim + 1) }
                             )
                         )),
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear PLMN",
+                                text = stringResource(R.string.lock_clear_plmn),
                                 onClick = { onClearPlmn(selectedSim + 1) }
                             )
                         )),
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Enable Experimental",
+                                text = stringResource(R.string.lock_enable_experimental),
                                 selected = experimentalEnabled,
                                 onClick = { experimentalEnabled = !experimentalEnabled }
                             )
@@ -415,7 +417,7 @@ fun CellLockScreen(
                     listOf(
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear ALL",
+                                text = stringResource(R.string.lock_clear_all),
                                 onClick = {
                                     fieldsWipeKey++
                                     fieldsWipeSlot = selectedSim
@@ -425,22 +427,22 @@ fun CellLockScreen(
                         )),
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear 4G",
+                                text = stringResource(R.string.lock_clear_4g),
                                 onClick = { onClear4G(selectedSim + 1) }
                             )
                         )),
                         DropdownEntry(items = listOf(
                             DropdownItem(
-                                text = "Clear PLMN",
+                                text = stringResource(R.string.lock_clear_plmn),
                                 onClick = { onClearPlmn(selectedSim + 1) }
                             )
                         ))
                     )
                 }) + listOf(
                     DropdownEntry(items = listOf(
-                        DropdownItem("Detach", onClick = onDetach),
-                        DropdownItem("Attach", onClick = onAttach),
-                        DropdownItem("Re-Attach", onClick = onReattach)
+                        DropdownItem(stringResource(R.string.common_detach), onClick = onDetach),
+                        DropdownItem(stringResource(R.string.common_attach), onClick = onAttach),
+                        DropdownItem(stringResource(R.string.common_reattach), onClick = onReattach)
                     ))
                 )
 
@@ -455,7 +457,7 @@ fun CellLockScreen(
                     ) {
                         Icon(
                             imageVector = MiuixIcons.More,
-                            contentDescription = "Menu",
+                            contentDescription = stringResource(R.string.common_menu),
                             tint = MiuixTheme.colorScheme.onBackground
                         )
                     }
@@ -661,10 +663,10 @@ private fun SimCellLockPage(
             // A lock's result for a few seconds, else the active lock (green).
             val nrState = cellLockState?.nr
             val nrStatus = (labelOverrides[0] ?: labelOverrides[1])?.let { it.text to it.color } ?: when {
-                nrState?.type == "arfcn" -> "NR-ARFCN locked \u2713" to GreenColor
-                nrState?.type == "pci" -> "NR-ARFCN + PCI locked \u2713" to GreenColor
-                nrState?.type == "gnb_allowlist" -> "gNB locked \u2713" to GreenColor
-                nrState?.multiPciLock == true -> "Multi-PCI locked \u2713" to GreenColor
+                nrState?.type == "arfcn" -> stringResource(R.string.lock_status_nr_arfcn) to GreenColor
+                nrState?.type == "pci" -> stringResource(R.string.lock_status_nr_pci) to GreenColor
+                nrState?.type == "gnb_allowlist" -> stringResource(R.string.lock_status_gnb) to GreenColor
+                nrState?.multiPciLock == true -> stringResource(R.string.lock_status_multi_pci) to GreenColor
                 else -> null
             }
             SectionTitle("5G", nrStatus)
@@ -824,7 +826,7 @@ private fun SimCellLockPage(
         val lteState = cellLockState?.lte?.takeIf { it.valid && it.locks.isNotEmpty() }
         val lteResult = labelOverrides[4] ?: labelOverrides[6]
         val lteStatus = lteResult?.let { it.text to it.color } ?: lteState?.let {
-            (if (it.locks.size > 1) "Multi-cell locked \u2713" else "Cell locked \u2713") to GreenColor
+            (if (it.locks.size > 1) stringResource(R.string.lock_status_multi_cell) else stringResource(R.string.lock_status_cell)) to GreenColor
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             SectionTitle("4G", lteStatus, Modifier.weight(1f))
@@ -877,7 +879,7 @@ private fun SimCellLockPage(
 
         // A lock's result for a few seconds, else the locked PLMN (MCC-MNC).
         val plmnStatus = labelOverrides[5]?.let { it.text to it.color }
-            ?: plmnLockState?.lockedPlmn?.let { lp -> "${lp.mcc}-${lp.mncDisplay.ifBlank { lp.mnc.toString() }} locked \u2713" to GreenColor }
+            ?: plmnLockState?.lockedPlmn?.let { lp -> stringResource(R.string.lock_status_plmn, "${lp.mcc}-${lp.mncDisplay.ifBlank { lp.mnc.toString() }}") to GreenColor }
         SectionTitle("PLMN lock", plmnStatus)
 
         TextField(
@@ -1249,7 +1251,7 @@ private fun CellLockTable(
         IconButton(onClick = onToggleFrozen) {
             Icon(
                 imageVector = if (frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
-                contentDescription = if (frozen) "Resume the cell table" else "Freeze the cell table",
+                contentDescription = if (frozen) stringResource(R.string.lock_resume_table) else stringResource(R.string.lock_freeze_table),
                 tint = if (frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
             )
         }
@@ -1257,7 +1259,7 @@ private fun CellLockTable(
     if (snapshot == null) {
         // No round yet for this SIM (first open, held before one came, or a
         // SIM the daemon can't read).
-        NoticeText(error ?: "Waiting for the first reading from SIM ${simSlot + 1}\u2026")
+        NoticeText(error ?: stringResource(R.string.lock_waiting, simSlot + 1))
         return
     }
     // NR neighbours come one row per beam, strongest first: here one row per
@@ -1270,7 +1272,7 @@ private fun CellLockTable(
         .map { if (it.beam != null) it.copy(beam = null) else it }
     val rows = serving + neighbours
     if (rows.isEmpty()) {
-        NoticeText("No cells reported.")
+        NoticeText(stringResource(R.string.lock_no_cells))
         return
     }
     val hapticFeedback = LocalHapticFeedback.current
@@ -1393,7 +1395,7 @@ private fun LockChoiceSheet(
 ) {
     WindowBottomSheet(
         show = target != null,
-        title = "Lock 5G cell",
+        title = stringResource(R.string.lock_lock_5g_title),
         onDismissRequest = onDismiss
     ) {
         val t = target ?: return@WindowBottomSheet
@@ -1412,13 +1414,13 @@ private fun LockChoiceSheet(
             }
             Spacer(Modifier.height(12.dp))
             TextButton(
-                text = "Frequency only",
+                text = stringResource(R.string.lock_frequency_only),
                 onClick = onFrequency,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
             TextButton(
-                text = "Frequency + PCI",
+                text = stringResource(R.string.lock_frequency_pci),
                 onClick = onCell,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.textButtonColorsPrimary()
@@ -1434,7 +1436,7 @@ private fun PciEntryDialog(show: Boolean, onDismiss: () -> Unit, onConfirm: (Int
     val pci = text.trim().toIntOrNull()?.takeIf { it in 0..1007 }
     WindowDialog(show = show, title = "PCI", onDismissRequest = onDismiss) {
         Text(
-            "The modem reports no PCI for this frequency. Enter the cell's PCI (0-1007).",
+            stringResource(R.string.lock_pci_missing),
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
@@ -1452,7 +1454,7 @@ private fun PciEntryDialog(show: Boolean, onDismiss: () -> Unit, onConfirm: (Int
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(text = "Cancel", onClick = onDismiss, modifier = Modifier.weight(1f))
             TextButton(
-                text = "Lock",
+                text = stringResource(R.string.lock_button_lock),
                 onClick = { pci?.let(onConfirm) },
                 enabled = pci != null,
                 modifier = Modifier.weight(1f),
