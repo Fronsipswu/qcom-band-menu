@@ -1,5 +1,7 @@
 name: Staging build
 
+# Re-push test: verify the workflow triggers on this fork.
+
 # The optimized (R8, shrunk) staging APK, dev.qcom.bandmenu.staging, for
 # every push to main, diag-test or cell-lock-rework that touches the app.
 on:
