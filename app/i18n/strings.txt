@@ -1,0 +1,233 @@
+# QBM translations. The only file to edit for translations.
+#
+# One block per text, then one line per language:  code = text
+#   - en is required. Any language left out falls back to English on the phone.
+#   - {name} is a placeholder. Keep the same names in every language, but you
+#     may move them around to suit the grammar.
+#   - Lines starting with # are comments.
+#
+# After editing, run:  python i18n/gen_strings.py
+# (it writes the Android files and reports how much of each language is done)
+
+# ── Info page ──────────────────────────────
+
+[info.about]
+en = About
+th = เกี่ยวกับ
+zh = 关于
+
+[info.version]
+en = Version: {name} ({code})
+th = เวอร์ชัน: {name} ({code})
+zh = 版本：{name}（{code}）
+
+[info.package]
+en = Package: {package}
+th = แพ็กเกจ: {package}
+zh = 包名：{package}
+
+[info.credits]
+en = Credits
+th = เครดิต
+zh = 致谢
+
+[info.powered_by]
+en = Powered by
+th = ขับเคลื่อนโดย
+zh = 技术支持
+
+[common.menu]
+en = Menu
+th = เมนู
+zh = 菜单
+
+[info.debug_logging]
+en = Debug logging
+th = บันทึกการดีบัก
+zh = 调试日志
+
+[info.hide_navbar]
+en = Hide navigation bar
+th = ซ่อนแถบนำทาง
+zh = 隐藏导航栏
+
+[info.network_at_start]
+en = Network page at start
+th = เปิดหน้าเครือข่ายตอนเริ่มแอป
+zh = 启动时显示网络页
+
+[common.detach]
+en = Detach
+th = ตัดการเชื่อมต่อ
+zh = 去附着
+
+[common.attach]
+en = Attach
+th = เชื่อมต่อ
+zh = 附着
+
+[common.reattach]
+en = Re-Attach
+th = เชื่อมต่อใหม่
+zh = 重新附着
+
+[info.language]
+en = Language
+th = ภาษา
+zh = 语言
+
+[info.language_system]
+en = System default
+th = ตามเครื่อง
+zh = 跟随系统
+
+# Each language's own name for itself, shown in the Language list. A language
+# is only offered in the app once it has a line here.
+[language.name]
+en = English
+th = ไทย
+zh = 中文（简体）
+
+# ── Shared ──────────────────────────────
+
+[common.cancel]
+en = Cancel
+th = ยกเลิก
+
+[common.save]
+en = Save
+th = บันทึก
+
+[common.none]
+en = None
+th = ไม่มี
+
+# ── Bands page ──────────────────────────
+
+[bands.title]
+en = Bands
+th = ย่านความถี่
+
+[bands.filter_shown]
+en = Filter shown bands
+th = กรองย่านความถี่ที่แสดง
+
+[bands.clear_filter]
+en = Clear filter
+th = ล้างตัวกรอง
+
+[bands.filter_active]
+en = Filter active
+th = ตัวกรองทำงานอยู่
+
+[bands.hide_nr_mode]
+en = Hide NR mode
+th = ซ่อนโหมด NR
+
+[bands.hide_usage]
+en = Hide usage setting
+th = ซ่อนการตั้งค่าการใช้งาน
+
+[bands.hide_quick_select]
+en = Hide quick select
+th = ซ่อนการเลือกด่วน
+
+[bands.combine_nr]
+en = Combine NR
+th = รวม NR
+
+[bands.reset_defaults]
+en = Reset to hardware defaults
+th = รีเซ็ตเป็นค่าเริ่มต้นของฮาร์ดแวร์
+
+[bands.apply_description]
+en = Apply band locks
+th = ใช้การล็อกย่านความถี่
+
+[bands.rat_lock]
+en = RAT lock
+th = ล็อก RAT
+
+[bands.nr_mode]
+en = NR mode
+th = โหมด NR
+
+[bands.usage_setting]
+en = Usage setting
+th = การตั้งค่าการใช้งาน
+
+[bands.voice_centric]
+en = Voice-centric
+th = เน้นเสียง
+
+[bands.data_centric]
+en = Data-centric
+th = เน้นข้อมูล
+
+[bands.quick_selections]
+en = Quick selections
+th = เลือกด่วน
+
+[bands.toggle_groups]
+en = Toggle band groups
+th = สลับกลุ่มย่านความถี่
+
+[bands.auto_all_rats]
+en = AUTO (All RATs)
+th = อัตโนมัติ (ทุก RAT)
+
+[bands.all_bands]
+en = All bands (all RATs)
+th = ทุกย่านความถี่ (ทุก RAT)
+
+[bands.all_5g]
+en = All 5G bands (NSA+SA)
+th = ทุกย่าน 5G (NSA+SA)
+
+[bands.all_nr_sa]
+en = All NR-SA bands
+th = ทุกย่าน NR-SA
+
+[bands.all_nr_nsa]
+en = All NR-NSA bands
+th = ทุกย่าน NR-NSA
+
+[bands.all_nr]
+en = All NR bands
+th = ทุกย่าน NR
+
+[bands.all_lte]
+en = All LTE bands
+th = ทุกย่าน LTE
+
+[bands.all_wcdma]
+en = All WCDMA bands
+th = ทุกย่าน WCDMA
+
+[bands.all_gsm]
+en = All GSM bands
+th = ทุกย่าน GSM
+
+[bands.copy_to_sim2]
+en = Copy selection to SIM 2
+th = คัดลอกที่เลือกไปยัง SIM 2
+
+[bands.copy_to_sim1]
+en = Copy selection to SIM 1
+th = คัดลอกที่เลือกไปยัง SIM 1
+
+[bands.sim2_unavailable]
+en = SIM 2 is not available
+th = SIM 2 ใช้งานไม่ได้
+
+[bands.sim2_refused]
+en = The modem refused to select SIM 2. This is expected on single-SIM phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.
+th = โมเด็มไม่ยอมเลือก SIM 2 ซึ่งเป็นเรื่องปกติในโทรศัพท์ที่มีซิมเดียว หรือเมื่อปิดดูอัลซิม (DSDS) SIM 1 ใช้งานได้ตามปกติ
+
+[bands.applied_sim]
+en = Settings applied for SIM {sim}
+th = นำการตั้งค่าไปใช้แล้วสำหรับ SIM {sim}
+
+[bands.applied_nr_refused]
+en = Bands applied. This modem can't change the NR mode.
+th = นำย่านความถี่ไปใช้แล้ว แต่โมเด็มนี้เปลี่ยนโหมด NR ไม่ได้

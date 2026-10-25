@@ -4,3 +4,4 @@
 *.txt
 *.bat
 *.sh
+!app/i18n/strings.txt
