@@ -462,3 +462,542 @@ zh = 恢复小区列表
 en = Freeze the cell table
 th = หยุดตารางเซลล์ชั่วคราว
 zh = 冻结小区列表
+
+# ── Messages (MainActivity) ──────────────────────────
+
+[msg.daemon_restored]
+en = Daemon connection restored
+th = การเชื่อมต่อกับเดมอนกลับมาแล้ว
+zh = 守护进程连接已恢复
+
+[msg.daemon_lost]
+en = Daemon connection lost — retrying...
+th = การเชื่อมต่อกับเดมอนขาดหาย กำลังลองใหม่...
+zh = 守护进程连接已断开——正在重试...
+
+[msg.daemon_launch_failed]
+en = Daemon Launch Failed
+th = เปิดเดมอนไม่สำเร็จ
+zh = 守护进程启动失败
+
+[msg.init_failed]
+en = Initialization Failed
+th = การเริ่มต้นล้มเหลว
+zh = 初始化失败
+
+[msg.select_sim_failed]
+en = Failed to select SIM {sim}
+th = เลือก SIM {sim} ไม่สำเร็จ
+zh = 选择 SIM {sim} 失败
+
+[msg.select_sim1_failed]
+en = Failed to select SIM 1: {error}
+th = เลือก SIM 1 ไม่สำเร็จ: {error}
+zh = 选择 SIM 1 失败：{error}
+
+[msg.query_failed]
+en = Failed to query modem state: {error}
+th = สอบถามสถานะโมเด็มไม่สำเร็จ: {error}
+zh = 查询调制解调器状态失败：{error}
+
+[msg.apply_failed]
+en = Apply failed: {error}
+th = การใช้งานไม่สำเร็จ: {error}
+zh = 应用失败：{error}
+
+[msg.clear_all_failed]
+en = Clear all failed: {error}
+th = ล้างทั้งหมดไม่สำเร็จ: {error}
+zh = 全部清除失败：{error}
+
+[msg.cleared_all]
+en = Cleared all cell locks for SIM {sim}
+th = ล้างการล็อกเซลล์ทั้งหมดของ SIM {sim} แล้ว
+zh = 已清除 SIM {sim} 的全部小区锁定
+
+[msg.clear_5g_conn_failed]
+en = Clear 5G failed (connection error)
+th = ล้าง 5G ไม่สำเร็จ (การเชื่อมต่อผิดพลาด)
+zh = 清除 5G 失败（连接错误）
+
+[msg.cleared_5g]
+en = Cleared 5G cell lock for SIM {sim}
+th = ล้างการล็อกเซลล์ 5G ของ SIM {sim} แล้ว
+zh = 已清除 SIM {sim} 的 5G 小区锁定
+
+[msg.clear_4g_failed]
+en = Clear 4G failed: {error}
+th = ล้าง 4G ไม่สำเร็จ: {error}
+zh = 清除 4G 失败：{error}
+
+[msg.cleared_4g]
+en = Cleared 4G cell lock for SIM {sim}
+th = ล้างการล็อกเซลล์ 4G ของ SIM {sim} แล้ว
+zh = 已清除 SIM {sim} 的 4G 小区锁定
+
+[msg.clear_plmn_failed]
+en = Clear PLMN failed: {error}
+th = ล้าง PLMN ไม่สำเร็จ: {error}
+zh = 清除 PLMN 失败：{error}
+
+[msg.cleared_plmn]
+en = Cleared PLMN lock for SIM {sim}
+th = ล้างการล็อก PLMN ของ SIM {sim} แล้ว
+zh = 已清除 SIM {sim} 的 PLMN 锁定
+
+[msg.refresh_failed]
+en = Refresh failed
+th = รีเฟรชไม่สำเร็จ
+zh = 刷新失败
+
+[msg.refresh_failed_error]
+en = Refresh failed: {error}
+th = รีเฟรชไม่สำเร็จ: {error}
+zh = 刷新失败：{error}
+
+[msg.refresh_no_sim]
+en = Refresh failed: could not select SIM {sim}
+th = รีเฟรชไม่สำเร็จ: เลือก SIM {sim} ไม่ได้
+zh = 刷新失败：无法选择 SIM {sim}
+
+[msg.reset_defaults]
+en = Reset to hardware defaults for SIM {sim}
+th = รีเซ็ต SIM {sim} เป็นค่าเริ่มต้นของฮาร์ดแวร์แล้ว
+zh = 已将 SIM {sim} 重置为硬件默认
+
+[msg.reset_failed]
+en = Reset failed: {error}
+th = รีเซ็ตไม่สำเร็จ: {error}
+zh = 重置失败：{error}
+
+[msg.detach_failed]
+en = Detach failed
+th = ตัดการเชื่อมต่อไม่สำเร็จ
+zh = 去附着失败
+
+[msg.detach_failed_error]
+en = Detach failed: {error}
+th = ตัดการเชื่อมต่อไม่สำเร็จ: {error}
+zh = 去附着失败：{error}
+
+[msg.detached]
+en = Detached from network
+th = ตัดการเชื่อมต่อจากเครือข่ายแล้ว
+zh = 已从网络去附着
+
+[msg.attach_failed]
+en = Attach failed
+th = เชื่อมต่อไม่สำเร็จ
+zh = 附着失败
+
+[msg.attach_failed_error]
+en = Attach failed: {error}
+th = เชื่อมต่อไม่สำเร็จ: {error}
+zh = 附着失败：{error}
+
+[msg.attached]
+en = Attached to network
+th = เชื่อมต่อกับเครือข่ายแล้ว
+zh = 已附着到网络
+
+[msg.reattaching]
+en = Re-attaching to network…
+th = กำลังเชื่อมต่อกับเครือข่ายใหม่…
+zh = 正在重新附着到网络…
+
+[msg.reattach_failed]
+en = Re-attach failed
+th = เชื่อมต่อใหม่ไม่สำเร็จ
+zh = 重新附着失败
+
+[msg.reattach_failed_error]
+en = Re-attach failed: {error}
+th = เชื่อมต่อใหม่ไม่สำเร็จ: {error}
+zh = 重新附着失败：{error}
+
+[msg.reattach_left_detached]
+en = Re-attach failed; network may be left detached
+th = เชื่อมต่อใหม่ไม่สำเร็จ เครือข่ายอาจยังถูกตัดการเชื่อมต่ออยู่
+zh = 重新附着失败；网络可能仍处于去附着状态
+
+[msg.reattach_recovered]
+en = Re-attach recovered: attach succeeded
+th = กู้คืนการเชื่อมต่อใหม่แล้ว: เชื่อมต่อสำเร็จ
+zh = 重新附着已恢复：附着成功
+
+[msg.reattach_complete]
+en = Re-attach complete
+th = เชื่อมต่อใหม่เสร็จสิ้น
+zh = 重新附着完成
+
+[msg.need_arfcn_scs]
+en = Need: arfcn scs_khz
+th = ต้องใส่: arfcn scs_khz
+zh = 格式：arfcn scs_khz
+
+[msg.need_arfcn_pci_scs_band]
+en = Need: arfcn pci scs_khz band
+th = ต้องใส่: arfcn pci scs_khz band
+zh = 格式：arfcn pci scs_khz band
+
+[msg.need_arfcn_scs_band_pci]
+en = Need: arfcn scs_khz band pci...
+th = ต้องใส่: arfcn scs_khz band pci...
+zh = 格式：arfcn scs_khz band pci...
+
+[msg.need_id_bits_gnb]
+en = Need: id_bits gnb...
+th = ต้องใส่: id_bits gnb...
+zh = 格式：id_bits gnb...
+
+[msg.need_earfcn_pci]
+en = Need: earfcn pci
+th = ต้องใส่: earfcn pci
+zh = 格式：earfcn pci
+
+[msg.need_earfcn_pci_list]
+en = Need: earfcn pci...
+th = ต้องใส่: earfcn pci...
+zh = 格式：earfcn pci...
+
+[msg.need_mcc_mnc]
+en = Need: mcc mnc
+th = ต้องใส่: mcc mnc
+zh = 格式：mcc mnc
+
+[msg.max_64_pci]
+en = Max 64 PCIs
+th = สูงสุด 64 PCI
+zh = 最多 64 个 PCI
+
+[msg.pci_range]
+en = PCI must be 0-503
+th = PCI ต้องอยู่ระหว่าง 0-503
+zh = PCI 必须在 0-503 之间
+
+[msg.mnc_digits]
+en = MNC is up to 3 digits
+th = MNC มีได้สูงสุด 3 หลัก
+zh = MNC 最多 3 位数字
+
+[msg.mcc_mnc_range]
+en = MCC and MNC must be 0-999
+th = MCC และ MNC ต้องอยู่ระหว่าง 0-999
+zh = MCC 和 MNC 必须在 0-999 之间
+
+[msg.unknown_field]
+en = Unknown field
+th = ไม่รู้จักช่องนี้
+zh = 未知字段
+
+[msg.invalid_number]
+en = Invalid number: {error}
+th = ตัวเลขไม่ถูกต้อง: {error}
+zh = 无效数字：{error}
+
+[sim.off]
+en = Off
+th = ปิดอยู่
+zh = 已关闭
+
+[sim.no_sim]
+en = No SIM
+th = ไม่มีซิม
+zh = 无 SIM 卡
+
+# ── Network page and Cell-Lock dropdowns ──────────────
+
+[net.stop_test]
+en = Stop test script
+th = หยุดสคริปต์ทดสอบ
+zh = 停止测试脚本
+
+[net.start_test]
+en = Start test script
+th = เริ่มสคริปต์ทดสอบ
+zh = 开始测试脚本
+
+[net.resume_live]
+en = Resume live monitoring
+th = เริ่มการตรวจสอบสดต่อ
+zh = 恢复实时监控
+
+[net.freeze]
+en = Freeze monitoring
+th = หยุดการตรวจสอบชั่วคราว
+zh = 冻结监控
+
+[net.enable_diag]
+en = Enable DIAG
+th = เปิด DIAG
+zh = 启用 DIAG
+
+[net.enable_replay]
+en = Enable replay
+th = เปิดการเล่นซ้ำ
+zh = 启用回放
+
+[net.keep_screen_on]
+en = Keep screen on
+th = คงหน้าจอให้เปิดอยู่
+zh = 保持屏幕常亮
+
+[net.hide_serving]
+en = Hide serving cell
+th = ซ่อนเซลล์ที่ให้บริการ
+zh = 隐藏服务小区
+
+[net.hide_throughput]
+en = Hide throughput
+th = ซ่อนอัตราการส่งข้อมูล
+zh = 隐藏吞吐
+
+[net.hide_uplink]
+en = Hide uplink
+th = ซ่อนขาขึ้น
+zh = 隐藏上行
+
+[net.combine_endc]
+en = Combine ENDC
+th = รวม ENDC
+zh = 合并 ENDC
+
+[net.pause_replay]
+en = Pause replay
+th = หยุดการเล่นซ้ำชั่วคราว
+zh = 暂停回放
+
+[net.play_replay]
+en = Play replay
+th = เล่นซ้ำ
+zh = 播放回放
+
+[net.gnb_cell]
+en = gNB {gnb} / Cell {cell}
+th = gNB {gnb} / Cell {cell}
+zh = gNB {gnb} / 小区 {cell}
+
+[net.sim1_off]
+en = SIM 1 is turned off.
+th = SIM 1 ถูกปิดอยู่
+zh = SIM 1 已停用。
+
+[net.no_sim_slot1]
+en = No SIM in slot 1.
+th = ไม่มีซิมในช่อง 1
+zh = 卡槽 1 无 SIM 卡。
+
+[net.last_read_failed]
+en = Last read failed: {error}. Showing the previous reading.
+th = การอ่านล่าสุดล้มเหลว: {error} แสดงค่าที่อ่านก่อนหน้า
+zh = 上次读取失败：{error}。显示上一次的读数。
+
+[net.no_serving_details]
+en = No serving-cell details were reported.
+th = ไม่มีรายละเอียดเซลล์ที่ให้บริการ
+zh = 未报告服务小区详情。
+
+[net.diag_read_failed]
+en = DIAG read failed: {error}
+th = อ่าน DIAG ไม่สำเร็จ: {error}
+zh = DIAG 读取失败：{error}
+
+[net.diag_stopped]
+en = DIAG stopped: {error}
+th = DIAG หยุดแล้ว: {error}
+zh = DIAG 已停止：{error}
+
+[net.not_available_round]
+en = Not available this round: {failed}
+th = ไม่พร้อมใช้งานในรอบนี้: {failed}
+zh = 本轮不可用：{failed}
+
+[net.antenna]
+en = Antenna measurements
+th = การวัดสายอากาศ
+zh = 天线测量
+
+[net.neighbours]
+en = Neighbour cells ({count})
+th = เซลล์ใกล้เคียง ({count})
+zh = 邻区（{count}）
+
+[net.operator]
+en = Operator
+th = ผู้ให้บริการ
+zh = 运营商
+
+[net.roaming]
+en = Roaming
+th = โรมมิ่ง
+zh = 漫游
+
+[net.row_tx_rx]
+en = Tx/Rx
+th = ส่ง/รับ
+zh = 收发
+
+[net.row_tx_mode]
+en = TxMode
+th = โหมดส่ง
+zh = 发射模式
+
+[net.row_tx_mode_ul]
+en = TX mode
+th = โหมดส่ง
+zh = 发射模式
+
+[net.row_rank]
+en = Rank
+th = อันดับ
+zh = 秩
+
+[net.row_mod]
+en = Mod
+th = การมอดูเลต
+zh = 调制
+
+[net.row_port_rx]
+en = Port/Rx
+th = พอร์ต/Rx
+zh = 端口/Rx
+
+[common.expand]
+en = Expand
+th = ขยาย
+zh = 展开
+
+[common.collapse]
+en = Collapse
+th = ยุบ
+zh = 收起
+
+[common.yes]
+en = Yes
+th = ใช่
+zh = 是
+
+[common.no]
+en = No
+th = ไม่
+zh = 否
+
+[lock.none_seen]
+en = None seen yet
+th = ยังไม่เคยเห็น
+zh = 暂无记录
+
+[lock.seen_nr_arfcns]
+en = Seen NR-ARFCNs
+th = NR-ARFCN ที่เคยเห็น
+zh = 已见的 NR-ARFCN
+
+[lock.pick_nr_arfcn_first]
+en = Pick an NR-ARFCN first
+th = เลือก NR-ARFCN ก่อน
+zh = 请先选择 NR-ARFCN
+
+[lock.none_seen_nr_arfcn]
+en = None seen on this NR-ARFCN
+th = ยังไม่เคยเห็นบน NR-ARFCN นี้
+zh = 该 NR-ARFCN 上暂无记录
+
+[lock.seen_pcis]
+en = Seen PCIs
+th = PCI ที่เคยเห็น
+zh = 已见的 PCI
+
+[lock.no_nr_band]
+en = No NR band
+th = ไม่มีย่าน NR
+zh = 无 NR 频段
+
+[lock.apply_nr_arfcn]
+en = Apply NR-ARFCN lock
+th = ใช้การล็อก NR-ARFCN
+zh = 应用 NR-ARFCN 锁定
+
+[lock.apply_nr_cell]
+en = Apply NR cell lock
+th = ใช้การล็อกเซลล์ NR
+zh = 应用 NR 小区锁定
+
+[lock.seen_earfcns]
+en = Seen EARFCNs
+th = EARFCN ที่เคยเห็น
+zh = 已见的 EARFCN
+
+[lock.pick_earfcn_first]
+en = Pick an EARFCN first
+th = เลือก EARFCN ก่อน
+zh = 请先选择 EARFCN
+
+[lock.none_seen_earfcn]
+en = None seen on this EARFCN
+th = ยังไม่เคยเห็นบน EARFCN นี้
+zh = 该 EARFCN 上暂无记录
+
+[lock.apply_lte]
+en = Apply LTE lock
+th = ใช้การล็อก LTE
+zh = 应用 LTE 锁定
+
+[lock.clear_the_lock]
+en = Clear the lock
+th = ล้างการล็อก
+zh = 清除锁定
+
+[lock.band_label]
+en = Band
+th = ย่านความถี่
+zh = 频段
+
+[lock.nr_arfcn_title]
+en = NR-ARFCN lock
+th = การล็อก NR-ARFCN
+zh = NR-ARFCN 锁定
+
+[lock.hint_pci_band]
+en = PCI + Band lock (OPTIONAL)
+th = การล็อก PCI + ย่านความถี่ (ไม่บังคับ)
+zh = PCI + 频段锁定（可选）
+
+[lock.hint_multipci]
+en = MultiPCI lock: Put NR-ARFCN SCS Band and PCI list
+th = การล็อกหลาย PCI: ใส่ NR-ARFCN, SCS, ย่านความถี่ และรายการ PCI
+zh = 多 PCI 锁定：填写 NR-ARFCN、SCS、频段和 PCI 列表
+
+[lock.hint_gnb]
+en = gNB lock: Put ID bits (22-32) and gNB IDs
+th = การล็อก gNB: ใส่ ID bits (22-32) และ gNB ID
+zh = gNB 锁定：填写 ID 位（22-32）和 gNB ID
+
+[lock.hint_pci]
+en = PCI lock: Put EARFCN and PCI
+th = การล็อก PCI: ใส่ EARFCN และ PCI
+zh = PCI 锁定：填写 EARFCN 和 PCI
+
+[lock.hint_plmn]
+en = PLMN lock: Put MCC and MNC (e.g. 244 01)
+th = การล็อก PLMN: ใส่ MCC และ MNC (เช่น 244 01)
+zh = PLMN 锁定：填写 MCC 和 MNC（例如 244 01）
+
+[lock.hint_multicell]
+en = Multi-cell lock: Put EARFCN and PCI list (0-503)
+th = การล็อกหลายเซลล์: ใส่ EARFCN และรายการ PCI (0-503)
+zh = 多小区锁定：填写 EARFCN 和 PCI 列表（0-503）
+
+[lock.fmt_pci_band]
+en = NR-ARFCN PCI SCS Band
+th = NR-ARFCN PCI SCS ย่านความถี่
+zh = NR-ARFCN PCI SCS 频段
+
+[lock.fmt_multipci]
+en = NR-ARFCN SCS Band PCI1 PCI2...
+th = NR-ARFCN SCS ย่านความถี่ PCI1 PCI2...
+zh = NR-ARFCN SCS 频段 PCI1 PCI2...
+
+[lock.fmt_plmn]
+en = MCC MNC (e.g. 244 01)
+th = MCC MNC (เช่น 244 01)
+zh = MCC MNC（例如 244 01）

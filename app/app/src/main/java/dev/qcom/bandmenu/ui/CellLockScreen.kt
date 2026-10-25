@@ -621,27 +621,27 @@ private fun SimCellLockPage(
         }
     }
 
-    val defaultLabels = remember {
+    val defaultLabels = run {
         mapOf(
             0 to "NR-ARFCN",
-            1 to "NR-ARFCN PCI SCS Band",
-            2 to "NR-ARFCN SCS Band PCI1 PCI2...",
+            1 to stringResource(R.string.lock_fmt_pci_band),
+            2 to stringResource(R.string.lock_fmt_multipci),
             3 to "\"ID bits 22-32\" gNB1 gNB2...",
             4 to "EARFCN PCI",
-            5 to "MCC MNC (e.g. 244 01)",
+            5 to stringResource(R.string.lock_fmt_plmn),
             6 to "EARFCN PCI1 PCI2..."
         )
     }
 
-    val fieldTitles = remember {
+    val fieldTitles = run {
         mapOf(
-            0 to "NR-ARFCN lock",
-            1 to "PCI + Band lock (OPTIONAL)",
-            2 to "MultiPCI lock: Put NR-ARFCN SCS Band and PCI list",
-            3 to "gNB lock: Put ID bits (22-32) and gNB IDs",
-            4 to "PCI lock: Put EARFCN and PCI",
-            5 to "PLMN lock: Put MCC and MNC (e.g. 244 01)",
-            6 to "Multi-cell lock: Put EARFCN and PCI list (0-503)"
+            0 to stringResource(R.string.lock_nr_arfcn_title),
+            1 to stringResource(R.string.lock_hint_pci_band),
+            2 to stringResource(R.string.lock_hint_multipci),
+            3 to stringResource(R.string.lock_hint_gnb),
+            4 to stringResource(R.string.lock_hint_pci),
+            5 to stringResource(R.string.lock_hint_plmn),
+            6 to stringResource(R.string.lock_hint_multicell)
         )
     }
 
@@ -973,13 +973,13 @@ private fun NrLockFields(
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
             DropdownField(
                 value = arfcn, onValueChange = onArfcnChange, label = arfcnLabel, labelColor = arfcnLabelColor,
-                items = arfcnItems, emptyText = "None seen yet", description = "Seen NR-ARFCNs",
+                items = arfcnItems, emptyText = stringResource(R.string.lock_none_seen), description = stringResource(R.string.lock_seen_nr_arfcns),
                 keyboardOptions = keyboardOptions, onDone = onApply, modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
             ScsBox(scsKhz, onScsChange, Modifier.width(NR_SIDE_WIDTH).fillMaxHeight())
             Spacer(Modifier.width(8.dp))
-            ApplyButton(canApplyArfcn, onApplyArfcn, "Apply NR-ARFCN lock", onClearArfcn)
+            ApplyButton(canApplyArfcn, onApplyArfcn, stringResource(R.string.lock_apply_nr_arfcn), onClearArfcn)
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -993,19 +993,19 @@ private fun NrLockFields(
             DropdownField(
                 value = pci, onValueChange = onPciChange, label = pciLabel, labelColor = pciLabelColor,
                 items = pciItems,
-                emptyText = if (arfcnN == null) "Pick an NR-ARFCN first" else "None seen on this NR-ARFCN",
-                description = "Seen PCIs", keyboardOptions = keyboardOptions, onDone = onApply,
+                emptyText = if (arfcnN == null) stringResource(R.string.lock_pick_nr_arfcn_first) else stringResource(R.string.lock_none_seen_nr_arfcn),
+                description = stringResource(R.string.lock_seen_pcis), keyboardOptions = keyboardOptions, onDone = onApply,
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
             DropdownField(
-                value = band, onValueChange = onBandChange, label = "Band", labelColor = defaultLabelColor,
-                items = bandItems, emptyText = "No NR band", description = "Bands",
+                value = band, onValueChange = onBandChange, label = stringResource(R.string.lock_band_label), labelColor = defaultLabelColor,
+                items = bandItems, emptyText = stringResource(R.string.lock_no_nr_band), description = stringResource(R.string.bands_title),
                 keyboardOptions = keyboardOptions, onDone = onApply, popupAlignment = PopupPositionProvider.Align.End,
                 modifier = Modifier.width(NR_SIDE_WIDTH)
             )
             Spacer(Modifier.width(8.dp))
-            ApplyButton(canApplyCell, onApplyCell, "Apply NR cell lock", onClearCell)
+            ApplyButton(canApplyCell, onApplyCell, stringResource(R.string.lock_apply_nr_cell), onClearCell)
         }
     }
 }
@@ -1040,19 +1040,19 @@ private fun LteLockFields(
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
         DropdownField(
             value = earfcn, onValueChange = onEarfcnChange, label = "EARFCN", labelColor = labelColor,
-            items = earfcnItems, emptyText = "None seen yet", description = "Seen EARFCNs",
+            items = earfcnItems, emptyText = stringResource(R.string.lock_none_seen), description = stringResource(R.string.lock_seen_earfcns),
             keyboardOptions = keyboardOptions, onDone = onApply, modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(8.dp))
         DropdownField(
             value = pcis, onValueChange = onPcisChange, label = pciLabel, labelColor = pciLabelColor,
             items = pciItems,
-            emptyText = if (earfcnN == null) "Pick an EARFCN first" else "None seen on this EARFCN",
-            description = "Seen PCIs", keyboardOptions = keyboardOptions, onDone = onApply,
+            emptyText = if (earfcnN == null) stringResource(R.string.lock_pick_earfcn_first) else stringResource(R.string.lock_none_seen_earfcn),
+            description = stringResource(R.string.lock_seen_pcis), keyboardOptions = keyboardOptions, onDone = onApply,
             multi = true, popupAlignment = PopupPositionProvider.Align.End, modifier = Modifier.width(NR_SIDE_WIDTH)
         )
         Spacer(Modifier.width(8.dp))
-        ApplyButton(canApply, onApply, "Apply LTE lock", onClear)
+        ApplyButton(canApply, onApply, stringResource(R.string.lock_apply_lte), onClear)
     }
 }
 
@@ -1070,7 +1070,7 @@ private fun ApplyButton(enabled: Boolean, onClick: () -> Unit, description: Stri
     ) {
         Icon(
             if (onClear != null) MiuixIcons.Reset else MiuixIcons.Ok,
-            contentDescription = if (onClear != null) "Clear the lock" else description,
+            contentDescription = if (onClear != null) stringResource(R.string.lock_clear_the_lock) else description,
             tint = if (active) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.size(22.dp)
         )
@@ -1140,7 +1140,7 @@ private fun DropdownField(
         )
         WindowListPopup(show = show, alignment = popupAlignment, onDismissRequest = { show = false }) {
             val dismiss = LocalDismissState.current
-            val options = listOf(DropdownOption("", "None")) + items
+            val options = listOf(DropdownOption("", stringResource(R.string.common_none))) + items
             val size = options.size + if (items.isEmpty()) 1 else 0
             ListPopupColumn {
                 options.forEachIndexed { i, (v, text, tag) ->

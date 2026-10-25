@@ -1,5 +1,7 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -397,8 +399,8 @@ fun NetworkScreen(
                         val snap = pageState.snapshot
                         when {
                             sim == 2 && !sim2Available -> Sim2UnavailableNote()
-                            sim == 1 && sim1Status == dev.qcom.bandmenu.network.SimSlotStatus.DISABLED -> NoticeCard("SIM 1 is turned off.")
-                            sim == 1 && sim1Status == dev.qcom.bandmenu.network.SimSlotStatus.NO_SIM -> NoticeCard("No SIM in slot 1.")
+                            sim == 1 && sim1Status == dev.qcom.bandmenu.network.SimSlotStatus.DISABLED -> NoticeCard(stringResource(R.string.net_sim1_off))
+                            sim == 1 && sim1Status == dev.qcom.bandmenu.network.SimSlotStatus.NO_SIM -> NoticeCard(stringResource(R.string.net_no_sim_slot1))
                             snap == null && pageState.error == null -> Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) { CircularProgressIndicator() }
                             snap == null -> NoticeCard(pageState.error!!)
                             else -> {
@@ -442,9 +444,9 @@ fun NetworkScreen(
                     effects = { blur(8f.dp.toPx()) },
                     onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
                 )
-            ) { SmallTopAppBar(title = "Network", color = Color.Transparent, bottomContent = statusContent) }
+            ) { SmallTopAppBar(title = stringResource(R.string.nav_network), color = Color.Transparent, bottomContent = statusContent) }
         } else {
-            SmallTopAppBar(title = "Network", bottomContent = statusContent)
+            SmallTopAppBar(title = stringResource(R.string.nav_network), bottomContent = statusContent)
         }
         if (replayBar) {
             val r = replay!!
@@ -471,7 +473,7 @@ fun NetworkScreen(
         ) {
             Icon(
                 imageVector = if (testRun.running) MiuixIcons.Pause else MiuixIcons.Play,
-                contentDescription = if (testRun.running) "Stop test script" else "Start test script",
+                contentDescription = if (testRun.running) stringResource(R.string.net_stop_test) else stringResource(R.string.net_start_test),
                 tint = if (testRun.running) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
             )
         }
@@ -494,7 +496,7 @@ fun NetworkScreen(
             ) {
                 Icon(
                     imageVector = if (state.frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
-                    contentDescription = if (state.frozen) "Resume live monitoring" else "Freeze monitoring",
+                    contentDescription = if (state.frozen) stringResource(R.string.net_resume_live) else stringResource(R.string.net_freeze),
                     tint = if (state.frozen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground
                 )
             }
@@ -505,45 +507,45 @@ fun NetworkScreen(
                 entries = listOf(
                     DropdownEntry(items = listOf(
                         DropdownItem(
-                            text = "Enable DIAG", selected = state.diagEnabled,
+                            text = stringResource(R.string.net_enable_diag), selected = state.diagEnabled,
                             onClick = { onDiagToggle(!state.diagEnabled) }
                         ),
                         DropdownItem(
-                            text = "Enable replay", selected = state.replayEnabled,
+                            text = stringResource(R.string.net_enable_replay), selected = state.replayEnabled,
                             onClick = { onReplayToggle(!state.replayEnabled) }
                         ),
-                        DropdownItem(text = "Test script", onClick = { showTestSetup = true }),
+                        DropdownItem(text = stringResource(R.string.test_title), onClick = { showTestSetup = true }),
                         DropdownItem(
-                            text = "Keep screen on", selected = keepScreenOn,
+                            text = stringResource(R.string.net_keep_screen_on), selected = keepScreenOn,
                             onClick = { onKeepScreenOnToggle(!keepScreenOn) }
                         )
                     )),
                     DropdownEntry(items = listOf(
                         DropdownItem(
-                            text = "Hide serving cell", selected = servingHidden,
+                            text = stringResource(R.string.net_hide_serving), selected = servingHidden,
                             onClick = { onServingHiddenToggle(!servingHidden) }
                         ),
                         DropdownItem(
-                            text = "Hide throughput", selected = thputHidden,
+                            text = stringResource(R.string.net_hide_throughput), selected = thputHidden,
                             onClick = { onThputHiddenToggle(!thputHidden) }
                         ),
                         DropdownItem(
-                            text = "Hide uplink", selected = uplinkHidden,
+                            text = stringResource(R.string.net_hide_uplink), selected = uplinkHidden,
                             onClick = { onUplinkHiddenToggle(!uplinkHidden) }
                         ),
                         DropdownItem(
-                            text = "Combine ENDC", selected = !endcSeparate,
+                            text = stringResource(R.string.net_combine_endc), selected = !endcSeparate,
                             onClick = { onEndcSeparateToggle(!endcSeparate) }
                         ),
                         DropdownItem(
-                            text = "gNB $activeGnbBits / Cell ${36 - activeGnbBits}",
+                            text = stringResource(R.string.net_gnb_cell, activeGnbBits, 36 - activeGnbBits),
                             onClick = { onGnbBitsCycle(activeSim) }
                         )
                     ))
                 ),
                 collapseOnSelection = false
             ) {
-                Icon(imageVector = MiuixIcons.More, contentDescription = "Menu", tint = MiuixTheme.colorScheme.onBackground)
+                Icon(imageVector = MiuixIcons.More, contentDescription = stringResource(R.string.common_menu), tint = MiuixTheme.colorScheme.onBackground)
             }
         }
     }
@@ -566,7 +568,7 @@ private fun ReplayBar(
         Row(Modifier.padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay) {
                 Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play,
-                    contentDescription = if (playing) "Pause replay" else "Play replay",
+                    contentDescription = if (playing) stringResource(R.string.net_pause_replay) else stringResource(R.string.net_play_replay),
                     tint = if (playing) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
             }
             // The sample's clock time, shown above the thumb while it's held.
@@ -611,13 +613,13 @@ private fun NetworkContent(
     if (!servingHidden) {
         Column(Modifier.scrollAnchor(anchor, "${p}summary")) { SummaryCard(snap, state, snap.cells.firstOrNull(), gnbBits) }
     }
-    state.error?.let { NoticeCard("Last read failed: $it. Showing the previous reading.") }
+    state.error?.let { NoticeCard(stringResource(R.string.net_last_read_failed, it)) }
 
     if (!servingHidden) {
         snap.cells.drop(1).forEach { Column(Modifier.scrollAnchor(anchor, "${p}cell:${it.title}")) { CellSection(it) } }
         if (snap.cells.isEmpty() && snap.mode != ServiceMode.NO_SERVICE &&
             snap.mode != ServiceMode.LIMITED && snap.mode != ServiceMode.UNKNOWN) {
-            NoticeCard("No serving-cell details were reported.")
+            NoticeCard(stringResource(R.string.net_no_serving_details))
         }
     }
     // NSA: one ENDC table unless the menu separates LTE and NR. LTE CA and
@@ -628,7 +630,7 @@ private fun NetworkContent(
         val groupKey = if (g.title == "NR aggregation") "${p}nr" else "${p}lte"
         Column(Modifier.scrollAnchor(anchor, groupKey)) { CarrierSection(g, title = !servingHidden, phyUl = !uplinkShown) }
     }
-    state.diagError?.let { NoticeCard(if (state.diagEnabled) "DIAG read failed: $it" else "DIAG stopped: $it") }
+    state.diagError?.let { NoticeCard(if (state.diagEnabled) stringResource(R.string.net_diag_read_failed, it) else stringResource(R.string.net_diag_stopped, it)) }
     // DIAG only: QMI has no throughput (hidden on WCDMA).
     if (state.diagEnabled && thput.isNotEmpty() && snap.mode != ServiceMode.WCDMA) {
         Column(Modifier.scrollAnchor(anchor, "${p}thput")) {
@@ -638,7 +640,7 @@ private fun NetworkContent(
     // Below the chart (kept when the menu hides the chart).
     if (uplinkShown) Column(Modifier.scrollAnchor(anchor, "${p}uplink")) { UplinkCard(uplink) }
     if (snap.antennas.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}antennas")) {
-        Expandable("Antenna measurements") {
+        Expandable(stringResource(R.string.net_antenna)) {
             // UE transmit power (TX_RX_INFO, only while in traffic), on top: once per
             // RAT, from its first group (QMI's serving cell, or DIAG's first carrier).
             // Left out while the Uplink card shows the PUSCH/PUCCH power.
@@ -660,7 +662,7 @@ private fun NetworkContent(
     // Kept whenever there's a serving cell, even when no neighbours are
     // reported this round, so it doesn't come and go. Collapsed by default.
     if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}neighbours")) {
-        Expandable("Neighbour cells (${snap.neighbors.size})") {
+        Expandable(stringResource(R.string.net_neighbours, snap.neighbors.size)) {
             if (snap.neighbors.isEmpty()) {
                 Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -669,7 +671,7 @@ private fun NetworkContent(
     }
     if (snap.failedReads.isNotEmpty()) {
         Text(
-            "Not available this round: ${snap.failedReads.joinToString()}",
+            stringResource(R.string.net_not_available_round, snap.failedReads.joinToString()),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             style = MiuixTheme.textStyles.footnote2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -710,9 +712,9 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             // Operator, PLMN and roaming: the top row (GSM: after the cell's first
             // row).
             val operatorRow = listOf(
-                Field("Operator", state.operatorName ?: "–"),
+                Field(stringResource(R.string.net_operator), state.operatorName ?: "–"),
                 Field("PLMN", snap.plmn?.toString() ?: "–"),
-                Field("Roaming", when (snap.roaming) { true -> "Yes"; false -> "No"; null -> "–" })
+                Field(stringResource(R.string.net_roaming), when (snap.roaming) { true -> stringResource(R.string.common_yes); false -> stringResource(R.string.common_no); null -> "–" })
             ).takeIf { state.operatorName != null || snap.plmn != null || snap.roaming != null }.orEmpty()
             // Serving cell: its bars, then its fields.
             if (serving != null && serving.metrics.isNotEmpty()) {
@@ -906,15 +908,15 @@ private fun CaTable(
     // ENDC's NR columns fill the same rows: Tx/Rx is CSI-RS ports × Rx (as
     // the NR table's Port/Rx), Rank the mean layers.
     if (diag) {
-        row("Tx/Rx") {
+        row(stringResource(R.string.net_row_tx_rx)) {
             // Tx held while the carrier idles (PortHold): "4×-" without an RX count.
             text(it.diag?.let { d -> if (d.txAntennas == null && d.rxAntennas == null) null else "${d.txAntennas ?: "-"}×${d.rxAntennas ?: "-"}" }
                 ?: it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" })
         }
         // No TxMode row in ENDC (NR has none).
-        if (!endc) row("TxMode") { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
+        if (!endc) row(stringResource(R.string.net_row_tx_mode)) { text(it.diag?.transmissionMode?.let { m -> "TM$m" }) }
         // LTE as NR: the mean scheduled layers; B126's rank when no TBs came.
-        row("Rank") {
+        row(stringResource(R.string.net_row_rank)) {
             text((it.diag?.let { d -> d.layers ?: d.rank?.toDouble() } ?: it.nr?.layers)?.let { l -> String.format(Locale.US, "%.0f", l) })
         }
         row("RBs") {
@@ -926,7 +928,7 @@ private fun CaTable(
             CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
         }
         row("BLER%") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
-        row("Mod") { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
+        row(stringResource(R.string.net_row_mod)) { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
         row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
         if (phyUl) row("PHY UL") { text((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
@@ -960,8 +962,8 @@ private fun NrRows(
     r("SINR") { CellValueBar(it.sinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
     r("CSINR") { CellValueBar(it.nr?.csiSinr, MetricKind.SINR, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }
     // CSI-RS ports the network configured × the device's Rx antennas, e.g. "8×4".
-    r("Port/Rx") { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
-    r("Rank") { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.0f", l) }) }
+    r(stringResource(R.string.net_row_port_rx)) { t(it.nr?.let { n -> if (n.csiPorts == null && n.rxAntennas == null) null else "${n.csiPorts ?: "-"}×${n.rxAntennas ?: "-"}" }) }
+    r(stringResource(R.string.net_row_rank)) { t(it.nr?.layers?.let { l -> String.format(Locale.US, "%.0f", l) }) }
     r("RBs") {
         val (value, fill) = rbCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
@@ -972,7 +974,7 @@ private fun NrRows(
     }
     r("BLER%") { BlerBar(it.nr?.bler, barMax, cellStyle) }
     // QAM order only ("256"); QPSK as is.
-    r("Mod") { t(it.nr?.modulation?.removeSuffix("QAM")) }
+    r(stringResource(R.string.net_row_mod)) { t(it.nr?.modulation?.removeSuffix("QAM")) }
     // Values coloured as the chart's lines.
     r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
     if (phyUl) r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
@@ -1017,11 +1019,11 @@ private fun UplinkRows(
         val (value, fill) = ulMcsCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
-    r("Mod") { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
+    r(stringResource(R.string.net_row_mod)) { t((it.diag?.ulModulation ?: it.nr?.ulModulation)?.removeSuffix("QAM")) }
     // NR only: left out in LTE and NSA (no LTE uplink rank or TX mode decoded).
     if (sa) {
-        r("Rank") { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.0f", l) }) }
-        r("TX mode") { t(it.nr?.ulTxMode) }
+        r(stringResource(R.string.net_row_rank)) { t(it.nr?.ulLayers?.let { l -> String.format(Locale.US, "%.0f", l) }) }
+        r(stringResource(R.string.net_row_tx_mode_ul)) { t(it.nr?.ulTxMode) }
     }
     // Transmit power per channel, dBm.
     r("PUSCH") {
@@ -1269,7 +1271,7 @@ private fun Expandable(title: String, content: @Composable () -> Unit) {
             val angle by animateFloatAsState(if (open) 270f else 90f, label = "chevron")
             Icon(
                 imageVector = MiuixIcons.ChevronForward,
-                contentDescription = if (open) "Collapse" else "Expand",
+                contentDescription = if (open) stringResource(R.string.common_collapse) else stringResource(R.string.common_expand),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.rotate(angle)
             )
