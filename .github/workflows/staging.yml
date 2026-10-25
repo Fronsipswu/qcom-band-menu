@@ -1,5 +1,7 @@
 name: Staging build
 
+# Actions enabled on fork — trigger build v1.
+
 # The optimized (R8, shrunk) staging APK, dev.qcom.bandmenu.staging, for
 # every push to main, diag-test or cell-lock-rework that touches the app.
 on:
@@ -19,9 +21,17 @@ jobs:
     name: Build staging APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - name: Checkout app repository
         uses: actions/checkout@v4
+
+      # The Chinese build: translate_zh.py rewrites the UI strings to
+      # Simplified Chinese in place before the build. The fork's main stays
+      # upstream-faithful, and every CI build ships a fully Chinese APK.
+      - name: Apply Chinese translation
+        run: python3 translate_zh.py
 
       - name: Checkout miuix composite build
         uses: actions/checkout@v4
@@ -119,6 +129,17 @@ jobs:
           archive: false
           retention-days: 30
           if-no-files-found: error
+
+      # Public download: Actions artifacts need a signed-in account, so the
+      # APK is also published to the "zh-cn" release, which anyone can fetch.
+      - name: Publish APK to the zh-cn release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete zh-cn --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh release create zh-cn "$APK" --repo "$GITHUB_REPOSITORY" \
+            --title "中文版 ${VERSION}（${GITHUB_SHA::7}）" \
+            --notes "由 GitHub Actions 自动构建的中文版（staging，调试签名，可直接安装）。"
 
       # After the upload, so a failing test still leaves the APK.
       - name: Run unit tests
