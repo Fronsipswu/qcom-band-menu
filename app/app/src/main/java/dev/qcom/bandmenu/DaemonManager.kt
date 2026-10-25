@@ -292,13 +292,42 @@ class DaemonManager(private val context: Context) {
         if (isAborted(gen)) return
         AppLog.e(TAG, "launchAndConnect: failed to connect after 3s")
 
+        // Usually the root solution's policy denies apps connectto on a root
+        // socket (connect() "Permission denied"). Add only that rule before
+        // touching enforcement, which some kernels can't change at all
+        // (setenforce 0 fails on stock OnePlus). A squatter gains nothing from
+        // it: the token check still refuses it.
+        if (RootSocketRule.allow(TAG)) {
+            for (i in 1..8) {
+                Thread.sleep(250)
+                if (isAborted(gen)) {
+                    abandon()
+                    return
+                }
+                if (tryConnect()) {
+                    if (isAborted(gen)) {
+                        abandon()
+                        return
+                    }
+                    AppLog.i(TAG, "launchAndConnect: connected after the connectto rule (${i * 250}ms)")
+                    hasConnectedOnce = true
+                    Handler(Looper.getMainLooper()).post {
+                        if (!isAborted(gen)) isReady.value = true
+                    }
+                    return
+                }
+            }
+            AppLog.e(TAG, "launchAndConnect: still failed after the connectto rule")
+        }
+        if (isAborted(gen)) return
+
         if (lastConnectAuthFailure || socketPeerUnauthenticated) {
             // F3: something answered on the socket but could not prove it is
             // our daemon (or accepted then closed/timed out). Never trip
             // SELinux permissive for a squatter — only a launch where nothing
             // accepted the connection at all may use the fallback.
             val msg = "Another process is listening on the daemon socket but did " +
-                "not authenticate. Refusing to continue (no SELinux change made)."
+                "not authenticate. Refusing to continue (SELinux left enforcing)."
             AppLog.e(TAG, "launchAndConnect: $msg")
             launchError.value = msg
             Handler(Looper.getMainLooper()).post {

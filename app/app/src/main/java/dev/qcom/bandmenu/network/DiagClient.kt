@@ -6,6 +6,7 @@ import android.net.LocalSocketAddress
 import android.os.Process
 import com.topjohnwu.superuser.Shell
 import dev.qcom.bandmenu.AppLog
+import dev.qcom.bandmenu.RootSocketRule
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -226,8 +227,6 @@ class DiagClient(private val context: Context) {
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
         private const val EXPECTED_VERSION = "1.22.33"
-        /** SELinux domains root processes (the helper) run in; see allowRootSocket. */
-        private val ROOT_DOMAINS = listOf("su", "magisk")
     }
 
     private var socket: LocalSocket? = null
@@ -329,7 +328,7 @@ class DiagClient(private val context: Context) {
         // reboot, then retry; the helper accepts only this app's uid. Tried
         // once per app run, so phones where DIAG fails for other reasons
         // aren't patched or slowed down on every round.
-        if (!ruleTried && allowRootSocket().also { ruleTried = true }) {
+        if (!ruleTried && RootSocketRule.allow(TAG).also { ruleTried = true }) {
             if (waitConnect(4)) return
             // Relaunch only a helper that has exited: a second one next to a
             // running one fails with "Address already in use", hiding why the
@@ -359,26 +358,6 @@ class DiagClient(private val context: Context) {
         val cap = Shell.cmd("grep CapEff /proc/self/status").exec().out.firstOrNull()
             ?.substringAfter(':')?.trim() ?: return true
         return cap.trimStart('0').isNotEmpty()
-    }
-
-    /** Lets the app connect to the helper's socket, `allow untrusted_app <root
-     *  domain> unix_stream_socket connectto`, through the root solution's live
-     *  policy tool; true if a rule was accepted. The helper runs in the root
-     *  shell's domain: "su" on KernelSU, "magisk" on Magisk (Magisk 26 on the
-     *  OnePlus Nord: the "su" rule is accepted but doesn't apply). */
-    private fun allowRootSocket(): Boolean {
-        val added = ROOT_DOMAINS.filter { domain ->
-            val rule = "allow untrusted_app $domain unix_stream_socket connectto"
-            // A subshell: libsu's root shell is persistent, so a bare exit would end it.
-            Shell.cmd(
-                "(for t in ksud /data/adb/ksud /data/adb/ksu/bin/ksud; do " +
-                    "command -v \$t >/dev/null 2>&1 && \$t sepolicy patch '$rule' >/dev/null 2>&1 && exit 0; done; " +
-                "for t in magiskpolicy /data/adb/magisk/magiskpolicy; do " +
-                    "command -v \$t >/dev/null 2>&1 && \$t --live '$rule' >/dev/null 2>&1 && exit 0; done; exit 1)"
-            ).exec().isSuccess
-        }
-        AppLog.i(TAG, "SELinux connectto rule: ${if (added.isEmpty()) "no tool accepted it" else "added for $added"}")
-        return added.isNotEmpty()
     }
 
     /** A helper that's exiting can keep the file busy (ETXTBSY) briefly. */
