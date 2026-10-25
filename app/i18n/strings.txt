@@ -124,7 +124,7 @@ zh = 清除筛选
 
 [bands.filter_active]
 en = Filter active
-th = กำลังกรองอยู่
+th = ฟิลเตอร์เปิดอยู่
 zh = 筛选生效中
 
 [bands.hide_nr_mode]

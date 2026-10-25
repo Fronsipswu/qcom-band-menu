@@ -22,7 +22,7 @@
     <string name="bands_title">แบนด์</string>
     <string name="bands_filter_shown">กรองแบนด์ที่แสดง</string>
     <string name="bands_clear_filter">ล้างตัวกรอง</string>
-    <string name="bands_filter_active">กำลังกรองอยู่</string>
+    <string name="bands_filter_active">ฟิลเตอร์เปิดอยู่</string>
     <string name="bands_hide_nr_mode">ซ่อนโหมด NR</string>
     <string name="bands_hide_usage">ซ่อนการตั้งค่าการใช้งาน</string>
     <string name="bands_hide_quick_select">ซ่อนการเลือกด่วน</string>
