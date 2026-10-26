@@ -9,6 +9,12 @@
 # After editing, run:  python i18n/gen_strings.py
 # (it writes the Android files and reports how much of each language is done)
 
+# ── Language name ──────────────────────────────
+[language.name]
+en = English
+th = ไทย
+zh = 中文（简体）
+
 # ── Info page ──────────────────────────────
 
 [info.about]
@@ -80,13 +86,6 @@ zh = 语言
 en = System default
 th = ตามเครื่อง
 zh = 跟随系统
-
-# Each language's own name for itself, shown in the Language list. A language
-# is only offered in the app once it has a line here.
-[language.name]
-en = English
-th = ไทย
-zh = 中文（简体）
 
 # ── Shared ──────────────────────────────
 
@@ -949,7 +948,7 @@ zh = 清除锁定
 
 [lock.band_label]
 en = Band
-th = ย่านความถี่
+th = แบนด์
 zh = 频段
 
 [lock.nr_arfcn_title]
@@ -959,7 +958,7 @@ zh = NR-ARFCN 锁定
 
 [lock.hint_pci_band]
 en = PCI + Band lock (OPTIONAL)
-th = การล็อก PCI + ย่านความถี่ (ไม่บังคับ)
+th = การล็อก PCI + แบนด์ (ไม่บังคับ)
 zh = PCI + 频段锁定（可选）
 
 [lock.hint_multipci]
@@ -989,7 +988,7 @@ zh = 多小区锁定：填写 EARFCN 和 PCI 列表（0-503）
 
 [lock.fmt_pci_band]
 en = NR-ARFCN PCI SCS Band
-th = NR-ARFCN PCI SCS ย่านความถี่
+th = NR-ARFCN PCI SCS แบนด์
 zh = NR-ARFCN PCI SCS 频段
 
 [lock.fmt_multipci]
