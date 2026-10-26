@@ -14,6 +14,7 @@
 en = English
 th = ไทย
 zh = 中文（简体）
+de = Deutsch
 
 # ── Info page ──────────────────────────────
 
@@ -21,71 +22,85 @@ zh = 中文（简体）
 en = About
 th = เกี่ยวกับ
 zh = 关于
+de = Über
 
 [info.version]
 en = Version: {name} ({code})
 th = เวอร์ชัน: {name} ({code})
 zh = 版本：{name}（{code}）
+de = Version: {name} ({code})
 
 [info.package]
 en = Package: {package}
 th = แพ็กเกจ: {package}
 zh = 包名：{package}
+de = Paket: {package}
 
 [info.credits]
 en = Credits
 th = เครดิต
 zh = 致谢
+de = Mitwirkende
 
 [info.powered_by]
 en = Powered by
 th = ขับเคลื่อนโดย
 zh = 技术支持
+de = Unterstützt von
 
 [common.menu]
 en = Menu
 th = เมนู
 zh = 菜单
+de = Menü
 
 [info.debug_logging]
 en = Debug logging
 th = บันทึกการดีบัก
 zh = 调试日志
+de = Debug-Protokollierung
 
 [info.hide_navbar]
 en = Hide navigation bar
 th = ซ่อนแถบนำทาง
 zh = 隐藏导航栏
+de = Navigationsleiste ausblenden
 
 [info.network_at_start]
 en = Network page at start
 th = เปิดหน้าเครือข่ายตอนเริ่มแอป
 zh = 启动时打开网络页
+de = Netzwerkseite beim Start
 
 [common.detach]
 en = Detach
 th = ตัดการเชื่อมต่อ
 zh = 去附着
+de = Trennen
 
 [common.attach]
 en = Attach
 th = เชื่อมต่อ
 zh = 附着
+de = Verbinden
 
 [common.reattach]
 en = Re-Attach
 th = เชื่อมต่อใหม่
 zh = 重新附着
+de = Erneut verbinden
 
 [info.language]
 en = Language
 th = ภาษา
 zh = 语言
+de = Sprache
 
 [info.language_system]
 en = System default
 th = ตามเครื่อง
 zh = 跟随系统
+de = Systemstandard
 
 # ── Shared ──────────────────────────────
 
@@ -93,16 +108,19 @@ zh = 跟随系统
 en = Cancel
 th = ยกเลิก
 zh = 取消
+de = Abbrechen
 
 [common.save]
 en = Save
 th = บันทึก
 zh = 保存
+de = Speichern
 
 [common.none]
 en = None
 th = ไม่มี
 zh = 无
+de = Keine
 
 # ── Bands page ──────────────────────────
 
@@ -110,161 +128,193 @@ zh = 无
 en = Bands
 th = แบนด์
 zh = 频段
+de = Bänder
 
 [bands.filter_shown]
 en = Filter shown bands
 th = กรองแบนด์ที่แสดง
 zh = 筛选显示的频段
+de = Angezeigte Bänder filtern
 
 [bands.clear_filter]
 en = Clear filter
 th = ล้างตัวกรอง
 zh = 清除筛选
+de = Filter löschen
 
 [bands.filter_active]
 en = Filter active
 th = ฟิลเตอร์เปิดอยู่
 zh = 筛选生效中
+de = Filter aktiv
 
 [bands.hide_nr_mode]
 en = Hide NR mode
 th = ซ่อนโหมด NR
 zh = 隐藏 NR 模式
+de = NR-Modus ausblenden
 
 [bands.hide_usage]
 en = Hide usage setting
 th = ซ่อนการตั้งค่าการใช้งาน
 zh = 隐藏使用设置
+de = Nutzungseinstellung ausblenden
 
 [bands.hide_quick_select]
 en = Hide quick select
 th = ซ่อนการเลือกด่วน
 zh = 隐藏快捷选择
+de = Schnellauswahl ausblenden
 
 [bands.combine_nr]
 en = Combine NR
 th = รวม NR
 zh = 合并 NR
+de = NR zusammenfassen
 
 [bands.reset_defaults]
 en = Reset to hardware defaults
 th = รีเซ็ตเป็นค่าเริ่มต้นของเครื่อง
 zh = 重置为硬件默认
+de = Auf Hardware-Standard zurücksetzen
 
 [bands.apply_description]
 en = Apply band locks
 th = ใช้การล็อกแบนด์
 zh = 应用频段锁定
+de = Band-Sperren anwenden
 
 [bands.rat_lock]
 en = RAT lock
 th = ชนิดเครือข่าย
 zh = RAT 锁定
+de = RAT-Sperre
 
 [bands.nr_mode]
 en = NR mode
 th = โหมด NR
 zh = NR 模式
+de = NR-Modus
 
 [bands.usage_setting]
 en = Usage setting
 th = การตั้งค่าการใช้งาน
 zh = 使用设置
+de = Nutzungseinstellung
 
 [bands.voice_centric]
 en = Voice-centric
 th = เน้นเสียง
 zh = 语音优先
+de = Sprachzentriert
 
 [bands.data_centric]
 en = Data-centric
 th = เน้นข้อมูล
 zh = 数据优先
+de = Datenzentriert
 
 [bands.quick_selections]
 en = Quick selections
 th = เลือกด่วน
 zh = 快捷选择
+de = Schnellauswahl
 
 [bands.toggle_groups]
 en = Toggle band groups
 th = สลับกลุ่มแบนด์
 zh = 切换频段组
+de = Bandgruppen umschalten
 
 [bands.auto_all_rats]
 en = AUTO (All RATs)
 th = อัตโนมัติ (ทุก RAT)
 zh = AUTO（全部 RAT）
+de = AUTO (alle RATs)
 
 [bands.all_bands]
 en = All bands (all RATs)
 th = แบนด์ทั้งหมด (ทุก RAT)
 zh = 全部频段（全部 RAT）
+de = Alle Bänder (alle RATs)
 
 [bands.all_5g]
 en = All 5G bands (NSA+SA)
 th = แบนด์ 5G ทั้งหมด (NSA+SA)
 zh = 全部 5G 频段（NSA+SA）
+de = Alle 5G-Bänder (NSA+SA)
 
 [bands.all_nr_sa]
 en = All NR-SA bands
 th = แบนด์ NR-SA ทั้งหมด
 zh = 全部 NR-SA 频段
+de = Alle NR-SA-Bänder
 
 [bands.all_nr_nsa]
 en = All NR-NSA bands
 th = แบนด์ NR-NSA ทั้งหมด
 zh = 全部 NR-NSA 频段
+de = Alle NR-NSA-Bänder
 
 [bands.all_nr]
 en = All NR bands
 th = แบนด์ NR ทั้งหมด
 zh = 全部 NR 频段
+de = Alle NR-Bänder
 
 [bands.all_lte]
 en = All LTE bands
 th = แบนด์ LTE ทั้งหมด
 zh = 全部 LTE 频段
+de = Alle LTE-Bänder
 
 [bands.all_wcdma]
 en = All WCDMA bands
 th = แบนด์ WCDMA ทั้งหมด
 zh = 全部 WCDMA 频段
+de = Alle WCDMA-Bänder
 
 [bands.all_gsm]
 en = All GSM bands
 th = แบนด์ GSM ทั้งหมด
 zh = 全部 GSM 频段
+de = Alle GSM-Bänder
 
 [bands.copy_to_sim2]
 en = Copy selection to SIM 2
 th = คัดลอกที่เลือกไป SIM 2
 zh = 复制选择到 SIM 2
+de = Auswahl auf SIM 2 kopieren
 
 [bands.copy_to_sim1]
 en = Copy selection to SIM 1
 th = คัดลอกที่เลือกไป SIM 1
 zh = 复制选择到 SIM 1
+de = Auswahl auf SIM 1 kopieren
 
 [bands.sim2_unavailable]
 en = SIM 2 is not available
 th = SIM 2 ใช้งานไม่ได้
 zh = SIM 2 不可用
+de = SIM 2 ist nicht verfügbar
 
 [bands.sim2_refused]
 en = The modem refused to select SIM 2. This is expected on single-SIM phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.
 th = โมเด็มไม่ยอมเลือก SIM 2 ซึ่งเป็นเรื่องปกติในโทรศัพท์ที่มีซิมเดียว หรือเมื่อปิดดูอัลซิม (DSDS) SIM 1 ใช้งานได้ตามปกติ
 zh = 调制解调器拒绝选择 SIM 2。单卡手机或关闭双卡双待（DSDS）时属正常现象，SIM 1 可正常使用。
+de = Das Modem hat die Auswahl von SIM 2 abgelehnt. Das ist bei Single-SIM-Telefonen und bei deaktiviertem Dual-SIM (DSDS) zu erwarten. SIM 1 funktioniert normal.
 
 [bands.applied_sim]
 en = Settings applied for SIM {sim}
 th = ใช้การตั้งค่าแล้วสำหรับ SIM {sim}
 zh = 已为 SIM {sim} 应用设置
+de = Einstellungen für SIM {sim} angewendet
 
 [bands.applied_nr_refused]
 en = Bands applied. This modem can't change the NR mode.
 th = ใช้แบนด์แล้ว แต่โมเด็มนี้เปลี่ยนโหมด NR ไม่ได้
 zh = 频段已应用，但此调制解调器无法更改 NR 模式。
+de = Bänder angewendet. Dieses Modem kann den NR-Modus nicht ändern.
 
 # ── Navigation and root access ──────────────────────────
 
@@ -272,46 +322,55 @@ zh = 频段已应用，但此调制解调器无法更改 NR 模式。
 en = Network
 th = เครือข่าย
 zh = 网络
+de = Netzwerk
 
 [nav.cell_lock]
 en = Cell-Lock
 th = ล็อกเซลล์
 zh = 小区锁定
+de = Zellensperre
 
 [nav.info]
 en = Info
 th = ข้อมูล
 zh = 关于
+de = Info
 
 [root.title]
 en = Root Access Required
 th = ต้องใช้สิทธิ์รูท
 zh = 需要 Root 权限
+de = Root-Zugriff erforderlich
 
 [root.summary]
 en = This app requires root access to communicate with the Qualcomm modem. Please grant root access and retry.
 th = แอปนี้ต้องใช้สิทธิ์รูทเพื่อสื่อสารกับโมเด็ม Qualcomm กรุณาให้สิทธิ์รูทแล้วลองอีกครั้ง
 zh = 此应用需要 Root 权限才能与高通调制解调器通信。请授予 Root 权限后重试。
+de = Diese App benötigt Root-Zugriff, um mit dem Qualcomm-Modem zu kommunizieren. Bitte Root-Zugriff gewähren und erneut versuchen.
 
 [common.retry]
 en = Retry
 th = ลองอีกครั้ง
 zh = 重试
+de = Erneut versuchen
 
 [common.ok]
 en = OK
 th = ตกลง
 zh = 确定
+de = OK
 
 [common.download]
 en = Download
 th = ดาวน์โหลด
 zh = 下载
+de = Download
 
 [common.upload]
 en = Upload
 th = อัปโหลด
 zh = 上传
+de = Upload
 
 # ── Test script ──────────────────────────
 
@@ -319,31 +378,37 @@ zh = 上传
 en = Test script
 th = สคริปต์ทดสอบ
 zh = 测试脚本
+de = Testskript
 
 [test.http_get]
 en = HTTP GET (download)
 th = HTTP GET (ดาวน์โหลด)
 zh = HTTP GET（下载）
+de = HTTP GET (Download)
 
 [test.http_post]
 en = HTTP POST (upload)
 th = HTTP POST (อัปโหลด)
 zh = HTTP POST（上传）
+de = HTTP POST (Upload)
 
 [test.streams]
 en = Streams
 th = จำนวนสตรีม
 zh = 并发流数
+de = Streams
 
 [test.mode]
 en = Mode
 th = โหมด
 zh = 模式
+de = Modus
 
 [test.duration]
 en = Duration (seconds)
 th = ระยะเวลา (วินาที)
 zh = 时长（秒）
+de = Dauer (Sekunden)
 
 # ── Cell-Lock page ──────────────────────────
 
@@ -351,116 +416,139 @@ zh = 时长（秒）
 en = Clear ALL
 th = ล้างทั้งหมด
 zh = 全部清除
+de = ALLE löschen
 
 [lock.clear_5g]
 en = Clear 5G
 th = ล้าง 5G
 zh = 清除 5G
+de = 5G löschen
 
 [lock.clear_4g]
 en = Clear 4G
 th = ล้าง 4G
 zh = 清除 4G
+de = 4G löschen
 
 [lock.clear_plmn]
 en = Clear PLMN
 th = ล้าง PLMN
 zh = 清除 PLMN
+de = PLMN löschen
 
 [lock.enable_experimental]
 en = Enable Experimental
 th = เปิดโหมดทดลอง
 zh = 启用实验功能
+de = Experimentell aktivieren
 
 [lock.success]
 en = Success locking {type} ✓
 th = ล็อก {type} สำเร็จ ✓
 zh = 锁定成功：{type} ✓
+de = {type} erfolgreich gesperrt ✓
 
 [lock.rejected]
 en = Rejected by modem
 th = โมเด็มปฏิเสธ
 zh = 被调制解调器拒绝
+de = Vom Modem abgelehnt
 
 [lock.status_nr_arfcn]
 en = NR-ARFCN locked ✓
 th = ล็อก NR-ARFCN แล้ว ✓
 zh = NR-ARFCN 已锁定 ✓
+de = NR-ARFCN gesperrt ✓
 
 [lock.status_nr_pci]
 en = NR-ARFCN + PCI locked ✓
 th = ล็อก NR-ARFCN + PCI แล้ว ✓
 zh = NR-ARFCN + PCI 已锁定 ✓
+de = NR-ARFCN + PCI gesperrt ✓
 
 [lock.status_gnb]
 en = gNB locked ✓
 th = ล็อก gNB แล้ว ✓
 zh = gNB 已锁定 ✓
+de = gNB gesperrt ✓
 
 [lock.status_multi_pci]
 en = Multi-PCI locked ✓
 th = ล็อกหลาย PCI แล้ว ✓
 zh = 多 PCI 锁定 ✓
+de = Multi-PCI gesperrt ✓
 
 [lock.status_cell]
 en = Cell locked ✓
 th = ล็อกเซลล์แล้ว ✓
 zh = 小区锁定 ✓
+de = Zelle gesperrt ✓
 
 [lock.status_multi_cell]
 en = Multi-cell locked ✓
 th = ล็อกหลายเซลล์แล้ว ✓
 zh = 多小区锁定 ✓
+de = Mehrere Zellen gesperrt ✓
 
 [lock.status_plmn]
 en = {plmn} locked ✓
 th = ล็อก {plmn} แล้ว ✓
 zh = {plmn} 已锁定 ✓
+de = {plmn} gesperrt ✓
 
 [lock.lock_5g_title]
 en = Lock 5G cell
 th = ล็อกเซลล์ 5G
 zh = 锁定 5G 小区
+de = 5G-Zelle sperren
 
 [lock.frequency_only]
 en = Frequency only
 th = เฉพาะความถี่
 zh = 仅频率
+de = Nur Frequenz
 
 [lock.frequency_pci]
 en = Frequency + PCI
 th = ความถี่ + PCI
 zh = 频率 + PCI
+de = Frequenz + PCI
 
 [lock.pci_missing]
 en = The modem reports no PCI for this frequency. Enter the cell's PCI (0-1007).
 th = โมเด็มไม่รายงาน PCI สำหรับความถี่นี้ กรุณาใส่ PCI ของเซลล์ (0-1007)
 zh = 该频率下调制解调器未报告 PCI。请输入小区 PCI（0-1007）。
+de = Das Modem meldet für diese Frequenz kein PCI. Bitte das PCI der Zelle eingeben (0-1007).
 
 [lock.button_lock]
 en = Lock
 th = ล็อก
 zh = 锁定
+de = Sperren
 
 [lock.waiting]
 en = Waiting for the first reading from SIM {sim}…
 th = กำลังรอค่าที่อ่านได้ครั้งแรกจาก SIM {sim}…
 zh = 正在等待 SIM {sim} 的首次读取…
+de = Warte auf den ersten Messwert von SIM {sim}…
 
 [lock.no_cells]
 en = No cells reported.
 th = ไม่มีเซลล์ที่รายงาน
 zh = 未报告任何小区。
+de = Keine Zellen gemeldet.
 
 [lock.resume_table]
 en = Resume the cell table
 th = เริ่มตารางเซลล์ต่อ
 zh = 恢复小区列表
+de = Zellentabelle fortsetzen
 
 [lock.freeze_table]
 en = Freeze the cell table
 th = หยุดตารางเซลล์ชั่วคราว
 zh = 冻结小区列表
+de = Zellentabelle einfrieren
 
 # ── Messages (MainActivity) ──────────────────────────
 
@@ -468,241 +556,289 @@ zh = 冻结小区列表
 en = Daemon connection restored
 th = การเชื่อมต่อกับเดมอนกลับมาแล้ว
 zh = 守护进程连接已恢复
+de = Verbindung zum Daemon wiederhergestellt
 
 [msg.daemon_lost]
 en = Daemon connection lost — retrying...
 th = การเชื่อมต่อกับเดมอนขาดหาย กำลังลองใหม่...
 zh = 守护进程连接已断开——正在重试...
+de = Verbindung zum Daemon verloren – neuer Versuch...
 
 [msg.daemon_launch_failed]
 en = Daemon Launch Failed
 th = เปิดเดมอนไม่สำเร็จ
 zh = 守护进程启动失败
+de = Daemon-Start fehlgeschlagen
 
 [msg.init_failed]
 en = Initialization Failed
 th = การเริ่มต้นล้มเหลว
 zh = 初始化失败
+de = Initialisierung fehlgeschlagen
 
 [msg.select_sim_failed]
 en = Failed to select SIM {sim}
 th = เลือก SIM {sim} ไม่สำเร็จ
 zh = 选择 SIM {sim} 失败
+de = SIM {sim} konnte nicht ausgewählt werden
 
 [msg.select_sim1_failed]
 en = Failed to select SIM 1: {error}
 th = เลือก SIM 1 ไม่สำเร็จ: {error}
 zh = 选择 SIM 1 失败：{error}
+de = SIM 1 konnte nicht ausgewählt werden: {error}
 
 [msg.query_failed]
 en = Failed to query modem state: {error}
 th = สอบถามสถานะโมเด็มไม่สำเร็จ: {error}
 zh = 查询调制解调器状态失败：{error}
+de = Modemstatus konnte nicht abgefragt werden: {error}
 
 [msg.apply_failed]
 en = Apply failed: {error}
 th = การใช้งานไม่สำเร็จ: {error}
 zh = 应用失败：{error}
+de = Anwenden fehlgeschlagen: {error}
 
 [msg.clear_all_failed]
 en = Clear all failed: {error}
 th = ล้างทั้งหมดไม่สำเร็จ: {error}
 zh = 全部清除失败：{error}
+de = Löschen aller Einträge fehlgeschlagen: {error}
 
 [msg.cleared_all]
 en = Cleared all cell locks for SIM {sim}
 th = ล้างการล็อกเซลล์ทั้งหมดของ SIM {sim} แล้ว
 zh = 已清除 SIM {sim} 的全部小区锁定
+de = Alle Zellensperren für SIM {sim} gelöscht
 
 [msg.clear_5g_conn_failed]
 en = Clear 5G failed (connection error)
 th = ล้าง 5G ไม่สำเร็จ (การเชื่อมต่อผิดพลาด)
 zh = 清除 5G 失败（连接错误）
+de = 5G löschen fehlgeschlagen (Verbindungsfehler)
 
 [msg.cleared_5g]
 en = Cleared 5G cell lock for SIM {sim}
 th = ล้างการล็อกเซลล์ 5G ของ SIM {sim} แล้ว
 zh = 已清除 SIM {sim} 的 5G 小区锁定
+de = 5G-Zellensperre für SIM {sim} gelöscht
 
 [msg.clear_4g_failed]
 en = Clear 4G failed: {error}
 th = ล้าง 4G ไม่สำเร็จ: {error}
 zh = 清除 4G 失败：{error}
+de = 4G löschen fehlgeschlagen: {error}
 
 [msg.cleared_4g]
 en = Cleared 4G cell lock for SIM {sim}
 th = ล้างการล็อกเซลล์ 4G ของ SIM {sim} แล้ว
 zh = 已清除 SIM {sim} 的 4G 小区锁定
+de = 4G-Zellensperre für SIM {sim} gelöscht
 
 [msg.clear_plmn_failed]
 en = Clear PLMN failed: {error}
 th = ล้าง PLMN ไม่สำเร็จ: {error}
 zh = 清除 PLMN 失败：{error}
+de = PLMN löschen fehlgeschlagen: {error}
 
 [msg.cleared_plmn]
 en = Cleared PLMN lock for SIM {sim}
 th = ล้างการล็อก PLMN ของ SIM {sim} แล้ว
 zh = 已清除 SIM {sim} 的 PLMN 锁定
+de = PLMN-Sperre für SIM {sim} gelöscht
 
 [msg.refresh_failed]
 en = Refresh failed
 th = รีเฟรชไม่สำเร็จ
 zh = 刷新失败
+de = Aktualisierung fehlgeschlagen
 
 [msg.refresh_failed_error]
 en = Refresh failed: {error}
 th = รีเฟรชไม่สำเร็จ: {error}
 zh = 刷新失败：{error}
+de = Aktualisierung fehlgeschlagen: {error}
 
 [msg.refresh_no_sim]
 en = Refresh failed: could not select SIM {sim}
 th = รีเฟรชไม่สำเร็จ: เลือก SIM {sim} ไม่ได้
 zh = 刷新失败：无法选择 SIM {sim}
+de = Aktualisierung fehlgeschlagen: SIM {sim} konnte nicht ausgewählt werden
 
 [msg.reset_defaults]
 en = Reset to hardware defaults for SIM {sim}
 th = รีเซ็ต SIM {sim} เป็นค่าเริ่มต้นของฮาร์ดแวร์แล้ว
 zh = 已将 SIM {sim} 重置为硬件默认
+de = SIM {sim} auf Hardware-Standard zurückgesetzt
 
 [msg.reset_failed]
 en = Reset failed: {error}
 th = รีเซ็ตไม่สำเร็จ: {error}
 zh = 重置失败：{error}
+de = Zurücksetzen fehlgeschlagen: {error}
 
 [msg.detach_failed]
 en = Detach failed
 th = ตัดการเชื่อมต่อไม่สำเร็จ
 zh = 去附着失败
+de = Trennen fehlgeschlagen
 
 [msg.detach_failed_error]
 en = Detach failed: {error}
 th = ตัดการเชื่อมต่อไม่สำเร็จ: {error}
 zh = 去附着失败：{error}
+de = Trennen fehlgeschlagen: {error}
 
 [msg.detached]
 en = Detached from network
 th = ตัดการเชื่อมต่อจากเครือข่ายแล้ว
 zh = 已从网络去附着
+de = Vom Netzwerk getrennt
 
 [msg.attach_failed]
 en = Attach failed
 th = เชื่อมต่อไม่สำเร็จ
 zh = 附着失败
+de = Verbinden fehlgeschlagen
 
 [msg.attach_failed_error]
 en = Attach failed: {error}
 th = เชื่อมต่อไม่สำเร็จ: {error}
 zh = 附着失败：{error}
+de = Verbinden fehlgeschlagen: {error}
 
 [msg.attached]
 en = Attached to network
 th = เชื่อมต่อกับเครือข่ายแล้ว
 zh = 已附着到网络
+de = Mit dem Netzwerk verbunden
 
 [msg.reattaching]
 en = Re-attaching to network…
 th = กำลังเชื่อมต่อกับเครือข่ายใหม่…
 zh = 正在重新附着到网络…
+de = Erneutes Verbinden mit dem Netzwerk…
 
 [msg.reattach_failed]
 en = Re-attach failed
 th = เชื่อมต่อใหม่ไม่สำเร็จ
 zh = 重新附着失败
+de = Erneutes Verbinden fehlgeschlagen
 
 [msg.reattach_failed_error]
 en = Re-attach failed: {error}
 th = เชื่อมต่อใหม่ไม่สำเร็จ: {error}
 zh = 重新附着失败：{error}
+de = Erneutes Verbinden fehlgeschlagen: {error}
 
 [msg.reattach_left_detached]
 en = Re-attach failed; network may be left detached
 th = เชื่อมต่อใหม่ไม่สำเร็จ เครือข่ายอาจยังถูกตัดการเชื่อมต่ออยู่
 zh = 重新附着失败；网络可能仍处于去附着状态
+de = Erneutes Verbinden fehlgeschlagen; das Netzwerk ist möglicherweise getrennt
 
 [msg.reattach_recovered]
 en = Re-attach recovered: attach succeeded
 th = กู้คืนการเชื่อมต่อใหม่แล้ว: เชื่อมต่อสำเร็จ
 zh = 重新附着已恢复：附着成功
+de = Erneutes Verbinden erfolgreich: Verbindung hergestellt
 
 [msg.reattach_complete]
 en = Re-attach complete
 th = เชื่อมต่อใหม่เสร็จสิ้น
 zh = 重新附着完成
+de = Erneutes Verbinden abgeschlossen
 
 [msg.need_arfcn_scs]
 en = Need: arfcn scs_khz
 th = ต้องใส่: arfcn scs_khz
 zh = 格式：arfcn scs_khz
+de = Erforderlich: arfcn scs_khz
 
 [msg.need_arfcn_pci_scs_band]
 en = Need: arfcn pci scs_khz band
 th = ต้องใส่: arfcn pci scs_khz band
 zh = 格式：arfcn pci scs_khz band
+de = Erforderlich: arfcn pci scs_khz band
 
 [msg.need_arfcn_scs_band_pci]
 en = Need: arfcn scs_khz band pci...
 th = ต้องใส่: arfcn scs_khz band pci...
 zh = 格式：arfcn scs_khz band pci...
+de = Erforderlich: arfcn scs_khz band pci...
 
 [msg.need_id_bits_gnb]
 en = Need: id_bits gnb...
 th = ต้องใส่: id_bits gnb...
 zh = 格式：id_bits gnb...
+de = Erforderlich: id_bits gnb...
 
 [msg.need_earfcn_pci]
 en = Need: earfcn pci
 th = ต้องใส่: earfcn pci
 zh = 格式：earfcn pci
+de = Erforderlich: earfcn pci
 
 [msg.need_earfcn_pci_list]
 en = Need: earfcn pci...
 th = ต้องใส่: earfcn pci...
 zh = 格式：earfcn pci...
+de = Erforderlich: earfcn pci...
 
 [msg.need_mcc_mnc]
 en = Need: mcc mnc
 th = ต้องใส่: mcc mnc
 zh = 格式：mcc mnc
+de = Erforderlich: mcc mnc
 
 [msg.max_64_pci]
 en = Max 64 PCIs
 th = สูงสุด 64 PCI
 zh = 最多 64 个 PCI
+de = Maximal 64 PCIs
 
 [msg.pci_range]
 en = PCI must be 0-503
 th = PCI ต้องอยู่ระหว่าง 0-503
 zh = PCI 必须在 0-503 之间
+de = PCI muss zwischen 0 und 503 liegen
 
 [msg.mnc_digits]
 en = MNC is up to 3 digits
 th = MNC มีได้สูงสุด 3 หลัก
 zh = MNC 最多 3 位数字
+de = MNC hat höchstens 3 Ziffern
 
 [msg.mcc_mnc_range]
 en = MCC and MNC must be 0-999
 th = MCC และ MNC ต้องอยู่ระหว่าง 0-999
 zh = MCC 和 MNC 必须在 0-999 之间
+de = MCC und MNC müssen zwischen 0 und 999 liegen
 
 [msg.unknown_field]
 en = Unknown field
 th = ไม่รู้จักช่องนี้
 zh = 未知字段
+de = Unbekanntes Feld
 
 [msg.invalid_number]
 en = Invalid number: {error}
 th = ตัวเลขไม่ถูกต้อง: {error}
 zh = 无效数字：{error}
+de = Ungültige Zahl: {error}
 
 [sim.off]
 en = Off
 th = ปิดอยู่
 zh = 已关闭
+de = Aus
 
 [sim.no_sim]
 en = No SIM
 th = ไม่มีซิม
 zh = 无 SIM 卡
+de = Keine SIM
 
 # ── Network page and Cell-Lock dropdowns ──────────────
 
@@ -710,296 +846,355 @@ zh = 无 SIM 卡
 en = Stop test script
 th = หยุดสคริปต์ทดสอบ
 zh = 停止测试脚本
+de = Testskript stoppen
 
 [net.start_test]
 en = Start test script
 th = เริ่มสคริปต์ทดสอบ
 zh = 开始测试脚本
+de = Testskript starten
 
 [net.resume_live]
 en = Resume live monitoring
 th = เริ่มการตรวจสอบสดต่อ
 zh = 恢复实时监控
+de = Live-Überwachung fortsetzen
 
 [net.freeze]
 en = Freeze monitoring
 th = หยุดการตรวจสอบชั่วคราว
 zh = 冻结监控
+de = Überwachung einfrieren
 
 [net.enable_diag]
 en = Enable DIAG
 th = เปิด DIAG
 zh = 启用 DIAG
+de = DIAG aktivieren
 
 [net.enable_replay]
 en = Enable replay
 th = เปิดการเล่นซ้ำ
 zh = 启用回放
+de = Wiedergabe aktivieren
 
 [net.keep_screen_on]
 en = Keep screen on
 th = คงหน้าจอให้เปิดอยู่
 zh = 保持屏幕常亮
+de = Bildschirm eingeschaltet lassen
 
 [net.hide_serving]
 en = Hide serving cell
 th = ซ่อนเซลล์ที่ให้บริการ
 zh = 隐藏服务小区
+de = Versorgende Zelle ausblenden
 
 [net.hide_throughput]
 en = Hide throughput
 th = ซ่อนอัตราการส่งข้อมูล
 zh = 隐藏吞吐
+de = Durchsatz ausblenden
 
 [net.hide_uplink]
 en = Hide uplink
 th = ซ่อนขาขึ้น
 zh = 隐藏上行
+de = Uplink ausblenden
 
 [net.combine_endc]
 en = Combine ENDC
 th = รวม ENDC
 zh = 合并 ENDC
+de = ENDC zusammenfassen
 
 [net.pause_replay]
 en = Pause replay
 th = หยุดการเล่นซ้ำชั่วคราว
 zh = 暂停回放
+de = Wiedergabe pausieren
 
 [net.play_replay]
 en = Play replay
 th = เล่นซ้ำ
 zh = 播放回放
+de = Wiedergabe abspielen
 
 [net.gnb_cell]
 en = gNB {gnb} / Cell {cell}
 th = gNB {gnb} / Cell {cell}
 zh = gNB {gnb} / 小区 {cell}
+de = gNB {gnb} / Zelle {cell}
 
 [net.sim1_off]
 en = SIM 1 is turned off.
 th = SIM 1 ถูกปิดอยู่
 zh = SIM 1 已停用。
+de = SIM 1 ist ausgeschaltet.
 
 [net.no_sim_slot1]
 en = No SIM in slot 1.
 th = ไม่มีซิมในช่อง 1
 zh = 卡槽 1 无 SIM 卡。
+de = Keine SIM in Steckplatz 1.
 
 [net.last_read_failed]
 en = Last read failed: {error}. Showing the previous reading.
 th = การอ่านล่าสุดล้มเหลว: {error} แสดงค่าที่อ่านก่อนหน้า
 zh = 上次读取失败：{error}。显示上一次的读数。
+de = Letzte Messung fehlgeschlagen: {error}. Der vorherige Messwert wird angezeigt.
 
 [net.no_serving_details]
 en = No serving-cell details were reported.
 th = ไม่มีรายละเอียดเซลล์ที่ให้บริการ
 zh = 未报告服务小区详情。
+de = Es wurden keine Details zur versorgenden Zelle gemeldet.
 
 [net.diag_read_failed]
 en = DIAG read failed: {error}
 th = อ่าน DIAG ไม่สำเร็จ: {error}
 zh = DIAG 读取失败：{error}
+de = DIAG-Lesen fehlgeschlagen: {error}
 
 [net.diag_stopped]
 en = DIAG stopped: {error}
 th = DIAG หยุดแล้ว: {error}
 zh = DIAG 已停止：{error}
+de = DIAG gestoppt: {error}
 
 [net.not_available_round]
 en = Not available this round: {failed}
 th = ไม่พร้อมใช้งานในรอบนี้: {failed}
 zh = 本轮不可用：{failed}
+de = In diesem Durchlauf nicht verfügbar: {failed}
 
 [net.antenna]
 en = Antenna measurements
 th = การวัดสายอากาศ
 zh = 天线测量
+de = Antennenmessungen
 
 [net.neighbours]
 en = Neighbour cells ({count})
 th = เซลล์ใกล้เคียง ({count})
 zh = 邻区（{count}）
+de = Nachbarzellen ({count})
 
 [net.operator]
 en = Operator
 th = ผู้ให้บริการ
 zh = 运营商
+de = Betreiber
 
 [net.roaming]
 en = Roaming
 th = โรมมิ่ง
 zh = 漫游
+de = Roaming
 
 [net.row_tx_rx]
 en = Tx/Rx
 th = ส่ง/รับ
 zh = 收发
+de = Tx/Rx
 
 [net.row_tx_mode]
 en = TxMode
 th = โหมดส่ง
 zh = 发射模式
+de = Tx-Modus
 
 [net.row_tx_mode_ul]
 en = TX mode
 th = โหมดส่ง
 zh = 发射模式
+de = TX-Modus
 
 [net.row_rank]
 en = Rank
 th = อันดับ
 zh = 秩
+de = Rang
 
 [net.row_mod]
 en = Mod
 th = การมอดูเลต
 zh = 调制
+de = Mod.
 
 [net.row_port_rx]
 en = Port/Rx
 th = พอร์ต/Rx
 zh = 端口/Rx
+de = Port/Rx
 
 [common.expand]
 en = Expand
 th = ขยาย
 zh = 展开
+de = Ausklappen
 
 [common.collapse]
 en = Collapse
 th = ยุบ
 zh = 收起
+de = Einklappen
 
 [common.yes]
 en = Yes
 th = ใช่
 zh = 是
+de = Ja
 
 [common.no]
 en = No
 th = ไม่
 zh = 否
+de = Nein
 
 [lock.none_seen]
 en = None seen yet
 th = ยังไม่เคยเห็น
 zh = 暂无记录
+de = Keine bekannten Zellen
 
 [lock.seen_nr_arfcns]
 en = Seen NR-ARFCNs
 th = NR-ARFCN ที่เคยเห็น
 zh = 已见的 NR-ARFCN
+de = Bekannte NR-ARFCNs
 
 [lock.pick_nr_arfcn_first]
 en = Pick an NR-ARFCN first
 th = เลือก NR-ARFCN ก่อน
 zh = 请先选择 NR-ARFCN
+de = Zuerst eine NR-ARFCN auswählen
 
 [lock.none_seen_nr_arfcn]
 en = None seen on this NR-ARFCN
 th = ยังไม่เคยเห็นบน NR-ARFCN นี้
 zh = 该 NR-ARFCN 上暂无记录
+de = Auf dieser NR-ARFCN sind noch keine Zellen bekannt
 
 [lock.seen_pcis]
 en = Seen PCIs
 th = PCI ที่เคยเห็น
 zh = 已见的 PCI
+de = Bekannte PCIs
 
 [lock.no_nr_band]
 en = No NR band
 th = ไม่มีย่าน NR
 zh = 无 NR 频段
+de = Kein NR-Band
 
 [lock.apply_nr_arfcn]
 en = Apply NR-ARFCN lock
 th = ใช้การล็อก NR-ARFCN
 zh = 应用 NR-ARFCN 锁定
+de = NR-ARFCN-Sperre anwenden
 
 [lock.apply_nr_cell]
 en = Apply NR cell lock
 th = ใช้การล็อกเซลล์ NR
 zh = 应用 NR 小区锁定
+de = NR-Zellensperre anwenden
 
 [lock.seen_earfcns]
 en = Seen EARFCNs
 th = EARFCN ที่เคยเห็น
 zh = 已见的 EARFCN
+de = Bekannte EARFCNs
 
 [lock.pick_earfcn_first]
 en = Pick an EARFCN first
 th = เลือก EARFCN ก่อน
 zh = 请先选择 EARFCN
+de = Zuerst eine EARFCN auswählen
 
 [lock.none_seen_earfcn]
 en = None seen on this EARFCN
 th = ยังไม่เคยเห็นบน EARFCN นี้
 zh = 该 EARFCN 上暂无记录
+de = Auf dieser EARFCN sind noch keine Zellen bekannt
 
 [lock.apply_lte]
 en = Apply LTE lock
 th = ใช้การล็อก LTE
 zh = 应用 LTE 锁定
+de = LTE-Sperre anwenden
 
 [lock.clear_the_lock]
 en = Clear the lock
 th = ล้างการล็อก
 zh = 清除锁定
+de = Sperre aufheben
 
 [lock.band_label]
 en = Band
 th = แบนด์
 zh = 频段
+de = Band
 
 [lock.nr_arfcn_title]
 en = NR-ARFCN lock
 th = การล็อก NR-ARFCN
 zh = NR-ARFCN 锁定
+de = NR-ARFCN-Sperre
 
 [lock.hint_pci_band]
 en = PCI + Band lock (OPTIONAL)
 th = การล็อก PCI + แบนด์ (ไม่บังคับ)
 zh = PCI + 频段锁定（可选）
+de = PCI- + Band-Sperre (OPTIONAL)
 
 [lock.hint_multipci]
 en = MultiPCI lock: Put NR-ARFCN SCS Band and PCI list
 th = การล็อกหลาย PCI: ใส่ NR-ARFCN, SCS, ย่านความถี่ และรายการ PCI
 zh = 多 PCI 锁定：填写 NR-ARFCN、SCS、频段和 PCI 列表
+de = Multi-PCI-Sperre: NR-ARFCN, SCS, Band und PCI-Liste eingeben
 
 [lock.hint_gnb]
 en = gNB lock: Put ID bits (22-32) and gNB IDs
 th = การล็อก gNB: ใส่ ID bits (22-32) และ gNB ID
 zh = gNB 锁定：填写 ID 位（22-32）和 gNB ID
+de = gNB-Sperre: ID-Bits (22-32) und gNB-IDs eingeben
 
 [lock.hint_pci]
 en = PCI lock: Put EARFCN and PCI
 th = การล็อก PCI: ใส่ EARFCN และ PCI
 zh = PCI 锁定：填写 EARFCN 和 PCI
+de = PCI-Sperre: EARFCN und PCI eingeben
 
 [lock.hint_plmn]
 en = PLMN lock: Put MCC and MNC (e.g. 244 01)
 th = การล็อก PLMN: ใส่ MCC และ MNC (เช่น 244 01)
 zh = PLMN 锁定：填写 MCC 和 MNC（例如 244 01）
+de = PLMN-Sperre: MCC und MNC eingeben (z. B. 244 01)
 
 [lock.hint_multicell]
 en = Multi-cell lock: Put EARFCN and PCI list (0-503)
 th = การล็อกหลายเซลล์: ใส่ EARFCN และรายการ PCI (0-503)
 zh = 多小区锁定：填写 EARFCN 和 PCI 列表（0-503）
+de = Mehrzellen-Sperre: EARFCN und PCI-Liste eingeben (0-503)
 
 [lock.fmt_pci_band]
 en = NR-ARFCN PCI SCS Band
 th = NR-ARFCN PCI SCS แบนด์
 zh = NR-ARFCN PCI SCS 频段
+de = NR-ARFCN PCI SCS Band
 
 [lock.fmt_multipci]
 en = NR-ARFCN SCS Band PCI1 PCI2...
 th = NR-ARFCN SCS ย่านความถี่ PCI1 PCI2...
 zh = NR-ARFCN SCS 频段 PCI1 PCI2...
+de = NR-ARFCN SCS Band PCI1 PCI2...
 
 [lock.fmt_plmn]
 en = MCC MNC (e.g. 244 01)
 th = MCC MNC (เช่น 244 01)
 zh = MCC MNC（例如 244 01）
+de = MCC MNC (z. B. 244 01)
 
 # Remaining UI display text
 
@@ -1007,238 +1202,286 @@ zh = MCC MNC（例如 244 01）
 en = Band
 th = แบนด์
 zh = 频段
+de = Band
 
 [display.bandwidth]
 en = Bandwidth
 th = แบนด์วิดท์
 zh = 带宽
+de = Bandbreite
 
 [display.frequency]
 en = Frequency
 th = ความถี่
 zh = 频率
+de = Frequenz
 
 [display.cell_id]
 en = Cell ID
 th = รหัสเซลล์
 zh = 小区 ID
+de = Zellen-ID
 
 [display.gnb_cell]
 en = gNB / Cell
 th = gNB / เซลล์
 zh = gNB / 小区
+de = gNB / Zelle
 
 [display.lte_primary]
 en = LTE primary cell
 th = เซลล์หลัก LTE
 zh = LTE 主小区
+de = LTE-Primärzelle
 
 [display.nr_primary]
 en = NR primary cell
 th = เซลล์หลัก NR
 zh = NR 主小区
+de = NR-Primärzelle
 
 [display.wcdma_serving]
 en = WCDMA serving cell
 th = เซลล์ที่ให้บริการ WCDMA
 zh = WCDMA 服务小区
+de = Versorgende WCDMA-Zelle
 
 [display.gsm_serving]
 en = GSM serving cell
 th = เซลล์ที่ให้บริการ GSM
 zh = GSM 服务小区
+de = Versorgende GSM-Zelle
 
 [display.carrier_aggregation]
 en = Carrier aggregation
 th = การรวมคลื่นความถี่
 zh = 载波聚合
+de = Trägeraggregation
 
 [display.nr_aggregation]
 en = NR aggregation
 th = การรวมคลื่น NR
 zh = NR 载波聚合
+de = NR-Aggregation
 
 [display.primary]
 en = Primary
 th = หลัก
 zh = 主载波
+de = Primär
 
 [display.active]
 en = Active
 th = ใช้งานอยู่
 zh = 已激活
+de = Aktiv
 
 [display.configured]
 en = Configured
 th = ตั้งค่าแล้ว
 zh = 已配置
+de = Konfiguriert
 
 [display.connected]
 en = Connected
 th = เชื่อมต่อแล้ว
 zh = 已连接
+de = Verbunden
 
 [display.unavailable]
 en = Unavailable
 th = ไม่พร้อมใช้งาน
 zh = 不可用
+de = Nicht verfügbar
 
 [display.no_service]
 en = No service
 th = ไม่มีบริการ
 zh = 无服务
+de = Kein Netz
 
 [display.limited_service]
 en = Limited service
 th = บริการจำกัด
 zh = 服务受限
+de = Eingeschränkter Dienst
 
 [display.qmi_nr_note]
 en = QMI only reports frequency data for NR Scells
 th = QMI รายงานเฉพาะข้อมูลความถี่ของเซลล์รอง NR
 zh = QMI 仅报告 NR 辅小区的频率数据
+de = QMI meldet Frequenzdaten nur für NR-SCells
 
 [display.no_neighbours]
 en = No neighbour cells reported.
 th = ไม่มีรายงานเซลล์ข้างเคียง
 zh = 未报告邻区。
+de = Keine Nachbarzellen gemeldet.
 
 [display.uplink]
 en = Uplink
 th = อัปลิงก์
 zh = 上行
+de = Uplink
 
 [display.beam]
 en = Beam
 th = บีม
 zh = 波束
+de = Beam
 
 [display.receiver_chains]
 en = {rat} receiver chains
 th = สายรับสัญญาณ {rat}
 zh = {rat} 接收链
+de = {rat}-Empfangsketten
 
 [display.not_tuned]
 en = RX{chain}: not tuned
 th = RX{chain}: ไม่ได้จูน
 zh = RX{chain}：未调谐
+de = RX{chain}: nicht abgestimmt
 
 [display.test_stopped]
 en = Test stopped: {error}
 th = หยุดการทดสอบ: {error}
 zh = 测试已停止：{error}
+de = Test gestoppt: {error}
 
 [display.plmn_lock]
 en = PLMN lock
 th = ล็อก PLMN
 zh = PLMN 锁定
+de = PLMN-Sperre
 
 [display.tap_lock]
 en = Tap to lock cell
 th = แตะเพื่อล็อกเซลล์
 zh = 点击以锁定小区
+de = Zelle antippen zum Sperren
 
 [display.no_5g_lock]
 en = No 5G cell lock active
 th = ไม่มีการล็อกเซลล์ 5G ที่ใช้งานอยู่
 zh = 没有生效的 5G 小区锁定
+de = Keine aktive 5G-Zellensperre
 
 [display.lock_success]
 en = Success locking {type} ✓
 th = ล็อก {type} สำเร็จ ✓
 zh = 成功锁定 {type} ✓
+de = {type} erfolgreich gesperrt ✓
 
 [display.multi_pci]
 en = (Multi-PCI allowed)
 th = (รองรับหลาย PCI)
 zh = （允许多个 PCI）
+de = (Multi-PCI erlaubt)
 
 [display.notification_channel]
 en = Network replay
 th = เล่นซ้ำข้อมูลเครือข่าย
 zh = 网络回放
+de = Netzwerk-Wiedergabe
 
 [display.notification_title]
 en = Recording network measurements
 th = กำลังบันทึกข้อมูลเครือข่าย
 zh = 正在记录网络测量数据
+de = Netzwerkmessungen werden aufgezeichnet
 
 [display.notification_text]
 en = Replay is on. Turn it off from the Network page menu.
 th = เปิดการเล่นซ้ำอยู่ ปิดได้จากเมนูหน้าเครือข่าย
 zh = 回放已开启，可在网络页面菜单中关闭。
+de = Die Wiedergabe ist aktiv. Im Menü der Netzwerkseite deaktivieren.
 
 [display.signal_excellent]
 en = excellent
 th = ดีเยี่ยม
 zh = 极好
+de = ausgezeichnet
 
 [display.signal_good]
 en = good
 th = ดี
 zh = 良好
+de = gut
 
 [display.signal_fair]
 en = fair
 th = พอใช้
 zh = 一般
+de = mäßig
 
 [display.signal_poor]
 en = poor
 th = อ่อน
 zh = 较差
+de = schwach
 
 [display.signal_bad]
 en = bad
 th = แย่
 zh = 差
+de = schlecht
 
 [display.signal_unavailable]
 en = {metric} unavailable
 th = {metric} ไม่พร้อมใช้งาน
 zh = {metric} 不可用
+de = {metric} nicht verfügbar
 
 [rrc.null]
 en = Null
 th = ไม่มีสถานะ
 zh = 无状态
+de = Null
 
 [rrc.idle_any]
 en = Idle (any cell)
 th = ว่าง (ทุกเซลล์)
 zh = 空闲（任意小区）
+de = Leerlauf (beliebige Zelle)
 
 [rrc.idle]
 en = Idle
 th = ว่าง
 zh = 空闲
+de = Leerlauf
 
 [rrc.connecting]
 en = Connecting
 th = กำลังเชื่อมต่อ
 zh = 正在连接
+de = Verbindungsaufbau
 
 [rrc.releasing]
 en = Releasing
 th = กำลังปล่อยการเชื่อมต่อ
 zh = 正在释放
+de = Freigabe
 
 [rrc.inactive]
 en = Inactive
 th = ไม่ใช้งาน
 zh = 非活动
+de = Inaktiv
 
 [rrc.idle_not_camped]
 en = Idle (not camped)
 th = ว่าง (ยังไม่ได้เลือกเซลล์)
 zh = 空闲（未驻留）
+de = Leerlauf (nicht eingebucht)
 
 [rrc.suspended]
 en = Suspended
 th = พักการเชื่อมต่อ
 zh = 已暂停
+de = Ausgesetzt
 
 [rrc.irat]
 en = IRAT to LTE
 th = เปลี่ยนเครือข่ายไป LTE
 zh = 切换到 LTE
+de = IRAT zu LTE
