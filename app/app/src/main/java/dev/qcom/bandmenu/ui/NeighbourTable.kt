@@ -1,5 +1,8 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -93,7 +96,7 @@ internal fun NeighbourTable(
         val first = run.first()
         val beams = run.any { it.beam != null }
         if (index > 0) Spacer(Modifier.height(6.dp))
-        cols({ head(first.idLabel) }, { head("Band") }, if (beams) ({ head("Beam") }) else null, { head(first.channelLabel) },
+        cols({ head(first.idLabel) }, { head(stringResource(R.string.display_band)) }, if (beams) ({ head(stringResource(R.string.display_beam)) }) else null, { head(first.channelLabel) },
             first.metrics.take(2).map { m -> @Composable { head(m.label) } })
         run.forEach { t ->
             val kind = lockOf(t)

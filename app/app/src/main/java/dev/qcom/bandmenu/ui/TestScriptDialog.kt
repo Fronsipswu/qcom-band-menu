@@ -96,7 +96,7 @@ fun TestScriptDialog(
         }
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(text = "Cancel", onClick = onDismiss, modifier = Modifier.weight(1f))
+            TextButton(text = stringResource(R.string.common_cancel), onClick = onDismiss, modifier = Modifier.weight(1f))
             TextButton(
                 text = stringResource(R.string.common_save),
                 onClick = {

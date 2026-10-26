@@ -1,5 +1,8 @@
 package dev.qcom.bandmenu.ui
 
+import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.R
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -73,7 +76,7 @@ private val LEVEL_COLORS = listOf(
 )
 fun signalLevelColor(level: Int): Color = LEVEL_COLORS[level.coerceIn(0, 4)]
 
-private val LEVEL_WORDS = listOf("excellent", "good", "fair", "poor", "bad")
+
 
 /** Signal values: always one decimal ("-10.0"), rounded half-up from finer values. */
 fun formatMetric(v: Double): String =
@@ -108,8 +111,10 @@ fun SignalBar(
     val track = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     val tick = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.22f)
     val valueText = metric.text ?: v?.let { "${formatMetric(it)} ${metric.unit}" } ?: "—"
-    val spoken = if (v == null && metric.text == null) "${metric.label} unavailable"
-        else "${metric.label} $valueText${level?.let { ", " + LEVEL_WORDS[it] } ?: ""}"
+    val levelWords = listOf(stringResource(R.string.display_signal_excellent), stringResource(R.string.display_signal_good),
+        stringResource(R.string.display_signal_fair), stringResource(R.string.display_signal_poor), stringResource(R.string.display_signal_bad))
+    val spoken = if (v == null && metric.text == null) stringResource(R.string.display_signal_unavailable, metric.label)
+        else "${metric.label} $valueText${level?.let { ", " + levelWords[it] } ?: ""}"
 
     Row(
         modifier = modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = spoken },

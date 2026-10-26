@@ -333,22 +333,22 @@ fun MainScreen(
                     FloatingBottomBarItem(onClick = { selectPage(0) }) {
                         Icon(imageVector = dev.qcom.bandmenu.ui.component.SignalBarsIcon, contentDescription = stringResource(R.string.nav_network),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
-                        Text("Network", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
+                        Text(stringResource(R.string.nav_network), style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(1) }) {
                         Icon(imageVector = dev.qcom.bandmenu.ui.component.WrenchIcon, contentDescription = stringResource(R.string.bands_title),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
-                        Text("Bands", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
+                        Text(stringResource(R.string.bands_title), style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                     FloatingBottomBarItem(onClick = { selectPage(2) }) {
                         Icon(imageVector = MiuixIcons.Lock, contentDescription = stringResource(R.string.nav_cell_lock),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
-                        Text("Cell-Lock", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp), maxLines = 1, softWrap = false)
+                        Text(stringResource(R.string.nav_cell_lock), style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp), maxLines = 1, softWrap = false)
                     }
                     FloatingBottomBarItem(onClick = { selectPage(3) }) {
                         Icon(imageVector = MiuixIcons.Info, contentDescription = stringResource(R.string.nav_info),
                             tint = MiuixTheme.colorScheme.onBackground, modifier = Modifier.size(18.dp))
-                        Text("Info", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
+                        Text(stringResource(R.string.nav_info), style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp))
                     }
                 }
             }

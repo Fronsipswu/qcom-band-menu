@@ -158,6 +158,7 @@ fun CellLockScreen(
     isActive: Boolean = false,
     backdrop: Backdrop? = null
 ) {
+    val no5gLockText = stringResource(R.string.display_no_5g_lock)
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
     // Match the overlay SmallTopAppBar's own inset source (systemBars top) so
@@ -387,7 +388,7 @@ fun CellLockScreen(
                                         modemState.sim2CellLock.nr.type
                                     if (nrType == "none") {
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("No 5G cell lock active")
+                                            snackbarHostState.showSnackbar(no5gLockText)
                                         }
                                     } else {
                                         onClear5G(selectedSim + 1)
@@ -598,13 +599,15 @@ private fun SimCellLockPage(
         } else ""
     }
 
+    val lockSuccessText = stringResource(R.string.display_lock_success)
+    val rejectedText = stringResource(R.string.lock_rejected)
     LaunchedEffect(lockResult) {
         if (lockResult != null && lockResult.sim == simSlot + 1) {
             val fieldIndex = lockResult.fieldIndex
             val override = if (lockResult.success) {
-                LabelOverride("Success locking ${lockResult.type} \u2713", GreenColor)
+                LabelOverride(String.format(lockSuccessText, lockResult.type), GreenColor)
             } else {
-                val msg = lockResult.message ?: "Rejected by modem"
+                val msg = lockResult.message ?: rejectedText
                 LabelOverride("$msg \u2717", RedColor)
             }
             onLockResultConsumed()
@@ -835,7 +838,7 @@ private fun SimCellLockPage(
             if (lteResult == null) {
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "(Multi-PCI allowed)", style = MiuixTheme.textStyles.footnote1,
+                    stringResource(R.string.display_multi_pci), style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1,
                     modifier = Modifier.width(NR_SIDE_WIDTH + 60.dp).padding(start = 14.dp, bottom = 8.dp)
                 )
@@ -880,7 +883,7 @@ private fun SimCellLockPage(
         // A lock's result for a few seconds, else the locked PLMN (MCC-MNC).
         val plmnStatus = labelOverrides[5]?.let { it.text to it.color }
             ?: plmnLockState?.lockedPlmn?.let { lp -> stringResource(R.string.lock_status_plmn, "${lp.mcc}-${lp.mncDisplay.ifBlank { lp.mnc.toString() }}") to GreenColor }
-        SectionTitle("PLMN lock", plmnStatus)
+        SectionTitle(stringResource(R.string.display_plmn_lock), plmnStatus)
 
         TextField(
             value = plmnText,
@@ -1247,7 +1250,7 @@ private fun CellLockTable(
 ) {
     Spacer(modifier = Modifier.height(20.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        SmallTitle("Tap to lock cell", modifier = Modifier.weight(1f), insideMargin = SectionTitleMargin)
+        SmallTitle(stringResource(R.string.display_tap_lock), modifier = Modifier.weight(1f), insideMargin = SectionTitleMargin)
         IconButton(onClick = onToggleFrozen) {
             Icon(
                 imageVector = if (frozen) MiuixIcons.Lock else MiuixIcons.Unlock,
@@ -1452,7 +1455,7 @@ private fun PciEntryDialog(show: Boolean, onDismiss: () -> Unit, onConfirm: (Int
         )
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(text = "Cancel", onClick = onDismiss, modifier = Modifier.weight(1f))
+            TextButton(text = stringResource(R.string.common_cancel), onClick = onDismiss, modifier = Modifier.weight(1f))
             TextButton(
                 text = stringResource(R.string.lock_button_lock),
                 onClick = { pci?.let(onConfirm) },

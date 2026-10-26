@@ -586,15 +586,19 @@ private fun ReplayBar(
 }
 
 /** Top-bar subtitle while the test script runs (or after it failed to). */
-private fun testStatus(r: TrafficTest.Run): String = when {
+@Composable
+private fun testStatus(r: TrafficTest.Run): String {
+    val direction = if (r.upload) stringResource(R.string.common_upload) else stringResource(R.string.common_download)
+    return when {
     r.running -> buildString {
-        append(if (r.upload) "Upload" else "Download")
+        append(direction)
         append(" | ").append(if (r.mbps >= 100) "%.0f".format(r.mbps) else "%.1f".format(r.mbps)).append(" Mbps")
         r.remaining?.let { append(" | %d:%02d".format(it / 60, it % 60)) }
         r.error?.let { append(" | ").append(it) }
     }
-    r.error != null -> "Test stopped: ${r.error}"
+    r.error != null -> stringResource(R.string.display_test_stopped, r.error)
     else -> ""
+    }
 }
 
 @Composable
@@ -664,7 +668,7 @@ private fun NetworkContent(
     if (snap.cells.isNotEmpty()) Column(Modifier.scrollAnchor(anchor, "${p}neighbours")) {
         Expandable(stringResource(R.string.net_neighbours, snap.neighbors.size)) {
             if (snap.neighbors.isEmpty()) {
-                Text("No neighbour cells reported.", style = MiuixTheme.textStyles.body2,
+                Text(stringResource(R.string.display_no_neighbours), style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             } else NeighbourTable(snap.neighbors.map { it.asLockTarget() })
         }
@@ -695,13 +699,16 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        snap.modeLabel,
+                        displayNetworkText(snap.modeLabel),
                         style = MiuixTheme.textStyles.title4,
                         fontWeight = FontWeight.Bold,
                         color = if (inService) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onBackground
                     )
                 }
-                val chips = snap.rrc.map { "${it.label}: ${it.value}" to (it.value == "Connected") }
+                val chips = mutableListOf<Pair<String, Boolean>>()
+                for (field in snap.rrc) {
+                    chips.add("${field.label}: ${displayNetworkText(field.value)}" to (field.value == "Connected"))
+                }
                 if (chips.isNotEmpty()) {
                     Spacer(Modifier.width(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -753,7 +760,7 @@ internal val SectionTitleMargin = PaddingValues(16.dp, 8.dp)
 
 @Composable
 private fun CellSection(cell: CellCard) {
-    SmallTitle(cell.title, modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
+    SmallTitle(displayNetworkText(cell.title), modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             cell.metrics.forEach { SignalBar(it, Modifier.padding(vertical = 3.dp)) }
@@ -806,7 +813,7 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
                     val fit = if (textWidth > 0 && colWidthPx > 0f) (colWidthPx - 1f) / textWidth else 1f
                     val value = if (fit >= 1f) baseValue else baseValue.copy(fontSize = baseValue.fontSize * fit)
                     Column(Modifier.weight(weight)) {
-                        Text(f.label, style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, softWrap = false)
+                        Text(displayNetworkText(f.label), style = label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, softWrap = false)
                         // The Band value takes its band's display colour, as in the CA tables.
                         val tint = if (f.label == "Band") bandColor(f.value) else null
                         Text(f.value, style = value, color = tint ?: Color.Unspecified, maxLines = 1, softWrap = false)
@@ -821,7 +828,7 @@ private fun FieldGrid(fields: List<Field>, extraRow: List<Field> = emptyList(), 
 
 @Composable
 private fun CarrierSection(group: CarrierGroup, title: Boolean = true, phyUl: Boolean = true) {
-    if (title) SmallTitle(group.title, modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
+    if (title) SmallTitle(displayNetworkText(group.title), modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             if (group.summary.isNotEmpty()) {
@@ -837,12 +844,12 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true, phyUl: Bo
                         val sub = listOfNotNull(c.pci?.let { "PCI $it" }, c.bandwidthMhz?.let { "${formatPlain(it)} MHz" }).joinToString(" · ")
                         if (sub.isNotEmpty()) Text(sub, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    c.state?.let { Chip(it, highlight = it == "Active" || it == "Primary") }
+                    if (c.state != null) Chip(displayNetworkText(c.state), highlight = c.state == "Active" || c.state == "Primary")
                 }
             }
-            group.note?.let {
+            if (group.note != null) {
                 Spacer(Modifier.height(6.dp))
-                Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text(displayNetworkText(group.note), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
     }
@@ -894,7 +901,7 @@ private fun CaTable(
     }
     if (uplink) { UplinkRows(::row, ::text, barMax, cellStyle, sa = carriers.none { it.diag != null }); return@Column }
     if (nr) { NrRows(::row, ::text, barMax, cellStyle, phyUl); return@Column }
-    row("Band") { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
+    row(stringResource(R.string.display_band)) { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
     row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     // ENDC: EARFCN and NR-ARFCN share the row.
     row(if (endc) "ARFCN" else "EARFCN") { text(it.channel) }
@@ -953,7 +960,7 @@ private fun NrRows(
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
     @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
-    r("Band") { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
+    r(stringResource(R.string.display_band)) { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
@@ -983,7 +990,7 @@ private fun NrRows(
 /** The uplink card: the CA table's columns with the PUSCH rows. */
 @Composable
 private fun UplinkCard(carriers: List<Carrier>) {
-    SmallTitle("Uplink", modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
+    SmallTitle(stringResource(R.string.display_uplink), modifier = Modifier.padding(top = 2.dp), insideMargin = SectionTitleMargin)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             CaTable(carriers, diag = true, uplink = true)
@@ -1008,7 +1015,7 @@ private fun UplinkRows(
     val fg = MiuixTheme.colorScheme.onBackground
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
     @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
-    r("Band") { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
+    r(stringResource(R.string.display_band)) { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
     // The carrier's bandwidth, as in the CA tables.
     r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
     r("RBs") {
@@ -1285,7 +1292,7 @@ private fun Expandable(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
     if (showHeading) {
-        Text("${a.rat.label} receiver chains", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        Text(stringResource(R.string.display_receiver_chains, a.rat.label), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
     }
     // LTE/NR chains can report tuned=true with a placeholder RSRP and a bogus
@@ -1294,7 +1301,7 @@ private fun AntennaRows(a: AntennaGroup, showHeading: Boolean) {
     val chains = if (a.rat == Rat.LTE || a.rat == Rat.NR) a.chains.filter { !it.tuned || it.rsrp != null } else a.chains
     chains.forEach { c ->
         if (!c.tuned) {
-            Text("RX${c.chain}: not tuned", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
+            Text(stringResource(R.string.display_not_tuned, c.chain), style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 3.dp))
             return@forEach
         }
         // TX_RX_INFO has only RSRP (LTE/NR), RSCP (WCDMA) or RX power per

@@ -1001,3 +1001,245 @@ zh = NR-ARFCN SCS 频段 PCI1 PCI2...
 en = MCC MNC (e.g. 244 01)
 th = MCC MNC (เช่น 244 01)
 zh = MCC MNC（例如 244 01）
+
+# Remaining UI display text
+
+[display.band]
+en = Band
+th = แบนด์
+zh = 频段
+
+[display.bandwidth]
+en = Bandwidth
+th = แบนด์วิดท์
+zh = 带宽
+
+[display.frequency]
+en = Frequency
+th = ความถี่
+zh = 频率
+
+[display.cell_id]
+en = Cell ID
+th = รหัสเซลล์
+zh = 小区 ID
+
+[display.gnb_cell]
+en = gNB / Cell
+th = gNB / เซลล์
+zh = gNB / 小区
+
+[display.lte_primary]
+en = LTE primary cell
+th = เซลล์หลัก LTE
+zh = LTE 主小区
+
+[display.nr_primary]
+en = NR primary cell
+th = เซลล์หลัก NR
+zh = NR 主小区
+
+[display.wcdma_serving]
+en = WCDMA serving cell
+th = เซลล์ที่ให้บริการ WCDMA
+zh = WCDMA 服务小区
+
+[display.gsm_serving]
+en = GSM serving cell
+th = เซลล์ที่ให้บริการ GSM
+zh = GSM 服务小区
+
+[display.carrier_aggregation]
+en = Carrier aggregation
+th = การรวมคลื่นความถี่
+zh = 载波聚合
+
+[display.nr_aggregation]
+en = NR aggregation
+th = การรวมคลื่น NR
+zh = NR 载波聚合
+
+[display.primary]
+en = Primary
+th = หลัก
+zh = 主载波
+
+[display.active]
+en = Active
+th = ใช้งานอยู่
+zh = 已激活
+
+[display.configured]
+en = Configured
+th = ตั้งค่าแล้ว
+zh = 已配置
+
+[display.connected]
+en = Connected
+th = เชื่อมต่อแล้ว
+zh = 已连接
+
+[display.unavailable]
+en = Unavailable
+th = ไม่พร้อมใช้งาน
+zh = 不可用
+
+[display.no_service]
+en = No service
+th = ไม่มีบริการ
+zh = 无服务
+
+[display.limited_service]
+en = Limited service
+th = บริการจำกัด
+zh = 服务受限
+
+[display.qmi_nr_note]
+en = QMI only reports frequency data for NR Scells
+th = QMI รายงานเฉพาะข้อมูลความถี่ของเซลล์รอง NR
+zh = QMI 仅报告 NR 辅小区的频率数据
+
+[display.no_neighbours]
+en = No neighbour cells reported.
+th = ไม่มีรายงานเซลล์ข้างเคียง
+zh = 未报告邻区。
+
+[display.uplink]
+en = Uplink
+th = อัปลิงก์
+zh = 上行
+
+[display.beam]
+en = Beam
+th = บีม
+zh = 波束
+
+[display.receiver_chains]
+en = {rat} receiver chains
+th = สายรับสัญญาณ {rat}
+zh = {rat} 接收链
+
+[display.not_tuned]
+en = RX{chain}: not tuned
+th = RX{chain}: ไม่ได้จูน
+zh = RX{chain}：未调谐
+
+[display.test_stopped]
+en = Test stopped: {error}
+th = หยุดการทดสอบ: {error}
+zh = 测试已停止：{error}
+
+[display.plmn_lock]
+en = PLMN lock
+th = ล็อก PLMN
+zh = PLMN 锁定
+
+[display.tap_lock]
+en = Tap to lock cell
+th = แตะเพื่อล็อกเซลล์
+zh = 点击以锁定小区
+
+[display.no_5g_lock]
+en = No 5G cell lock active
+th = ไม่มีการล็อกเซลล์ 5G ที่ใช้งานอยู่
+zh = 没有生效的 5G 小区锁定
+
+[display.lock_success]
+en = Success locking {type} ✓
+th = ล็อก {type} สำเร็จ ✓
+zh = 成功锁定 {type} ✓
+
+[display.multi_pci]
+en = (Multi-PCI allowed)
+th = (รองรับหลาย PCI)
+zh = （允许多个 PCI）
+
+[display.notification_channel]
+en = Network replay
+th = เล่นซ้ำข้อมูลเครือข่าย
+zh = 网络回放
+
+[display.notification_title]
+en = Recording network measurements
+th = กำลังบันทึกข้อมูลเครือข่าย
+zh = 正在记录网络测量数据
+
+[display.notification_text]
+en = Replay is on. Turn it off from the Network page menu.
+th = เปิดการเล่นซ้ำอยู่ ปิดได้จากเมนูหน้าเครือข่าย
+zh = 回放已开启，可在网络页面菜单中关闭。
+
+[display.signal_excellent]
+en = excellent
+th = ดีเยี่ยม
+zh = 极好
+
+[display.signal_good]
+en = good
+th = ดี
+zh = 良好
+
+[display.signal_fair]
+en = fair
+th = พอใช้
+zh = 一般
+
+[display.signal_poor]
+en = poor
+th = อ่อน
+zh = 较差
+
+[display.signal_bad]
+en = bad
+th = แย่
+zh = 差
+
+[display.signal_unavailable]
+en = {metric} unavailable
+th = {metric} ไม่พร้อมใช้งาน
+zh = {metric} 不可用
+
+[rrc.null]
+en = Null
+th = ไม่มีสถานะ
+zh = 无状态
+
+[rrc.idle_any]
+en = Idle (any cell)
+th = ว่าง (ทุกเซลล์)
+zh = 空闲（任意小区）
+
+[rrc.idle]
+en = Idle
+th = ว่าง
+zh = 空闲
+
+[rrc.connecting]
+en = Connecting
+th = กำลังเชื่อมต่อ
+zh = 正在连接
+
+[rrc.releasing]
+en = Releasing
+th = กำลังปล่อยการเชื่อมต่อ
+zh = 正在释放
+
+[rrc.inactive]
+en = Inactive
+th = ไม่ใช้งาน
+zh = 非活动
+
+[rrc.idle_not_camped]
+en = Idle (not camped)
+th = ว่าง (ยังไม่ได้เลือกเซลล์)
+zh = 空闲（未驻留）
+
+[rrc.suspended]
+en = Suspended
+th = พักการเชื่อมต่อ
+zh = 已暂停
+
+[rrc.irat]
+en = IRAT to LTE
+th = เปลี่ยนเครือข่ายไป LTE
+zh = 切换到 LTE

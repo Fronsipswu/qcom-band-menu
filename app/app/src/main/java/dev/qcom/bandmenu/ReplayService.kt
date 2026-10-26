@@ -22,9 +22,10 @@ class ReplayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val languageContext = AppLanguage.wrap(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Network replay", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL, languageContext.getString(R.string.display_notification_channel), NotificationManager.IMPORTANCE_LOW)
         )
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -32,8 +33,8 @@ class ReplayService : Service() {
         )
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_replay)
-            .setContentTitle("Recording network measurements")
-            .setContentText("Replay is on. Turn it off from the Network page menu.")
+            .setContentTitle(languageContext.getString(R.string.display_notification_title))
+            .setContentText(languageContext.getString(R.string.display_notification_text))
             .setContentIntent(open)
             .setOngoing(true)
             .build()
