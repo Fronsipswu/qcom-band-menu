@@ -994,7 +994,14 @@ class MainActivity : ComponentActivity() {
                                             validatedState.nrMode != NrMode.UNKNOWN &&
                                             validatedState.nrMode != simResp.simState?.nrMode
                                         ) JsonRequestBuilder.modeSet(validatedState.nrMode) else null
+                                        // The RAT only when it changes, and before the bands: on some
+                                        // phones (Galaxy S25 Edge) a RAT write resets the band
+                                        // preferences to all bands, so the band writes must follow it.
+                                        val currentRats = simResp.simState?.ratMask?.takeIf { it.isNotEmpty() }
+                                        val ratCmd = if (validatedState.ratMask != currentRats)
+                                            JsonRequestBuilder.ratSet(validatedState.ratMask) else null
                                         val commands = buildList {
+                                            ratCmd?.let { add(it) }
                                             add(JsonRequestBuilder.gsmSet(validatedState.gsmBands))
                                             add(JsonRequestBuilder.wcdmaSet(validatedState.wcdmaBands))
                                             add(JsonRequestBuilder.lteSet(validatedState.lteBands))
@@ -1010,7 +1017,6 @@ class MainActivity : ComponentActivity() {
                                             if (validatedState.usageMode != UsageMode.UNKNOWN) {
                                                 add(JsonRequestBuilder.usagePrefSet(validatedState.usageMode))
                                             }
-                                            add(JsonRequestBuilder.ratSet(validatedState.ratMask))
                                         }
 
                                         // C2: Check every response's ok field, collect first error
