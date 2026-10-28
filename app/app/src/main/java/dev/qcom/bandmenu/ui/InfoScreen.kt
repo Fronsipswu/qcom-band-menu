@@ -59,24 +59,19 @@ fun InfoScreen(
     /** The app opens on the Network page (from the next launch). */
     networkAtStart: Boolean = false,
     onNetworkAtStartToggle: (Boolean) -> Unit = {},
-    /** The whole app's display scale; tapping cycles Normal -> Large -> Small. */
+    /** The whole app's display scale; the menu lists Normal, Large and Small. */
     displayScale: DisplayScale = DisplayScale.NORMAL,
-    onDisplayScaleCycle: () -> Unit = {}
+    onDisplayScaleChange: (DisplayScale) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
     val statusBarInset = WindowInsets.statusBars.asPaddingValues(density).calculateTopPadding()
     val context = LocalContext.current
     var showLanguage by remember { mutableStateOf(false) }
+    var showScale by remember { mutableStateOf(false) }
     val language = remember { AppLanguage.saved(context) }
     val languages = remember { AppLanguage.supported(context) }
     val names = remember(languages) { languages.associateWith { AppLanguage.name(context, it) } }
-    // The scale's own name, as the menu line shows it.
-    val scaleName = stringResource(when (displayScale) {
-        DisplayScale.NORMAL -> R.string.scale_normal
-        DisplayScale.LARGE -> R.string.scale_large
-        DisplayScale.SMALL -> R.string.scale_small
-    })
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -161,8 +156,8 @@ fun InfoScreen(
                             onClick = { onNetworkAtStartToggle(!networkAtStart) }
                         ),
                         DropdownItem(
-                            text = stringResource(R.string.info_display_scale, scaleName),
-                            onClick = onDisplayScaleCycle
+                            text = stringResource(R.string.info_display_scale, scaleName(displayScale)),
+                            onClick = { showScale = true }
                         )
                     )
                 ),
@@ -212,5 +207,38 @@ fun InfoScreen(
                 }
             }
         }
+
+        // Second level: the display scales, the current one ticked. Applied at
+        // once, through the density the whole app is drawn with.
+        WindowListPopup(
+            show = showScale,
+            alignment = PopupPositionProvider.Align.End,
+            onDismissRequest = { showScale = false }
+        ) {
+            // Largest first, so the list grows upwards from Normal.
+            val options = listOf(DisplayScale.LARGE, DisplayScale.NORMAL, DisplayScale.SMALL)
+            ListPopupColumn {
+                options.forEachIndexed { index, scale ->
+                    DropdownImpl(
+                        item = DropdownItem(text = scaleName(scale)),
+                        optionSize = options.size,
+                        isSelected = scale == displayScale,
+                        index = index,
+                        onSelectedIndexChange = {
+                            showScale = false
+                            if (scale != displayScale) onDisplayScaleChange(scale)
+                        }
+                    )
+                }
+            }
+        }
     }
 }
+
+/** The scale's own name, as the menu line and its list show it. */
+@Composable
+private fun scaleName(scale: DisplayScale): String = stringResource(when (scale) {
+    DisplayScale.NORMAL -> R.string.scale_normal
+    DisplayScale.LARGE -> R.string.scale_large
+    DisplayScale.SMALL -> R.string.scale_small
+})
