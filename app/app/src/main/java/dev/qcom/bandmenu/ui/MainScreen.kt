@@ -116,7 +116,7 @@ fun MainScreen(
     onNetworkAtStartToggle: (Boolean) -> Unit = {},
     /** Info page menu: the whole app's display scale (persisted by the caller). */
     displayScale: DisplayScale = DisplayScale.NORMAL,
-    onDisplayScaleCycle: () -> Unit = {},
+    onDisplayScaleChange: (DisplayScale) -> Unit = {},
     debugEnabled: Boolean,
     onDebugToggle: () -> Unit,
     onCellLockSimSwitch: (Int) -> Unit,
@@ -314,7 +314,7 @@ fun MainScreen(
                             networkAtStart = networkAtStart,
                             onNetworkAtStartToggle = onNetworkAtStartToggle,
                             displayScale = displayScale,
-                            onDisplayScaleCycle = onDisplayScaleCycle
+                            onDisplayScaleChange = onDisplayScaleChange
                         )
                     }
                 }

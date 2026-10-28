@@ -1307,10 +1307,9 @@ class MainActivity : ComponentActivity() {
                         scope.launch { BandPreferences.setNetworkAtStart(bandDataStore, enabled) }
                     },
                     displayScale = displayScale,
-                    onDisplayScaleCycle = {
-                        val next = displayScale.next()
-                        displayScale = next
-                        DisplayScale.save(this@MainActivity, next)
+                    onDisplayScaleChange = { scale ->
+                        displayScale = scale
+                        DisplayScale.save(this@MainActivity, scale)
                     },
                     debugEnabled = debugEnabled,
                     onDebugToggle = {

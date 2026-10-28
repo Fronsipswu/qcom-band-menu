@@ -7,15 +7,8 @@ import android.content.Context
  *  created, so the app doesn't start at Normal and then jump to the saved one. */
 enum class DisplayScale(val factor: Float) {
     NORMAL(1f),
-    LARGE(1.25f),
-    SMALL(0.75f);
-
-    /** What the Info page's tap goes to: Normal -> Large -> Small -> Normal. */
-    fun next(): DisplayScale = when (this) {
-        NORMAL -> LARGE
-        LARGE -> SMALL
-        SMALL -> NORMAL
-    }
+    LARGE(1.1f),
+    SMALL(0.9f);
 
     companion object {
         private const val PREFS = "display_scale"
