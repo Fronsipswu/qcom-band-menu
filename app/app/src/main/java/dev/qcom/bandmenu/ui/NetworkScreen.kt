@@ -936,9 +936,11 @@ private fun CaTable(
         }
         row("BLER%") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
         row(stringResource(R.string.net_row_mod)) { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
-        // Values coloured as the chart's lines.
-        row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
-        if (phyUl) row("PHY UL") { text((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+        // Both rates take their column's band colour, as the Band row does.
+        row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true,
+            color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
+        if (phyUl) row("PHY UL") { text((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true,
+            color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
     }
 } }
 
@@ -982,9 +984,11 @@ private fun NrRows(
     r("BLER%") { BlerBar(it.nr?.bler, barMax, cellStyle) }
     // QAM order only ("256"); QPSK as is.
     r(stringResource(R.string.net_row_mod)) { t(it.nr?.modulation?.removeSuffix("QAM")) }
-    // Values coloured as the chart's lines.
-    r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true, color = DownlinkColor) }
-    if (phyUl) r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+    // Both rates take their column's band colour, as the Band row does.
+    r("PHY DL") { t(it.nr?.let { d -> String.format(Locale.US, "%.1f", d.mbps) }, bold = true,
+        color = bandColor(it.band) ?: fg) }
+    if (phyUl) r("PHY UL") { t(it.nr?.ulMbps?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true,
+        color = bandColor(it.band) ?: fg) }
 }
 
 /** The uplink card: the CA table's columns with the PUSCH rows. */
@@ -1042,7 +1046,8 @@ private fun UplinkRows(
             if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
     }
     r("BLER%") { BlerBar(it.diag?.ulBler ?: it.nr?.ulBler, barMax, cellStyle) }
-    r("PHY UL") { t((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
+    r("PHY UL") { t((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true,
+        color = bandColor(it.band) ?: fg) }
 }
 
 /**

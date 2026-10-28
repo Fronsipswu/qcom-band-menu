@@ -60,7 +60,8 @@ internal fun niceStep(peak: Double): Int {
 internal fun windowStart(centerMs: Long, newestMs: Long): Long =
     newestMs.coerceIn(centerMs, centerMs + WINDOW_MS / 2) - WINDOW_MS
 
-/** The downlink and uplink lines and their values (also the CA tables' PHY rows). */
+/** The downlink and uplink lines and their values (the tables' rate rows take
+ *  their columns' band colours instead). */
 internal val DownlinkColor: Color get() = signalLevelColor(2)   // the "fair" signal yellow
 internal val UplinkColor = Color(0xFF40E0D0)
 
