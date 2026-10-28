@@ -11,6 +11,10 @@
     <string name="info_debug_logging">บันทึกการดีบัก</string>
     <string name="info_hide_navbar">ซ่อนแถบนำทาง</string>
     <string name="info_network_at_start">เปิดหน้าเครือข่ายตอนเริ่มแอป</string>
+    <string name="info_display_scale">ขนาดการแสดงผล: %1$s</string>
+    <string name="scale_normal">ปกติ</string>
+    <string name="scale_large">ใหญ่</string>
+    <string name="scale_small">เล็ก</string>
     <string name="common_detach">ตัดการเชื่อมต่อ</string>
     <string name="common_attach">เชื่อมต่อ</string>
     <string name="common_reattach">เชื่อมต่อใหม่</string>

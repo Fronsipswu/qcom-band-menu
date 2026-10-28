@@ -72,6 +72,30 @@ th = เปิดหน้าเครือข่ายตอนเริ่ม
 zh = 启动时打开网络页
 de = Netzwerkseite beim Start
 
+[info.display_scale]
+en = Display Scale: {scale}
+th = ขนาดการแสดงผล: {scale}
+zh = 显示比例：{scale}
+de = Skalierung: {scale}
+
+[scale.normal]
+en = Normal
+th = ปกติ
+zh = 正常
+de = Normal
+
+[scale.large]
+en = Large
+th = ใหญ่
+zh = 大
+de = Groß
+
+[scale.small]
+en = Small
+th = เล็ก
+zh = 小
+de = Klein
+
 [common.detach]
 en = Detach
 th = ตัดการเชื่อมต่อ

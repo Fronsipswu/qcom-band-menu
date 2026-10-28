@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.qcom.bandmenu.AppLanguage
 import dev.qcom.bandmenu.BuildConfig
+import dev.qcom.bandmenu.DisplayScale
 import dev.qcom.bandmenu.R
 import android.app.Activity
 import top.yukonga.miuix.kmp.basic.DropdownEntry
@@ -57,7 +58,10 @@ fun InfoScreen(
     onNavbarHiddenToggle: (Boolean) -> Unit = {},
     /** The app opens on the Network page (from the next launch). */
     networkAtStart: Boolean = false,
-    onNetworkAtStartToggle: (Boolean) -> Unit = {}
+    onNetworkAtStartToggle: (Boolean) -> Unit = {},
+    /** The whole app's display scale; tapping cycles Normal -> Large -> Small. */
+    displayScale: DisplayScale = DisplayScale.NORMAL,
+    onDisplayScaleCycle: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
@@ -67,6 +71,12 @@ fun InfoScreen(
     val language = remember { AppLanguage.saved(context) }
     val languages = remember { AppLanguage.supported(context) }
     val names = remember(languages) { languages.associateWith { AppLanguage.name(context, it) } }
+    // The scale's own name, as the menu line shows it.
+    val scaleName = stringResource(when (displayScale) {
+        DisplayScale.NORMAL -> R.string.scale_normal
+        DisplayScale.LARGE -> R.string.scale_large
+        DisplayScale.SMALL -> R.string.scale_small
+    })
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -149,6 +159,10 @@ fun InfoScreen(
                         DropdownItem(
                             text = stringResource(R.string.info_network_at_start), selected = networkAtStart,
                             onClick = { onNetworkAtStartToggle(!networkAtStart) }
+                        ),
+                        DropdownItem(
+                            text = stringResource(R.string.info_display_scale, scaleName),
+                            onClick = onDisplayScaleCycle
                         )
                     )
                 ),

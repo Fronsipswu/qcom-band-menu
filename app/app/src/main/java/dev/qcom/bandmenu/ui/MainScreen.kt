@@ -1,6 +1,7 @@
 package dev.qcom.bandmenu.ui
 
 import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.DisplayScale
 import dev.qcom.bandmenu.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -113,6 +114,9 @@ fun MainScreen(
     /** Info page menu: "Network page at start" (persisted by the caller). */
     networkAtStart: Boolean = false,
     onNetworkAtStartToggle: (Boolean) -> Unit = {},
+    /** Info page menu: the whole app's display scale (persisted by the caller). */
+    displayScale: DisplayScale = DisplayScale.NORMAL,
+    onDisplayScaleCycle: () -> Unit = {},
     debugEnabled: Boolean,
     onDebugToggle: () -> Unit,
     onCellLockSimSwitch: (Int) -> Unit,
@@ -308,7 +312,9 @@ fun MainScreen(
                             navbarHidden = navbarHidden,
                             onNavbarHiddenToggle = onNavbarHiddenToggle,
                             networkAtStart = networkAtStart,
-                            onNetworkAtStartToggle = onNetworkAtStartToggle
+                            onNetworkAtStartToggle = onNetworkAtStartToggle,
+                            displayScale = displayScale,
+                            onDisplayScaleCycle = onDisplayScaleCycle
                         )
                     }
                 }

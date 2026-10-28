@@ -11,6 +11,10 @@
     <string name="info_debug_logging">调试日志</string>
     <string name="info_hide_navbar">隐藏导航栏</string>
     <string name="info_network_at_start">启动时打开网络页</string>
+    <string name="info_display_scale">显示比例：%1$s</string>
+    <string name="scale_normal">正常</string>
+    <string name="scale_large">大</string>
+    <string name="scale_small">小</string>
     <string name="common_detach">去附着</string>
     <string name="common_attach">附着</string>
     <string name="common_reattach">重新附着</string>

@@ -11,6 +11,10 @@
     <string name="info_debug_logging">Debug logging</string>
     <string name="info_hide_navbar">Hide navigation bar</string>
     <string name="info_network_at_start">Network page at start</string>
+    <string name="info_display_scale">Display Scale: %1$s</string>
+    <string name="scale_normal">Normal</string>
+    <string name="scale_large">Large</string>
+    <string name="scale_small">Small</string>
     <string name="common_detach">Detach</string>
     <string name="common_attach">Attach</string>
     <string name="common_reattach">Re-Attach</string>

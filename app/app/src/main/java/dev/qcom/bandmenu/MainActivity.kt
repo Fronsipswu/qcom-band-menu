@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -28,6 +29,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import dev.qcom.bandmenu.ui.MainScreen
 import dev.qcom.bandmenu.network.DiagClient
 import dev.qcom.bandmenu.network.SimSlotStatus
@@ -91,9 +94,18 @@ class MainActivity : ComponentActivity() {
         val startOnNetwork = kotlinx.coroutines.runBlocking {
             BandPreferences.getNetworkAtStart(bandDataStore).first()
         }
+        // The display scale, read before the first frame for the same reason.
+        val savedScale = DisplayScale.saved(this)
 
         setContent {
             MiuixTheme(colors = darkColorScheme()) {
+                // One density for the whole app, so the Info page's display
+                // scale grows or shrinks every dp and sp together.
+                var displayScale by remember { mutableStateOf(savedScale) }
+                val baseDensity = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(baseDensity.density * displayScale.factor, baseDensity.fontScale)
+                ) {
                 val snackbarHostState = remember { SnackbarHostState() }
 
                 var modemState by daemonHolder.modemState
@@ -1294,6 +1306,12 @@ class MainActivity : ComponentActivity() {
                         networkAtStart = enabled
                         scope.launch { BandPreferences.setNetworkAtStart(bandDataStore, enabled) }
                     },
+                    displayScale = displayScale,
+                    onDisplayScaleCycle = {
+                        val next = displayScale.next()
+                        displayScale = next
+                        DisplayScale.save(this@MainActivity, next)
+                    },
                     debugEnabled = debugEnabled,
                     onDebugToggle = {
                         val newVal = !debugEnabled
@@ -1307,6 +1325,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 )
+                }
             }
         }
     }
