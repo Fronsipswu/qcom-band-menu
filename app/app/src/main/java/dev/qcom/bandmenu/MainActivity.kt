@@ -1009,24 +1009,38 @@ class MainActivity : ComponentActivity() {
                                         // The RAT only when it changes, and before the bands: on some
                                         // phones (Galaxy S25 Edge) a RAT write resets the band
                                         // preferences to all bands, so the band writes must follow it.
-                                        val currentRats = simResp.simState?.ratMask?.takeIf { it.isNotEmpty() }
+                                        // Every other write is also sent only when it differs from
+                                        // the modem's state, so changing the NR bands doesn't
+                                        // rewrite the LTE or WCDMA masks. A modem state that can't
+                                        // be read (no RAT) counts as "all changed", and so does a
+                                        // RAT write, since it can reset the bands.
+                                        val current = simResp.simState?.takeIf { it.ratMask.isNotEmpty() }
+                                        val currentRats = current?.ratMask
                                         val ratCmd = if (validatedState.ratMask != currentRats)
                                             JsonRequestBuilder.ratSet(validatedState.ratMask) else null
+                                        val sendAll = current == null || ratCmd != null
                                         val commands = buildList {
                                             ratCmd?.let { add(it) }
-                                            add(JsonRequestBuilder.gsmSet(validatedState.gsmBands))
-                                            add(JsonRequestBuilder.wcdmaSet(validatedState.wcdmaBands))
-                                            add(JsonRequestBuilder.lteSet(validatedState.lteBands))
+                                            if (sendAll || validatedState.gsmBands != current!!.gsmBands)
+                                                add(JsonRequestBuilder.gsmSet(validatedState.gsmBands))
+                                            if (sendAll || validatedState.wcdmaBands != current!!.wcdmaBands)
+                                                add(JsonRequestBuilder.wcdmaSet(validatedState.wcdmaBands))
+                                            if (sendAll || validatedState.lteBands != current!!.lteBands)
+                                                add(JsonRequestBuilder.lteSet(validatedState.lteBands))
                                             if (hasNrHardware) {
                                                 if (useIndependentLock) {
-                                                    add(JsonRequestBuilder.nrNsaSet(validatedState.nrNsaBands))
-                                                    add(JsonRequestBuilder.nrSaSet(validatedState.nrSaBands))
-                                                } else {
+                                                    if (sendAll || validatedState.nrNsaBands != current!!.nrNsaBands)
+                                                        add(JsonRequestBuilder.nrNsaSet(validatedState.nrNsaBands))
+                                                    if (sendAll || validatedState.nrSaBands != current!!.nrSaBands)
+                                                        add(JsonRequestBuilder.nrSaSet(validatedState.nrSaBands))
+                                                } else if (sendAll || validatedState.nrNsaBands != current!!.nrNsaBands) {
                                                     add(JsonRequestBuilder.nrSet(validatedState.nrNsaBands))
                                                 }
                                                 modeCmd?.let { add(it) }
                                             }
-                                            if (validatedState.usageMode != UsageMode.UNKNOWN) {
+                                            if (validatedState.usageMode != UsageMode.UNKNOWN &&
+                                                (current == null || validatedState.usageMode != current.usageMode)
+                                            ) {
                                                 add(JsonRequestBuilder.usagePrefSet(validatedState.usageMode))
                                             }
                                         }
