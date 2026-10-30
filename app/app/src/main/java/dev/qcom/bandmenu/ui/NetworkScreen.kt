@@ -934,7 +934,7 @@ private fun CaTable(
             val (value, fill) = mcsCell(it)
             CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
         }
-        row("BLER%") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
+        row("BLER") { BlerBar(it.diag?.bler ?: it.nr?.bler, barMax, cellStyle) }
         row(stringResource(R.string.net_row_mod)) { text((it.diag?.modulation ?: it.nr?.modulation)?.removeSuffix("QAM")) }
         // Values coloured as the chart's lines.
         row("PHY DL") { text((it.diag?.mbps ?: it.nr?.mbps)?.let { m -> String.format(Locale.US, "%.1f", m) }, bold = true, color = DownlinkColor) }
@@ -979,7 +979,7 @@ private fun NrRows(
         val (value, fill) = mcsCell(it)
         CellGradientBar(value, fill, barMax, cellStyle, trackWhenEmpty = true)
     }
-    r("BLER%") { BlerBar(it.nr?.bler, barMax, cellStyle) }
+    r("BLER") { BlerBar(it.nr?.bler, barMax, cellStyle) }
     // QAM order only ("256"); QPSK as is.
     r(stringResource(R.string.net_row_mod)) { t(it.nr?.modulation?.removeSuffix("QAM")) }
     // Values coloured as the chart's lines.
@@ -1035,13 +1035,13 @@ private fun UplinkRows(
     // Transmit power per channel, dBm.
     r("PUSCH") {
         CellValueBar(it.diag?.ulPower ?: it.nr?.ulPower, MetricKind.TX_POWER, barMax,
-            if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
+            if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true, suffix = "dBm")
     }
     r("PUCCH") {
         CellValueBar(it.diag?.ulPucch ?: it.nr?.ulPucch, MetricKind.TX_POWER, barMax,
-            if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true)
+            if (it.nr != null) Rat.NR else Rat.LTE, cellStyle, trackWhenEmpty = true, gradientFill = true, suffix = "dBm")
     }
-    r("BLER%") { BlerBar(it.diag?.ulBler ?: it.nr?.ulBler, barMax, cellStyle) }
+    r("BLER") { BlerBar(it.diag?.ulBler ?: it.nr?.ulBler, barMax, cellStyle) }
     r("PHY UL") { t((it.diag?.ulMbps ?: it.nr?.ulMbps)?.let { u -> String.format(Locale.US, "%.1f", u) }, bold = true, color = UplinkColor) }
 }
 
@@ -1135,7 +1135,7 @@ private val BLER_SCALE = SignalScale(0.0, 30.0, listOf(2.0, 10.0, 15.0, 25.0), h
 @Composable
 private fun BlerBar(bler: Double?, maxWidth: Dp, style: TextStyle) =
     CellValueBar(bler, MetricKind.SINR, maxWidth, style = style, trackWhenEmpty = true, gradientFill = true,
-        scaleOverride = BLER_SCALE)
+        scaleOverride = BLER_SCALE, suffix = "%")
 
 /** A value with a level-coloured bar behind it. With [gradientFill] the fill
  *  fades from the full level colour toward a lighter tip — brighter than the
@@ -1147,7 +1147,9 @@ internal fun CellValueBar(
     style: TextStyle = MiuixTheme.textStyles.body2, trackWhenEmpty: Boolean = false,
     gradientFill: Boolean = false,
     /** A scale of its own instead of [kind]'s (BLER). */
-    scaleOverride: SignalScale? = null
+    scaleOverride: SignalScale? = null,
+    /** A unit after the value ("%", "dBm"); the text shrinks to fit the cell. */
+    suffix: String = ""
 ) {
     if (v == null) {
         // With [trackWhenEmpty] the empty track stays visible, so a bar cell
@@ -1181,9 +1183,32 @@ internal fun CellValueBar(
             .padding(vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(formatMetric(v), style = style, fontWeight = TableValueWeight, color = MiuixTheme.colorScheme.onBackground,
-            maxLines = 1, softWrap = false)
+        if (suffix.isEmpty())
+            Text(formatMetric(v), style = style, fontWeight = TableValueWeight, color = MiuixTheme.colorScheme.onBackground,
+                maxLines = 1, softWrap = false)
+        else FittedBarText(formatMetric(v) + suffix, style, maxWidth)
     }
+}
+
+/**
+ * The bar's value text. With a unit [CellValueBar.suffix] the text can be wider
+ * than the cell, so the font shrinks until it fits; the line keeps the height
+ * of the unshrunk text, so the bar and its row don't change height.
+ */
+@Composable
+private fun FittedBarText(text: String, style: TextStyle, maxWidth: Dp) {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val bold = style.copy(fontWeight = TableValueWeight)
+    // Not BoxWithConstraints: the table rows ask for intrinsic sizes, which a
+    // subcomposing layout can't answer. The bar is [maxWidth] wide at most.
+    val available = if (maxWidth == Dp.Unspecified) 0f else with(density) { (maxWidth - 4.dp).toPx() }
+    val full = measurer.measure(text, bold, maxLines = 1, softWrap = false)
+    val fit = if (available > 0f && full.size.width > available) available / full.size.width else 1f
+    Text(text,
+        style = if (fit < 1f) bold.copy(fontSize = bold.fontSize * fit) else bold,
+        modifier = if (fit < 1f) Modifier.height(with(density) { full.size.height.toDp() }) else Modifier,
+        color = MiuixTheme.colorScheme.onBackground, maxLines = 1, softWrap = false)
 }
 
 /** The empty track pill with a grey dash: a bar cell with no value, kept at
