@@ -132,6 +132,8 @@ class TrafficTest private constructor(context: Context) {
                     conn.doOutput = true
                     conn.setFixedLengthStreamingMode(UPLOAD_BYTES)
                     conn.outputStream.use { out ->
+                        // Connected: an earlier failure no longer applies.
+                        lastError = null
                         var left = UPLOAD_BYTES
                         while (left > 0 && System.nanoTime() < until && currentCoroutineContext().isActive) {
                             val n = minOf(left, buf.size.toLong()).toInt()
@@ -142,6 +144,10 @@ class TrafficTest private constructor(context: Context) {
                 } else {
                     val code = conn.responseCode
                     if (code !in 200..299) throw java.io.IOException("HTTP $code")
+                    // Clear the error once a retry gets through, not when its request
+                    // ends (a download runs up to a minute), so a successful retry
+                    // doesn't keep showing the old error.
+                    lastError = null
                     conn.inputStream.use { ins ->
                         while (System.nanoTime() < until && currentCoroutineContext().isActive) {
                             val n = ins.read(buf)
