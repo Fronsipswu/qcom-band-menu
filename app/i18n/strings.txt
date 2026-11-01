@@ -1440,6 +1440,7 @@ en = NR primary cell
 th = เซลล์หลัก NR
 zh = NR 主小区
 de = NR-Primärzelle
+ru = Первичная сота NR
 
 
 [display.wcdma_serving]
@@ -1447,243 +1448,285 @@ en = WCDMA serving cell
 th = เซลล์ที่ให้บริการ WCDMA
 zh = WCDMA 服务小区
 de = Versorgende WCDMA-Zelle
+ru = Обслуживающая сота WCDMA
 
 [display.gsm_serving]
 en = GSM serving cell
 th = เซลล์ที่ให้บริการ GSM
 zh = GSM 服务小区
 de = Versorgende GSM-Zelle
+ru = Обслуживающая сота GSM
 
 [display.carrier_aggregation]
 en = Carrier aggregation
 th = การรวมคลื่นความถี่
 zh = 载波聚合
 de = Trägeraggregation
+ru = Агрегация несущих
 
 [display.nr_aggregation]
 en = NR aggregation
 th = การรวมคลื่น NR
 zh = NR 载波聚合
 de = NR-Aggregation
+ru = Агрегация NR
 
 [display.primary]
 en = Primary
 th = หลัก
 zh = 主载波
 de = Primär
+ru = Первичная
 
 [display.active]
 en = Active
 th = ใช้งานอยู่
 zh = 已激活
 de = Aktiv
+ru = Активно
 
 [display.configured]
 en = Configured
 th = ตั้งค่าแล้ว
 zh = 已配置
 de = Konfiguriert
+ru = Настроено
 
 [display.connected]
 en = Connected
 th = เชื่อมต่อแล้ว
 zh = 已连接
 de = Verbunden
+ru = Подключено
 
 [display.unavailable]
 en = Unavailable
 th = ไม่พร้อมใช้งาน
 zh = 不可用
 de = Nicht verfügbar
+ru = Недоступно
 
 [display.no_service]
 en = No service
 th = ไม่มีบริการ
 zh = 无服务
 de = Kein Netz
+ru = Нет сети
 
 [display.limited_service]
 en = Limited service
 th = บริการจำกัด
 zh = 服务受限
 de = Eingeschränkter Dienst
+ru = Ограниченный сервис
 
 [display.qmi_nr_note]
 en = QMI only reports frequency data for NR Scells
 th = QMI รายงานเฉพาะข้อมูลความถี่ของเซลล์รอง NR
 zh = QMI 仅报告 NR 辅小区的频率数据
 de = QMI meldet Frequenzdaten nur für NR-SCells
+ru = QMI передаёт данные о частотах только для SCell NR
 
 [display.no_neighbours]
 en = No neighbour cells reported.
 th = ไม่มีรายงานเซลล์ข้างเคียง
 zh = 未报告邻区。
 de = Keine Nachbarzellen gemeldet.
+ru = Соседние соты не обнаружены.
 
 [display.uplink]
 en = Uplink
 th = อัปลิงก์
 zh = 上行
 de = Uplink
+ru = Uplink
 
 [display.beam]
 en = Beam
 th = บีม
 zh = 波束
 de = Beam
+ru = Beam
 
 [display.receiver_chains]
 en = {rat} receiver chains
 th = สายรับสัญญาณ {rat}
 zh = {rat} 接收链
 de = {rat}-Empfangsketten
+ru = Приёмные цепи {rat}
 
 [display.not_tuned]
 en = RX{chain}: not tuned
 th = RX{chain}: ไม่ได้จูน
 zh = RX{chain}：未调谐
 de = RX{chain}: nicht abgestimmt
+ru = RX{chain}: не настроена
 
 [display.test_stopped]
 en = Test stopped: {error}
 th = หยุดการทดสอบ: {error}
 zh = 测试已停止：{error}
 de = Test gestoppt: {error}
+ru = Тест остановлен: {error}
 
 [display.plmn_lock]
 en = PLMN lock
 th = ล็อก PLMN
 zh = PLMN 锁定
 de = PLMN-Sperre
+ru = Блокировка PLMN
 
 [display.tap_lock]
 en = Tap to lock cell
 th = แตะเพื่อล็อกเซลล์
 zh = 点击以锁定小区
 de = Zelle antippen zum Sperren
+ru = Нажмите для блокировки соты
 
 [display.no_5g_lock]
 en = No 5G cell lock active
 th = ไม่มีการล็อกเซลล์ 5G ที่ใช้งานอยู่
 zh = 没有生效的 5G 小区锁定
 de = Keine aktive 5G-Zellensperre
+ru = Блокировка сот 5G не активна
 
 [display.lock_success]
 en = Success locking {type} ✓
 th = ล็อก {type} สำเร็จ ✓
 zh = 成功锁定 {type} ✓
 de = {type} erfolgreich gesperrt ✓
+ru = Блокировка {type} выполнена ✓
 
 [display.multi_pci]
 en = (Multi-PCI allowed)
 th = (รองรับหลาย PCI)
 zh = （允许多个 PCI）
 de = (Multi-PCI erlaubt)
+ru = (Разрешено несколько PCI)
 
 [display.notification_channel]
 en = Network replay
 th = เล่นซ้ำข้อมูลเครือข่าย
 zh = 网络回放
 de = Netzwerk-Wiedergabe
+ru = Воспроизведение измерений
 
 [display.notification_title]
 en = Recording network measurements
 th = กำลังบันทึกข้อมูลเครือข่าย
 zh = 正在记录网络测量数据
 de = Netzwerkmessungen werden aufgezeichnet
+ru = Запись измерений сети
 
 [display.notification_text]
 en = Replay is on. Turn it off from the Network page menu.
 th = เปิดการเล่นซ้ำอยู่ ปิดได้จากเมนูหน้าเครือข่าย
 zh = 回放已开启，可在网络页面菜单中关闭。
 de = Die Wiedergabe ist aktiv. Im Menü der Netzwerkseite deaktivieren.
+ru = Повтор активен. Отключить можно в меню страницы "Сеть".
 
 [display.signal_excellent]
 en = excellent
 th = ดีเยี่ยม
 zh = 极好
 de = ausgezeichnet
+ru = отлично
 
 [display.signal_good]
 en = good
 th = ดี
 zh = 良好
 de = gut
+ru = хорошо
 
 [display.signal_fair]
 en = fair
 th = พอใช้
 zh = 一般
 de = mäßig
+ru = удовлетворительно
 
 [display.signal_poor]
 en = poor
 th = อ่อน
 zh = 较差
 de = schwach
+ru = слабо
 
 [display.signal_bad]
 en = bad
 th = แย่
 zh = 差
 de = schlecht
+ru = плохо
 
 [display.signal_unavailable]
 en = {metric} unavailable
 th = {metric} ไม่พร้อมใช้งาน
 zh = {metric} 不可用
 de = {metric} nicht verfügbar
+ru = {metric} недоступно
 
 [rrc.null]
 en = Null
 th = ไม่มีสถานะ
 zh = 无状态
 de = Null
+ru = Null
 
 [rrc.idle_any]
 en = Idle (any cell)
 th = ว่าง (ทุกเซลล์)
 zh = 空闲（任意小区）
 de = Leerlauf (beliebige Zelle)
+ru = Простой (любая сота)
 
 [rrc.idle]
 en = Idle
 th = ว่าง
 zh = 空闲
 de = Leerlauf
+ru = Простой
 
 [rrc.connecting]
 en = Connecting
 th = กำลังเชื่อมต่อ
 zh = 正在连接
 de = Verbindungsaufbau
+ru = Подключение
 
 [rrc.releasing]
 en = Releasing
 th = กำลังปล่อยการเชื่อมต่อ
 zh = 正在释放
 de = Freigabe
+ru = Сброс
+
 
 [rrc.inactive]
 en = Inactive
 th = ไม่ใช้งาน
 zh = 非活动
 de = Inaktiv
+ru = Неактивно
 
 [rrc.idle_not_camped]
 en = Idle (not camped)
 th = ว่าง (ยังไม่ได้เลือกเซลล์)
 zh = 空闲（未驻留）
 de = Leerlauf (nicht eingebucht)
+ru = Простой (не захвачена)
 
 [rrc.suspended]
 en = Suspended
 th = พักการเชื่อมต่อ
 zh = 已暂停
 de = Ausgesetzt
+ru = Приостановлено
 
 [rrc.irat]
 en = IRAT to LTE
 th = เปลี่ยนเครือข่ายไป LTE
 zh = 切换到 LTE
 de = IRAT zu LTE
+ru = Переход IRAT на LTE
