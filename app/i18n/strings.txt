@@ -38,7 +38,7 @@ en = Package: {package}
 th = แพ็กเกจ: {package}
 zh = 包名：{package}
 de = Paket: {package}
-ru = Имя пакета {package}
+ru = Имя пакета: {package}
 
 [info.credits]
 en = Credits
@@ -269,7 +269,7 @@ en = Data-centric
 th = เน้นข้อมูล
 zh = 数据优先
 de = Datenzentriert
-ru = Приоритет данных 
+ru = Приоритет данных
 
 [bands.quick_selections]
 en = Quick selections
@@ -367,7 +367,7 @@ en = SIM 2 is not available
 th = SIM 2 ใช้งานไม่ได้
 zh = SIM 2 不可用
 de = SIM 2 ist nicht verfügbar
-ru = SIM 2 недоступна 
+ru = SIM 2 недоступна
 
 [bands.sim2_refused]
 en = The modem refused to select SIM 2. This is expected on single-SIM phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.
@@ -507,7 +507,7 @@ en = Clear ALL
 th = ล้างทั้งหมด
 zh = 全部清除
 de = ALLE löschen
-ru = Очистить все 
+ru = Очистить все
 
 [lock.clear_5g]
 en = Clear 5G
@@ -741,7 +741,7 @@ en = Clear 5G failed (connection error)
 th = ล้าง 5G ไม่สำเร็จ (การเชื่อมต่อผิดพลาด)
 zh = 清除 5G 失败（连接错误）
 de = 5G löschen fehlgeschlagen (Verbindungsfehler)
-ru = Сбой очистки 5G (ошибка соединения) 
+ru = Сбой очистки 5G (ошибка соединения)
 
 [msg.cleared_5g]
 en = Cleared 5G cell lock for SIM {sim}
@@ -818,6 +818,7 @@ en = Detach failed
 th = ตัดการเชื่อมต่อไม่สำเร็จ
 zh = 去附着失败
 de = Trennen fehlgeschlagen
+ru = Сбой отключения
 
 [msg.detach_failed_error]
 en = Detach failed: {error}
@@ -859,13 +860,14 @@ en = Re-attaching to network…
 th = กำลังเชื่อมต่อกับเครือข่ายใหม่…
 zh = 正在重新附着到网络…
 de = Erneutes Verbinden mit dem Netzwerk…
-ru = Переподключение к сети...
+ru = Переподключение к сети…
 
 [msg.reattach_failed]
 en = Re-attach failed
 th = เชื่อมต่อใหม่ไม่สำเร็จ
 zh = 重新附着失败
 de = Erneutes Verbinden fehlgeschlagen
+ru = Сбой переподключения
 
 [msg.reattach_failed_error]
 en = Re-attach failed: {error}
@@ -874,8 +876,8 @@ zh = 重新附着失败：{error}
 de = Erneutes Verbinden fehlgeschlagen: {error}
 ru = Сбой переподключения: {error}
 
-[msg.reattach_left_ed]
-en = Re-attach failed; network may be left ed
+[msg.reattach_left_detached]
+en = Re-attach failed; network may be left detached
 th = เชื่อมต่อใหม่ไม่สำเร็จ เครือข่ายอาจยังถูกตัดการเชื่อมต่ออยู่
 zh = 重新附着失败；网络可能仍处于去附着状态
 de = Erneutes Verbinden fehlgeschlagen; das Netzwerk ist möglicherweise getrennt
@@ -956,7 +958,7 @@ en = PCI must be 0-503
 th = PCI ต้องอยู่ระหว่าง 0-503
 zh = PCI 必须在 0-503 之间
 de = PCI muss zwischen 0 und 503 liegen
-Значение PCI должно быть от 0 до 503
+ru = Значение PCI должно быть от 0 до 503
 
 [msg.mnc_digits]
 en = MNC is up to 3 digits
@@ -1387,8 +1389,8 @@ zh = PLMN 锁定：填写 MCC 和 MNC（例如 244 01）
 de = PLMN-Sperre: MCC und MNC eingeben (z. B. 244 01)
 ru = Блокировка по PLMN: укажите MCC и MNC (например, 244 01)
 
-[lock.hint_cell]
-en = -cell lock: Put EARFCN and PCI list (0-503)
+[lock.hint_multicell]
+en = Multi-cell lock: Put EARFCN and PCI list (0-503)
 th = การล็อกหลายเซลล์: ใส่ EARFCN และรายการ PCI (0-503)
 zh = 多小区锁定：填写 EARFCN 和 PCI 列表（0-503）
 de = Mehrzellen-Sperre: EARFCN und PCI-Liste eingeben (0-503)
