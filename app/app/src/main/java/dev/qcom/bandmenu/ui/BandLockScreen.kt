@@ -71,6 +71,7 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
+import dev.qcom.bandmenu.AppTheme
 import dev.qcom.bandmenu.BandConstants
 import dev.qcom.bandmenu.BandFilterState
 import dev.qcom.bandmenu.HardwareBands
@@ -304,7 +305,7 @@ fun BandLockScreen(
                                 backdrop = screenBackdrop,
                                 shape = { RectangleShape },
                                 effects = { blur(8f.dp.toPx()) },
-                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
+                                onDrawSurface = { drawRect(HeaderBlurTint) }
                             )
                     ) {
                         SmallTopAppBar(
@@ -944,7 +945,10 @@ private val BandCellVerticalPadding = 3.dp
  */
 @Composable
 private fun unfinishedGroupGlow(): Color =
-    lerp(MiuixTheme.colorScheme.surfaceContainer, Color.White, 0.15f)
+    // Light theme: the plain card colour (white), as the RAT lock and Quick
+    // selections cards.
+    if (AppTheme.light) MiuixTheme.colorScheme.surfaceContainer
+    else lerp(MiuixTheme.colorScheme.surfaceContainer, Color.White, 0.15f)
 
 /**
  * One band in a checkbox grid. The whole cell (circle and label) is the
@@ -975,13 +979,14 @@ private fun BandCheckboxCell(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // Ticked bands: a white circle with a black tick.
+        // Ticked bands: a white circle with a black tick (blue with a white
+        // tick on the light theme).
         Checkbox(
             state = if (checked) ToggleableState.On else ToggleableState.Off,
             onClick = null,
             colors = CheckboxDefaults.checkboxColors(
-                checkedBackgroundColor = Color.White,
-                checkedForegroundColor = Color.Black
+                checkedBackgroundColor = if (AppTheme.light) MiuixTheme.colorScheme.primary else Color.White,
+                checkedForegroundColor = if (AppTheme.light) Color.White else Color.Black
             )
         )
         Text(

@@ -5,7 +5,7 @@ import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
+import dev.qcom.bandmenu.AppTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,7 +121,7 @@ fun FloatingBottomBar(
     isLiquidGlassEnabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
-    val isInLightTheme = !isSystemInDarkTheme()
+    val isInLightTheme = AppTheme.light
     val accentColor = MiuixTheme.colorScheme.primary
     val containerColor = if (isBackdropBlurEnabled) {
         MiuixTheme.colorScheme.surfaceContainer.copy(0.4f)
@@ -343,8 +343,10 @@ fun FloatingBottomBar(
                         onDrawSurface = {
                             val progress = if (isLiquidGlassEnabled) dampedDragAnimation.pressProgress else 0f
                             drawRect(
+                                // Light theme: a soft accent tint (black at 10% read
+                                // as a muddy grey on the white bar).
                                 color = if (isInLightTheme) {
-                                    Color.Black.copy(0.1f)
+                                    accentColor.copy(0.12f)
                                 } else {
                                     Color.White.copy(0.1f)
                                 },

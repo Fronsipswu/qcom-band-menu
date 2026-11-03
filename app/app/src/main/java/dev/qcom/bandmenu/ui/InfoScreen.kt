@@ -61,7 +61,10 @@ fun InfoScreen(
     onNetworkAtStartToggle: (Boolean) -> Unit = {},
     /** The whole app's display scale; the menu lists Normal, Large and Small. */
     displayScale: DisplayScale = DisplayScale.NORMAL,
-    onDisplayScaleChange: (DisplayScale) -> Unit = {}
+    onDisplayScaleChange: (DisplayScale) -> Unit = {},
+    /** The light theme instead of the dark one, applied at once. */
+    lightTheme: Boolean = false,
+    onLightThemeToggle: (Boolean) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val navbarSpace = navbarSpace()
@@ -158,6 +161,10 @@ fun InfoScreen(
                         DropdownItem(
                             text = stringResource(R.string.info_display_scale, scaleName(displayScale)),
                             onClick = { showScale = true }
+                        ),
+                        DropdownItem(
+                            text = stringResource(R.string.info_light_theme), selected = lightTheme,
+                            onClick = { onLightThemeToggle(!lightTheme) }
                         )
                     )
                 ),

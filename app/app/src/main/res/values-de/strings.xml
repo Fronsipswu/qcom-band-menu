@@ -11,6 +11,7 @@
     <string name="info_debug_logging">Debug-Protokollierung</string>
     <string name="info_hide_navbar">Navigationsleiste ausblenden</string>
     <string name="info_network_at_start">Netzwerkseite beim Start</string>
+    <string name="info_light_theme">Helles Design</string>
     <string name="info_display_scale">Skalierung: %1$s</string>
     <string name="scale_normal">Normal</string>
     <string name="scale_large">Groß</string>

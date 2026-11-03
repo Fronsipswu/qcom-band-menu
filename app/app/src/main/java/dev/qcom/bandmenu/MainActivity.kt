@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
@@ -45,6 +46,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 import java.io.File
 
 private val ComponentActivity.bandDataStore by preferencesDataStore(name = "band_prefs")
@@ -72,9 +74,20 @@ class MainActivity : ComponentActivity() {
     }
     private val daemonManager get() = daemonHolder.daemonManager
 
+    /** Transparent bars with icons that suit the theme: dark icons on the
+     *  light theme, light ones on the dark (whatever the phone's own mode). */
+    private fun applySystemBars(light: Boolean) {
+        val transparent = android.graphics.Color.TRANSPARENT
+        val style = if (light) SystemBarStyle.light(transparent, transparent)
+            else SystemBarStyle.dark(transparent)
+        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The theme before the first frame, so the bars' icons start right.
+        AppTheme.load(this)
+        applySystemBars(AppTheme.light)
 
         // Intercept back gesture: stop the daemon synchronously before
         // letting the activity finish. This guarantees the daemon is killed
@@ -98,7 +111,10 @@ class MainActivity : ComponentActivity() {
         val savedScale = DisplayScale.saved(this)
 
         setContent {
-            MiuixTheme(colors = darkColorScheme()) {
+            val light = AppTheme.light
+            // Status and navigation bar icons dark on the light theme.
+            LaunchedEffect(light) { applySystemBars(light) }
+            MiuixTheme(colors = if (light) lightColorScheme() else darkColorScheme()) {
                 // One density for the whole app, so the Info page's display
                 // scale grows or shrinks every dp and sp together.
                 var displayScale by remember { mutableStateOf(savedScale) }
@@ -1325,6 +1341,8 @@ class MainActivity : ComponentActivity() {
                         displayScale = scale
                         DisplayScale.save(this@MainActivity, scale)
                     },
+                    lightTheme = AppTheme.light,
+                    onLightThemeToggle = { AppTheme.save(this@MainActivity, it) },
                     debugEnabled = debugEnabled,
                     onDebugToggle = {
                         val newVal = !debugEnabled

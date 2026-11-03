@@ -18,6 +18,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import dev.qcom.bandmenu.AppTheme
 import dev.qcom.bandmenu.network.ThputPoint
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -61,8 +62,10 @@ internal fun windowStart(centerMs: Long, newestMs: Long): Long =
     newestMs.coerceIn(centerMs, centerMs + WINDOW_MS / 2) - WINDOW_MS
 
 /** The downlink and uplink lines and their values (also the CA tables' PHY rows). */
-internal val DownlinkColor: Color get() = signalLevelColor(2)   // the "fair" signal yellow
-internal val UplinkColor = Color(0xFF40E0D0)
+/** The "fair" signal yellow; a darker amber on the light theme, where the yellow is faint. */
+internal val DownlinkColor: Color get() = if (AppTheme.light) Color(0xFFB07800) else signalLevelColor(2)
+/** Turquoise; a darker teal on the light theme, where turquoise text is faint. */
+internal val UplinkColor: Color get() = if (AppTheme.light) Color(0xFF00897B) else Color(0xFF40E0D0)
 
 /**
  * Combined PHY downlink and uplink throughput (all LTE and NR carriers) over

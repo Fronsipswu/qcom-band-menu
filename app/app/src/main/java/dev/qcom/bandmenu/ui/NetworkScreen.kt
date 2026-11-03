@@ -1,6 +1,7 @@
 package dev.qcom.bandmenu.ui
 
 import androidx.compose.ui.res.stringResource
+import dev.qcom.bandmenu.AppTheme
 import dev.qcom.bandmenu.R
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
@@ -442,7 +443,7 @@ fun NetworkScreen(
                     backdrop = screenBackdrop,
                     shape = { RectangleShape },
                     effects = { blur(8f.dp.toPx()) },
-                    onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
+                    onDrawSurface = { drawRect(HeaderBlurTint) }
                 )
             ) { SmallTopAppBar(title = stringResource(R.string.nav_network), color = Color.Transparent, bottomContent = statusContent) }
         } else {
@@ -1121,6 +1122,11 @@ internal val BAND_COLORS = mapOf(
     257 to 0xFFFF8B66, 258 to 0xFFFF8B66, 259 to 0xFF7F1ECE, 260 to 0xFF3FEF14, 261 to 0xFF5F848C, 262 to 0xFF7F1904,
     263 to 0xFF9FAE7B
 )
+
+/** The tint over the pages' blurred top bars: half black on the dark theme;
+ *  on the light one the light page grey (black turned it a muddy grey). */
+internal val HeaderBlurTint: Color
+    get() = if (AppTheme.light) Color(0xFFF7F7F7).copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.5f)
 
 /** CA / NR table values: the bar values, and the emphasised rows (Band,
  *  PHY DL / UL). Both normal weight; were Medium and SemiBold. */

@@ -117,6 +117,9 @@ fun MainScreen(
     /** Info page menu: the whole app's display scale (persisted by the caller). */
     displayScale: DisplayScale = DisplayScale.NORMAL,
     onDisplayScaleChange: (DisplayScale) -> Unit = {},
+    /** Info page menu: the light theme (persisted by the caller). */
+    lightTheme: Boolean = false,
+    onLightThemeToggle: (Boolean) -> Unit = {},
     debugEnabled: Boolean,
     onDebugToggle: () -> Unit,
     onCellLockSimSwitch: (Int) -> Unit,
@@ -314,7 +317,9 @@ fun MainScreen(
                             networkAtStart = networkAtStart,
                             onNetworkAtStartToggle = onNetworkAtStartToggle,
                             displayScale = displayScale,
-                            onDisplayScaleChange = onDisplayScaleChange
+                            onDisplayScaleChange = onDisplayScaleChange,
+                            lightTheme = lightTheme,
+                            onLightThemeToggle = onLightThemeToggle
                         )
                     }
                 }

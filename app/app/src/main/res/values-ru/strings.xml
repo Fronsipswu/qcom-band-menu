@@ -11,6 +11,7 @@
     <string name="info_debug_logging">Журнал отладки</string>
     <string name="info_hide_navbar">Скрыть панель навигации</string>
     <string name="info_network_at_start">Страница Сеть на старте</string>
+    <string name="info_light_theme">Светлая тема</string>
     <string name="common_detach">Отключить</string>
     <string name="common_attach">Подключить</string>
     <string name="common_reattach">Переподключить</string>

@@ -351,7 +351,7 @@ fun CellLockScreen(
                                 backdrop = screenBackdrop,
                                 shape = { RectangleShape },
                                 effects = { blur(8f.dp.toPx()) },
-                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.5f)) }
+                                onDrawSurface = { drawRect(HeaderBlurTint) }
                             )
                     ) {
                         SmallTopAppBar(
