@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.33"
+#define HELPER_VERSION "1.22.34"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -315,12 +315,14 @@ static void b139(const uint8_t *p, int n) {
 }
 
 /* LTE PUSCH power control (B16E): each record's actual transmit power, in
- * dBm (signed 8 bits at record bit 79), and its carrier (bits 0-2). v48:
- * 12-byte records; v51: 16-byte. Both start at byte 4 with the count at
- * byte 3 (QCAT for v48; Airscreen 2.7.8's v48 and v51 readers). */
+ * dBm (signed 8 bits at record bit 79), and its carrier (bits 0-2). v48 and
+ * v50: 12-byte records; v51: 16-byte. All start at byte 4 with the count at
+ * byte 3 (QCAT for v48; Airscreen 2.7.8's v48 and v51 readers; v50 from an
+ * X75 capture: every packet 4 + count x 12 bytes, actual power at or below
+ * the requested and the maximum power on every record). */
 static void b16e(const uint8_t *p, int n) {
     if (n < 4) return;
-    int size = p[0] == 48 ? 12 : p[0] == 51 ? 16 : 0;
+    int size = p[0] == 48 || p[0] == 50 ? 12 : p[0] == 51 ? 16 : 0;
     int count = p[3];
     if (!size || 4 + count * size != n) return;
     for (int i = 0; i < count; i++) {
