@@ -418,12 +418,8 @@ return view.extend({
 		}
 		(filterList || []).forEach(function(b) { filterSet[b] = true; });
 
-		var bar = E('div', { 'class': 'qbm-bar' }, [
-			E('span', { 'class': 'qbm-meta' }, _('%s, band and network mode locking with AT+GTACT').format(m.model || 'FM350')),
-			filterList ? E('span', { 'class': 'qbm-meta' }, _('Filter active')) : ''
-		]);
 		if (!st || !st.valid) {
-			return E('div', {}, [ bar, E('div', { 'class': 'alert-message warning' }, [
+			return E('div', {}, [ E('div', { 'class': 'alert-message warning' }, [
 				E('p', {}, _('The modem did not answer AT+GTACT. Check the AT port under Settings, and that the modem is connected.'))
 			]) ]);
 		}
@@ -454,17 +450,17 @@ return view.extend({
 			Object.keys(ratBoxes).forEach(function(k) { ratBoxes[k].disabled = ev.target.checked; });
 			updatePreview();
 		} });
-		var ratRow = E('div', { 'class': 'qbm-row' }, [ E('label', {}, [ autoBox, _('Automatic') ]) ].concat(ratNames.map(function(n) {
+		var ratRow = E('div', { 'class': 'qbm-row' }, [ E('label', {}, [ autoBox, _('Auto') ]) ].concat(ratNames.map(function(n) {
 			var b = E('input', { 'type': 'checkbox', 'checked': ratNow.indexOf(n[0]) >= 0 ? '' : null, 'disabled': isAuto ? '' : null,
 				'change': function() { updatePreview(); } });
 			ratBoxes[n[0]] = b;
 			return E('label', {}, [ b, n[1] ]);
 		})));
 
-		/* The modem's setting as AT+GTACT? reports it, raw and per RAT. */
+		/* The modem's setting as AT+GTACT? reports it, per RAT. */
 		function ratLine(r, name, prefix) {
 			var all = st.cur[r] || [];
-			var text = isAuto ? _('all bands (automatic)')
+			var text = isAuto ? _('all bands (auto)')
 				: curBands[r].length ? curBands[r].map(function(b) { return prefix + b; }).join(' ')
 				: all.length ? _('off (fallback %s only)').format(all.map(function(b) { return prefix + b; }).join(' '))
 				: _('off');
@@ -475,12 +471,11 @@ return view.extend({
 		}
 		var current = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Current setting')),
-			E('div', { 'class': 'qbm-actions' }, [ E('code', {}, st.raw || '+GTACT: ?') ]),
-			E('table', { 'class': 'table', 'style': 'margin-top:.5em' }, [
+			E('table', { 'class': 'table' }, [
 				E('tr', { 'class': 'tr' }, [
 					E('td', { 'class': 'td', 'style': 'width:7em; font-weight:bold' }, _('Mode')),
-					E('td', { 'class': 'td' }, isAuto ? _('Automatic (RAT 10)')
-						: _('RAT %s, preferred %s').format(st.rat, [ st.p1, st.p2 ].filter(function(x) { return x != null; })
+					E('td', { 'class': 'td' }, isAuto ? _('Auto')
+						: _('Preferred %s').format([ st.p1, st.p2 ].filter(function(x) { return x != null; })
 							.map(function(p) { return { 2: 'WCDMA', 3: 'LTE', 6: 'NR' }[p] || p; }).join(', ') || '–'))
 				]),
 				ratLine('nr', 'NR', 'n'),
@@ -490,7 +485,6 @@ return view.extend({
 		]);
 
 		var sections = [
-			bar,
 			current,
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Network mode')),
@@ -557,7 +551,7 @@ return view.extend({
 					if (m.error) { ui.addNotification(null, E('p', m.error), 'warning'); return; }
 					if (m.rat !== 10) remember(picked);
 					return self.sendAt(m.rat, m.p1, m.p2, m.codes,
-						m.rat === 10 ? _('Automatic mode applied.') : _('Band mask applied.'));
+						m.rat === 10 ? _('Auto mode applied.') : _('Band mask applied.'));
 				}) }, _('Apply')),
 				preview
 			]),
@@ -594,7 +588,7 @@ return view.extend({
 			this.atState = parseGtact(r.at);
 			this.atState.test = r.at && r.at.replies ? r.at.replies[0] : null;
 			dom.content(this.root, this.renderAt());
-			return E([], [ E('style', {}, CSS), E('h2', {}, _('Band Locking')), this.root ]);
+			return E([], [ E('style', {}, CSS), E('h2', {}, _('%s Band Locking').format((this.modem && this.modem.model) || 'FM350')), this.root ]);
 		}
 		this.state = r && r.state ? r.state : null;
 		this.redraw(r);
