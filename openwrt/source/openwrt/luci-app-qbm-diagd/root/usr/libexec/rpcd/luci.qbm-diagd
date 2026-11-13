@@ -1,0 +1,696 @@
+#!/bin/sh
+# rpcd backend for luci-app-qbm-diagd:
+#   stats, status  forwarded to the running qbm-diagd (DIAG statistics; its
+#                  socket is abstract, which BusyBox tools cannot reach)
+#   ports          the modem's USB serial and QMI ports, for Settings
+#   qmi_query      read-only qbm-qmi requests (bands, hardware, cell locks)
+#   qmi            any qbm-qmi request (band, cell and PLMN locks, re-attach);
+#                  granted by the ACL's write section only
+#   serving        the serving-cell reads (NAS SYS/SIG/CELL_LOCATION/RF band/
+#                  ARFCN list/LTE CA info), raw, for the Network page
+#   operator       the operator name for a PLMN (NAS GET_PLMN_NAME and
+#                  GET_HOME_NETWORK), raw
+# qbm-qmi gets the request as one argument; nothing is evaluated by a shell.
+
+. /usr/share/libubox/jshn.sh
+
+BIN=/usr/sbin/qbm-diagd
+QMI=/usr/sbin/qbm-qmi
+
+query() {
+	local out
+	if [ -x "$BIN" ]; then
+		out=$("$BIN" -query "$1" 2>/dev/null)
+		# rpcd must always get JSON: a binary that cannot run would otherwise
+		# leave the page with an opaque "unknown error".
+		if [ -n "$out" ]; then
+			echo "$out"
+		else
+			echo '{"ok":false,"error":"qbm-diagd did not run"}'
+		fi
+	else
+		echo '{"ok":false,"error":"qbm-diagd is not installed"}'
+	fi
+}
+
+qmi_dev() {
+	local d x
+	d=$(uci -q get qbm-diagd.main.qmi_device)
+	if [ -z "$d" ] || [ "$d" = auto ]; then
+		d=/dev/cdc-wdm0
+		for x in /dev/cdc-wdm*; do [ -e "$x" ] && { d=$x; break; }; done
+	fi
+	echo "$d"
+}
+
+qmi() {
+	local sim=$1 req=$2 out
+	[ "$sim" = 2 ] || sim=1
+	if [ ! -x "$QMI" ]; then
+		echo '{"ok":false,"error":{"stage":"daemon","message":"qbm-qmi is not installed"}}'
+		return
+	fi
+	case "$req" in
+		"{"*) ;;
+		*) echo '{"ok":false,"error":{"stage":"bad_request","message":"request must be a JSON object"}}'; return ;;
+	esac
+	out=$("$QMI" -dev "$(qmi_dev)" -sim "$sim" "$req" 2>/dev/null)
+	if [ -n "$out" ]; then
+		echo "$out"
+	else
+		echo '{"ok":false,"error":{"stage":"daemon","message":"no reply from qbm-qmi"}}'
+	fi
+}
+
+# GET_PLMN_NAME request payload for an MCC/MNC, as the app's plmnNamePayload:
+# TLV 0x01 (mcc u16, mnc u16), TLV 0x11 (MNC includes PCS digit).
+plmn_payload() {
+	local mcc=$1 mnc=$2 pcs=0
+	[ ${#mnc} = 3 ] && pcs=1
+	mcc=$(expr "$mcc" + 0); mnc=$(expr "$mnc" + 0)
+	printf '010400%02x%02x%02x%02x110100%02x' $((mcc & 255)) $((mcc >> 8)) $((mnc & 255)) $((mnc >> 8)) $pcs
+}
+
+read_attr() {
+	[ -r "$1" ] && cat "$1" 2>/dev/null
+}
+
+# Probe a tty port with AT+CGMM. Returns 0 if the port answers with OK/ERROR/model.
+at_probe_port() {
+	local dev="$1" line ok=0
+	[ -c "$dev" ] || return 1
+
+	if command -v stty >/dev/null 2>&1; then
+		stty -F "$dev" 115200 raw -echo 2>/dev/null
+	fi
+
+	exec 3<>"$dev" 2>/dev/null || return 1
+	# Send CR LF first to clear any incomplete command, then AT+CGMM
+	printf '\r\nAT+CGMM\r\n' >&3
+
+	local i=0
+	while [ $i -lt 10 ]; do
+		i=$((i + 1))
+		if ! read -t 1 -r line <&3; then
+			break
+		fi
+		line=$(printf '%s' "$line" | tr -d '\r')
+		case "$line" in
+			*OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*)
+				ok=1
+				break
+				;;
+		esac
+	done
+	exec 3<&- 3>&-
+
+	[ $ok -eq 1 ] && return 0 || return 1
+}
+
+find_at_port() {
+	local cached p diag_dev cand="" rest=""
+
+	# 1. Check cache
+	if [ -f /tmp/qbm-at-device ]; then
+		cached=$(cat /tmp/qbm-at-device 2>/dev/null)
+		if [ -n "$cached" ] && [ -c "$cached" ]; then
+			if at_probe_port "$cached"; then
+				echo "$cached"
+				return 0
+			fi
+		fi
+		rm -f /tmp/qbm-at-device 2>/dev/null
+	fi
+
+	# 2. Gather candidate ports
+	diag_dev=$(uci -q get qbm-diagd.main.device)
+	[ "$diag_dev" = auto ] && diag_dev=""
+
+	for p in /sys/class/tty/ttyUSB* /sys/class/tty/ttyACM*; do
+		[ -e "$p/device" ] || continue
+		local name=${p##*/}
+		local dev="/dev/$name"
+		[ -c "$dev" ] || continue
+		[ "$dev" = "$cached" ] && continue
+
+		# Fibocom FM350 (MediaTek, USB 0e8d): AT is interface 06; 09 is the
+		# debug port qbm-diagd reads, which must not get AT text.
+		local vid intf
+		vid=$(read_attr "$p/device/../../idVendor")
+		intf=$(read_attr "$p/device/../bInterfaceNumber")
+		if [ "$vid" = 0e8d ]; then
+			[ "$intf" = 09 ] && continue
+			[ "$intf" = 06 ] && { cand="$dev $cand"; continue; }
+		fi
+
+		if [ -n "$diag_dev" ] && [ "$dev" = "$diag_dev" ]; then
+			rest="$rest $dev"
+		elif [ "$name" = "ttyUSB2" ] || [ "$name" = "ttyACM2" ]; then
+			cand="$dev $cand"
+		else
+			cand="$cand $dev"
+		fi
+	done
+
+	for p in $cand $rest; do
+		if at_probe_port "$p"; then
+			echo "$p" > /tmp/qbm-at-device
+			echo "$p"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+at_dev() {
+	local d
+	d=$(uci -q get qbm-diagd.main.at_device)
+	if [ -n "$d" ] && [ "$d" != auto ] && [ -e "$d" ]; then
+		echo "$d"
+		return 0
+	fi
+	find_at_port
+}
+
+airplane_mode() {
+	local dev
+	dev=$(at_dev)
+	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
+		json_init
+		json_add_boolean ok 0
+		json_add_object error
+		json_add_string message "AT port not found or not available"
+		json_close_object
+		json_dump
+		return
+	fi
+
+	if command -v stty >/dev/null 2>&1; then
+		stty -F "$dev" 115200 raw -echo 2>/dev/null
+	fi
+
+	exec 3<>"$dev" 2>/dev/null || {
+		json_init
+		json_add_boolean ok 0
+		json_add_object error
+		json_add_string message "Failed to open AT port $dev"
+		json_close_object
+		json_dump
+		return
+	}
+
+	# Send AT+CFUN=4
+	printf '\r\nAT+CFUN=4\r\n' >&3
+	local line r4="" r1=""
+	local i=0
+	while [ $i -lt 10 ]; do
+		i=$((i + 1))
+		read -t 1 -r line <&3 || break
+		line=$(printf '%s' "$line" | tr -d '\r')
+		[ -n "$line" ] && r4="${r4}${line} "
+		case "$line" in *OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
+	done
+
+	# Wait 100ms
+	if command -v usleep >/dev/null 2>&1; then
+		usleep 100000 2>/dev/null
+	else
+		sleep 0.1 2>/dev/null || sleep 1
+	fi
+
+	# Send AT+CFUN=1
+	printf 'AT+CFUN=1\r\n' >&3
+	i=0
+	while [ $i -lt 10 ]; do
+		i=$((i + 1))
+		read -t 1 -r line <&3 || break
+		line=$(printf '%s' "$line" | tr -d '\r')
+		[ -n "$line" ] && r1="${r1}${line} "
+		case "$line" in *OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
+	done
+
+	exec 3<&- 3>&-
+
+	json_init
+	json_add_boolean ok 1
+	json_add_string device "$dev"
+	json_add_string cfun4 "$r4"
+	json_add_string cfun1 "$r1"
+	json_dump
+}
+
+# Name of the netifd interface on the xmm protocol that belongs to the modem
+# airplane mode toggles: qbm-diagd.main.netif if set, else the xmm interface
+# whose device is the AT port (a router may have several xmm interfaces).
+xmm_iface() {
+	local name at s dev
+	name=$(uci -q get qbm-diagd.main.netif)
+	if [ -n "$name" ] && [ "$name" != auto ]; then
+		echo "$name"
+		return 0
+	fi
+	at=$(at_dev)
+	at=${at##*/}
+	[ -n "$at" ] || return 1
+	for s in $(uci -q show network | sed -n "s/^network\.\([^.=]*\)\.proto='xmm'\$/\1/p"); do
+		dev=$(uci -q get network.$s.device)
+		dev=${dev##*/}
+		if [ "$dev" = "$at" ]; then
+			echo "$s"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# Prints "true" while the netifd interface is up.
+iface_up() {
+	ubus call "network.interface.$1" status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null
+}
+
+# Like at_run, but prints the raw reply lines (for parsing in this file).
+at_raw() {
+	local dev cmd line i
+	dev=$(at_dev)
+	[ -n "$dev" ] && [ -c "$dev" ] || return 1
+	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
+	exec 3<>"$dev" 2>/dev/null || return 1
+	for cmd in "$@"; do
+		printf '\r\n%s\r\n' "$cmd" >&3
+		i=0
+		while [ $i -lt 40 ]; do
+			i=$((i + 1))
+			read -t 2 -r line <&3 || break
+			line=$(printf '%s' "$line" | tr -d '\r')
+			[ -n "$line" ] && echo "$line"
+			case "$line" in OK|ERROR|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
+		done
+	done
+	exec 3<&- 3>&-
+}
+
+# netifd's protocol update for an interface that stays up: the same calls
+# qmiq-event makes. The subshell keeps netifd-proto.sh out of rpcd.
+netifd_update() {
+	local iface=$1 dev=$2 addr=$3 gw=$4 dns1=$5 dns2=$6
+	(
+		INCLUDE_ONLY=1
+		. /lib/functions.sh
+		. /lib/netifd/netifd-proto.sh
+		proto_init_update "$dev" 1
+		proto_add_ipv4_address "$addr" 24
+		proto_add_ipv4_route 0.0.0.0 0 "$gw" "$addr"
+		[ -n "$dns1" ] && proto_add_dns_server "$dns1"
+		[ -n "$dns2" ] && proto_add_dns_server "$dns2"
+		proto_send_update "$iface"
+	)
+}
+
+# Re-activates the PDP context and hands the new address to netifd while the
+# interface stays up. Returns 1 if the modem gives no address; the caller then
+# restarts the interface instead.
+refresh_address() {
+	local iface=$1 cid apn pdp dev r addr gw dns dns1 dns2 a g
+	cid=$(uci -q get network.$iface.profile)
+	cid=${cid:-1}
+	apn=$(uci -q get network.$iface.apn)
+	pdp=$(uci -q get network.$iface.pdp | tr a-z A-Z)
+	case "$pdp" in IP|IPV6|IPV4V6) ;; *) pdp=IP ;; esac
+	dev=$(ubus call "network.interface.$iface" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null)
+	[ -n "$dev" ] || return 1
+
+	set -- "AT+CGACT=1,$cid" "AT+CGPADDR=$cid" "AT+GTDNS=$cid"
+	[ -n "$apn" ] && set -- "AT+CGDCONT=$cid,\"$pdp\",\"$apn\"" "$@"
+	r=$(at_raw "$@")
+	addr=$(echo "$r" | sed -n 's/^+CGPADDR: [0-9]*,"\([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' | head -n 1)
+	[ -n "$addr" ] && [ "$addr" != 0.0.0.0 ] || return 1
+	gw=$(echo "$addr" | awk -F. '{print $1"."$2"."$3".1"}')
+	dns=$(echo "$r" | sed -n 's/^+GTDNS: [0-9]*,"\([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\)","\([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\)".*/\1 \2/p' | head -n 1)
+	set -- $dns
+	dns1=$1
+	dns2=$2
+
+	netifd_update "$iface" "$dev" "$addr" "$gw" "$dns1" "$dns2" || return 1
+
+	# netifd replaces the address and default route it manages; drop any left
+	# over from the previous session so the device carries only the new one.
+	ip -4 -o addr show dev "$dev" | awk '{print $4}' | while read a; do
+		[ "${a%/*}" = "$addr" ] || ip addr del "$a" dev "$dev"
+	done
+	ip -4 route show default dev "$dev" | awk '$2 == "via" {print $3}' | while read g; do
+		[ "$g" = "$gw" ] || ip route del default via "$g" dev "$dev"
+	done
+	ip -4 addr show dev "$dev" | grep -q "inet $addr/"
+}
+
+# Waits for the modem to attach, then hands the new address to netifd while the
+# interface stays up. The interface is restarted only if that fails. $2 is a
+# settle time: after a band change the session drops a moment later, so the
+# attach check must not see the state from before the change.
+refresh_job() {
+	local iface=$1 settle=${2:-0} i attached
+	[ "$settle" -gt 0 ] && sleep "$settle"
+
+	i=0
+	while [ $i -lt 60 ]; do
+		i=$((i + 1))
+		attached=$(at_run "AT+CGATT?" | jsonfilter -e '@.replies[0]' 2>/dev/null)
+		case "$attached" in *"+CGATT: 1"*) break ;; esac
+		sleep 2
+	done
+
+	if [ "$(iface_up "$iface")" = true ] && refresh_address "$iface"; then
+		logger -t qbm-diagd "reconnect: $iface address updated in place"
+		return 0
+	fi
+
+	logger -t qbm-diagd "reconnect: in-place update failed, restarting $iface"
+	ifdown "$iface"
+	i=0
+	while [ $i -lt 20 ] && [ "$(iface_up "$iface")" = true ]; do
+		i=$((i + 1))
+		sleep 1
+	done
+	ifup "$iface"
+}
+
+# Network > Reconnect (and Band Locking's Re-attach): airplane mode is toggled
+# (CFUN 4, 1), then the address is refreshed.
+reconnect_job() {
+	local iface=$1 ok
+	ok=$(airplane_mode | jsonfilter -e '@.ok' 2>/dev/null)
+	logger -t qbm-diagd "reconnect: airplane mode toggled (ok=${ok:-unknown})"
+	refresh_job "$iface" 0
+}
+
+# Starts a job ($1, with the extra arguments after it) in the background and
+# returns at once: the sequence takes about a minute, longer than a browser RPC
+# call should wait. One job at a time.
+start_job() {
+	local job=$1 iface lock=/tmp/qbm-reconnect.lock
+	shift
+	iface=$(xmm_iface)
+	if [ -z "$iface" ]; then
+		at_fail "No xmm network interface uses the AT port (set qbm-diagd.main.netif)"
+		return
+	fi
+	if ! mkdir "$lock" 2>/dev/null; then
+		at_fail "A reconnect is already running"
+		return
+	fi
+	( "$job" "$iface" "$@"; rmdir "$lock" ) </dev/null >/dev/null 2>&1 &
+
+	json_init
+	json_add_boolean ok 1
+	json_add_string interface "$iface"
+	json_dump
+}
+
+reconnect_start() {
+	start_job reconnect_job
+}
+
+# After a band change: the 5 s settle lets the modem drop the old session first.
+refresh_start() {
+	start_job refresh_job 5
+}
+
+at_send() {
+	local cmd="$1" dev
+	[ -n "$cmd" ] || cmd="AT"
+	dev=$(at_dev)
+	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
+		json_init
+		json_add_boolean ok 0
+		json_add_object error
+		json_add_string message "AT port not found or not available"
+		json_close_object
+		json_dump
+		return
+	fi
+
+	if command -v stty >/dev/null 2>&1; then
+		stty -F "$dev" 115200 raw -echo 2>/dev/null
+	fi
+
+	exec 3<>"$dev" 2>/dev/null || {
+		json_init
+		json_add_boolean ok 0
+		json_add_object error
+		json_add_string message "Failed to open AT port $dev"
+		json_close_object
+		json_dump
+		return
+	}
+
+	printf '\r\n%s\r\n' "$cmd" >&3
+	local line resp=""
+	local i=0
+	while [ $i -lt 15 ]; do
+		i=$((i + 1))
+		read -t 1 -r line <&3 || break
+		line=$(printf '%s' "$line" | tr -d '\r')
+		[ -n "$line" ] && resp="${resp}${line} "
+		case "$line" in *OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
+	done
+
+	exec 3<&- 3>&-
+
+	json_init
+	json_add_boolean ok 1
+	json_add_string device "$dev"
+	json_add_string response "$resp"
+	json_dump
+}
+
+at_fail() {
+	json_init
+	json_add_boolean ok 0
+	json_add_object error
+	json_add_string message "$1"
+	json_close_object
+	json_dump
+}
+
+# Runs AT commands in one session on the AT port: {"ok":true,"device":...,
+# "replies":[...]}, each reply the lines up to OK/ERROR (unsolicited lines too).
+at_run() {
+	local dev cmd line resp i
+	dev=$(at_dev)
+	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
+		at_fail "AT port not found or not available"
+		return
+	fi
+	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
+	exec 3<>"$dev" 2>/dev/null || { at_fail "Failed to open AT port $dev"; return; }
+
+	json_init
+	json_add_boolean ok 1
+	json_add_string device "$dev"
+	json_add_array replies
+	for cmd in "$@"; do
+		printf '\r\n%s\r\n' "$cmd" >&3
+		resp="" i=0
+		while [ $i -lt 40 ]; do
+			i=$((i + 1))
+			read -t 2 -r line <&3 || break
+			line=$(printf '%s' "$line" | tr -d '\r')
+			[ -n "$line" ] || continue
+			resp="$resp$line
+"
+			case "$line" in OK|ERROR|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
+		done
+		json_add_string "" "$resp"
+	done
+	json_close_array
+	exec 3<&- 3>&-
+	json_dump
+}
+
+# The modem's identity (AT+CGMI/CGMM/GMR), kept in /tmp once it answered,
+# while the AT port it came from is still there.
+modem() {
+	local cache=/tmp/qbm-modem.json out dev
+	if [ -s "$cache" ]; then
+		json_load "$(cat "$cache")"
+		json_get_var dev device
+		if [ -n "$dev" ] && [ -c "$dev" ]; then
+			cat "$cache"
+			return
+		fi
+		rm -f "$cache"
+	fi
+	out=$(at_run "AT+CGMI" "AT+CGMM" "AT+GMR")
+	echo "$out"
+	case "$out" in *'"ok": true'*OK*) echo "$out" > "$cache" ;; esac
+}
+
+# AT+GTACT (Fibocom): RAT and band lock. Numbers and commas only.
+at_bands_set() {
+	local rat=$1 p1=$2 p2=$3 bands=$4
+	case "$rat" in ''|*[!0-9]*) at_fail "rat: a number"; return ;; esac
+	case "$p1$p2" in *[!0-9]*) at_fail "preferred RAT: numbers"; return ;; esac
+	case "$bands" in
+		'') ;;
+		*[!0-9,]*|,*|*,|*,,*) at_fail "bands: numbers separated by commas"; return ;;
+	esac
+	if [ -n "$bands" ]; then
+		at_run "AT+GTACT=$rat,$p1,$p2,$bands" "AT+GTACT?"
+	else
+		at_run "AT+GTACT=$rat,$p1,$p2" "AT+GTACT?"
+	fi
+}
+
+# "Restore MTK DIAG profile": qbm-diagd writes the FM350's original trace
+# filters back; trimming then stays off (mtk_trim 0) until it is checked again.
+mtk_restore() {
+	local out
+	out=$(query '{"cmd":"mtk_restore"}')
+	case "$out" in
+		*'"ok":true'*)
+			uci -q set qbm-diagd.main.mtk_trim=0
+			uci -q commit qbm-diagd
+			;;
+	esac
+	echo "$out"
+}
+
+ports() {
+	local t name dev intf usb drv
+
+	json_init
+	json_add_array ports
+	for t in /sys/class/tty/ttyUSB* /sys/class/tty/ttyACM*; do
+		[ -e "$t/device" ] || continue
+		name=${t##*/}
+		dev=$(readlink -f "$t/device")
+		intf=${dev%/*}
+		usb=${intf%/*}
+		drv=$(readlink "$t/device/driver")
+		json_add_object
+		json_add_string dev "/dev/$name"
+		json_add_string driver "${drv##*/}"
+		json_add_string interface "$(read_attr "$intf/bInterfaceNumber")"
+		json_add_string class "$(read_attr "$intf/bInterfaceClass")/$(read_attr "$intf/bInterfaceSubClass")/$(read_attr "$intf/bInterfaceProtocol")"
+		json_add_string usb_id "$(read_attr "$usb/idVendor"):$(read_attr "$usb/idProduct")"
+		json_add_string manufacturer "$(read_attr "$usb/manufacturer")"
+		json_add_string product "$(read_attr "$usb/product")"
+		json_close_object
+	done
+	json_close_array
+	json_add_array qmi
+	for t in /sys/class/usbmisc/cdc-wdm*; do
+		[ -e "$t/device" ] || continue
+		name=${t##*/}
+		dev=$(readlink -f "$t/device")
+		usb=${dev%/*}
+		drv=$(readlink "$t/device/driver")
+		json_add_object
+		json_add_string dev "/dev/$name"
+		json_add_string driver "${drv##*/}"
+		json_add_string interface "$(read_attr "$dev/bInterfaceNumber")"
+		json_add_string usb_id "$(read_attr "$usb/idVendor"):$(read_attr "$usb/idProduct")"
+		json_add_string product "$(read_attr "$usb/product")"
+		json_close_object
+	done
+	json_close_array
+	json_add_string qmi_device "$(qmi_dev)"
+	json_add_string at_device "$(at_dev)"
+	json_dump
+}
+
+case "$1" in
+	list)
+		echo '{ "stats": { "sim": 1 }, "status": { }, "ports": { }, "qmi_query": { "sim": 1, "cmd": "query" }, "qmi": { "sim": 1, "request": "{}" }, "serving": { "sim": 1 }, "operator": { "sim": 1, "mcc": "000", "mnc": "00" }, "airplane": { }, "reconnect": { }, "refresh_ip": { }, "at": { "cmd": "AT" }, "modem": { }, "at_bands": { }, "at_bands_set": { "rat": "20", "p1": "", "p2": "", "bands": "" }, "at_serving": { }, "mtk_restore": { } }'
+		;;
+	call)
+		case "$2" in
+			stats)
+				read -r input
+				json_load "$input"
+				json_get_var sim sim
+				[ "$sim" = 2 ] || sim=1
+				query "{\"cmd\":\"stats\",\"sim\":$sim}"
+				;;
+			status)
+				query '{"cmd":"version"}'
+				;;
+			ports)
+				ports
+				;;
+			airplane)
+				airplane_mode
+				;;
+			reconnect)
+				reconnect_start
+				;;
+			refresh_ip)
+				refresh_start
+				;;
+			modem)
+				modem
+				;;
+			at_bands)
+				at_run "AT+GTACT=?" "AT+GTACT?"
+				;;
+			at_bands_set)
+				read -r input
+				json_load "$input"
+				json_get_var rat rat
+				json_get_var p1 p1
+				json_get_var p2 p2
+				json_get_var bands bands
+				at_bands_set "$rat" "$p1" "$p2" "$bands"
+				;;
+			at_serving)
+				at_run "AT+COPS?" "AT+GTCCINFO?"
+				;;
+			mtk_restore)
+				mtk_restore
+				;;
+			at)
+				read -r input
+				json_load "$input"
+				json_get_var cmd cmd
+				at_send "$cmd"
+				;;
+			qmi_query)
+				read -r input
+				json_load "$input"
+				json_get_var sim sim
+				json_get_var cmd cmd
+				case "$cmd" in
+					query|query_hardware|query_lte_cell_lock|query_nr_cell_lock|version) ;;
+					*) cmd=query ;;
+				esac
+				qmi "$sim" "{\"cmd\":\"$cmd\"}"
+				;;
+			serving)
+				read -r input
+				json_load "$input"
+				json_get_var sim sim
+				[ "$sim" = 2 ] || sim=1
+				qmi "$sim" "{\"cmd\":\"nas_read\",\"sim\":$sim,\"reads\":[\"004d\",\"004f\",\"0043\",\"0031\",\"00d2\",\"00ac\"]}"
+				;;
+			operator)
+				read -r input
+				json_load "$input"
+				json_get_var sim sim
+				json_get_var mcc mcc
+				json_get_var mnc mnc
+				[ "$sim" = 2 ] || sim=1
+				case "$mcc" in [0-9][0-9][0-9]) ;; *) echo '{"ok":false,"error":{"stage":"bad_request","message":"mcc: 3 digits"}}'; exit 0 ;; esac
+				case "$mnc" in [0-9][0-9]|[0-9][0-9][0-9]) ;; *) echo '{"ok":false,"error":{"stage":"bad_request","message":"mnc: 2 or 3 digits"}}'; exit 0 ;; esac
+				qmi "$sim" "{\"cmd\":\"nas_read\",\"sim\":$sim,\"reads\":[\"0025\",\"0044:$(plmn_payload "$mcc" "$mnc")\"]}"
+				;;
+			qmi)
+				read -r input
+				json_load "$input"
+				json_get_var sim sim
+				json_get_var request request
+				qmi "$sim" "$request"
+				;;
+		esac
+		;;
+esac

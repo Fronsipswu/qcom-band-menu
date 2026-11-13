@@ -1,0 +1,2402 @@
+/*
+ * qbm-diagd: QBM's DIAG helper (root, dynamic, separate from the static QMI
+ * daemon). Subscribes to LTE PDSCH logs through diag-router's Diag Consumer
+ * Interface (vendor libdiag), decodes them on the phone and serves a compact
+ * per-carrier summary over an abstract socket.
+ *
+ * DCI only: never takes the on-device (MD) logging session, never touches
+ * the main log masks and never switches logging modes, so other DIAG tools
+ * and USB diag keep working. Read-only towards the radio.
+ *
+ *   qbm-diagd -uid <app uid>      (no LD_LIBRARY_PATH: see DiagClient)
+ *
+ * Socket: abstract "qbm_diagd", one NDJSON request per line, only from <app
+ * uid> (SO_PEERCRED):
+ *   {"cmd":"stats","sim":N} -> SIM N's per-carrier summary since the previous
+ *                       "stats" (N 1 or 2, default 1)
+ *   {"cmd":"stop"}   -> unsubscribe, release and exit
+ * Without a "stats" request for WATCHDOG_MS the helper unsubscribes and exits
+ * by itself, so it never keeps logging after the app goes away.
+ *
+ * Logs (every version decoded through a layout table in qbm_layouts.h):
+ *   LTE 0xB173 PDSCH Stat Indication: per TB MCS, modulation, RBs, layers,
+ *          CRC, TB size, carrier slot
+ *       0xB126 PDSCH Demapper Config: TX/RX antennas, rank, scheme
+ *       0xB139 PUSCH Tx Report: UL TB size, RBs, modulation, carrier slot
+ *       0xB16E PUSCH Power Control: the actual PUSCH transmit power
+ *       0xB16D GM TX Report: PUSCH MCS and retransmissions, PUCCH transmit power
+ *       0xB184 CA Metrics: PCell and SCell EARFCN/PCI/band/BW/state per slot
+ *       0xB193 Serving Cell Meas Response, subpacket 0x19: per-carrier
+ *          RSRP/RSRQ/SINR and which carrier each slot is (serving records)
+ *       0xB168 Random Access MSG2: the RAR's timing advance (the "ta" of
+ *          the stats JSON, raw index; see b168())
+ *   NR  0xB883 UL physical channel schedule (TB size, RBs, MCS, modulation,
+ *       DMRS ports, TX mode), 0xB884 UL power control (PUSCH power),
+ *       0xB887 PDSCH status, 0xB97F
+ *       measurements, 0xB8D8 SNR, 0xB8A7 CSF, 0xB825 RRC configuration,
+ *       0xB823 serving cell (see below), 0xB88A RACH Attempt: the RAR's
+ *       timing advance (the "nr_ta" of the stats JSON; see b88a())
+ *   NR on X65 (no B8D8): 0xB8DD serving SNR (B8D8's successor), 0xB96A
+ *       per-beam measurements (strongest beam's SNR)
+ *   NR  0xB821 RRC OTA: reconfigurations, decoded (rrc_csi.c) for each
+ *       cell's configured CSI-RS ports ("csi_ports")
+ * NR SINR, per carrier: "sinr" is SS-SINR (B8D8/B8DD SSB records, best RX
+ * chain; matches the UE's own MeasurementReports), "csinr" is CSI-SINR
+ * (TRS records, best RX chain), "bsinr" the strongest SSB beam's SNR (B96A,
+ * X65).
+ * Per RX chain, for the antenna card, every carrier (PCell and SCells) has
+ * four-value arrays, null for a chain without a value: LTE "rsrp_rx",
+ * "rsrq_rx" and "sinr_rx" (B193's chain fields); NR "rsrp_rx" (B97F: RX 0-1
+ * from the serving beam, RX 2-3 from the layer; see b97f_serving_chains),
+ * "sinr_rx" and "csinr_rx" (B8D8/B8DD chains of SSB and TRS records).
+ * Checked on X55, X60, X65, X70 (SM8550), X75 and X85 logs, 2026-10-12.
+ * Only C-RNTI and SPS-C-RNTI grants are counted (no paging/SI/RA).
+ */
+#ifndef QBM_USB_DIAG
+#include <android/dlext.h>
+#include <dlfcn.h>
+#endif
+#include <math.h>
+#include <errno.h>
+#include <poll.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "qbm_layouts.h"   /* generated per-version layouts */
+#include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
+
+#define HELPER_VERSION "2.0.0"
+#define SOCKET_NAME "qbm_diagd"
+#define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
+#define DIAG_PROC_MSM 0
+#define DIAG_PROC_MDM 1               /* an external modem: the X55 of an SM8250 */
+#define DIAG_CON_MPSS (1 << 1)
+#define DCI_NO_ERROR 1001
+#define SLOTS 8
+#define RX_CHAINS 4                   /* receive chains the logs report per carrier (RX 0-3) */
+
+typedef int (*lsm_init_t)(void *);
+typedef int (*set_version_t)(int, int);
+typedef int (*lsm_deinit_t)(void);
+typedef int (*reg_client_t)(int *, uint16_t *, int, void *);
+typedef int (*rel_client_t)(int *);
+typedef int (*reg_stream_t)(int, void (*)(unsigned char *, int), void (*)(unsigned char *, int));
+typedef int (*log_cfg_t)(int, int, uint16_t *, int);
+typedef int (*dci_list_t)(int, uint16_t *);
+typedef int (*remote_dev_t)(uint16_t *);
+
+static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, 0xB16D, /* LTE */
+                            0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, 0xB884, /* NR */
+                            0xB8DD, 0xB96A,                             /* NR, X65 */
+                            0xB821 };                                   /* NR RRC */
+#define NCODES 21
+
+/* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
+
+struct slot {
+    /* B173, C/SPS-C RNTI TBs only */
+    /* mcs_sum/mcs_tb leave out reserved-index retransmissions (see b173());
+     * mcs_all_sum is over every TB, as before 1.22.3, kept for comparison. */
+    long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, mod[5];
+    long recs, layers_sum;
+    /* B139 PUSCH TBs, including retransmissions */
+    long ul_tb, ul_bytes;
+    /* The uplink card: B139 records with an RB count (RBs, modulation),
+     * B16D's PUSCH MCS and PUCCH power, B16E's actual PUSCH power, means over
+     * the window */
+    long ul_recs, ul_rb_sum, ul_mod[6], ul_mcs_sum, ul_mcs_n, n_ul_pwr, ul_pucch_sum, n_ul_pucch;
+    long ul_pusch_n, ul_retx_n;   /* B16D PUSCH records, those with a retransmission index */
+    double ul_pwr_sum;
+    /* B126 */
+    long n126, rank[4], scheme[16];
+    int tx, rx;
+    /* B193, means over the window */
+    double rsrp_sum, rsrq_sum, sinr_sum;
+    long n_rsrp, n_rsrq, n_sinr;
+    /* B193 per RX chain (the antenna card), means over the window */
+    double rsrp_rx_sum[RX_CHAINS], rsrq_rx_sum[RX_CHAINS], sinr_rx_sum[RX_CHAINS];
+    long n_rsrp_rx[RX_CHAINS], n_rsrq_rx[RX_CHAINS], n_sinr_rx[RX_CHAINS];
+    /* B179's filtered RSRP/RSRQ and the cell they were for: used only when
+     * B193 has none (a deactivated SCell) */
+    double frsrp_sum, frsrq_sum;
+    long n_frsrp, n_frsrq;
+    uint32_t f_earfcn;
+    int f_pci;
+};
+
+/* B184: the latest carrier list. */
+struct ca_cell { int known; uint32_t earfcn; int pci, band, bw_raw, state; };
+
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Dual SIM: with the DCI extended header (diag_dci_set_version 1) every log
+ * names its subscription (1 = SIM 1, 2 = SIM 2), and each SIM keeps its own
+ * state. Per-SIM variables are arrays over SIMS, used through a macro that
+ * picks the current SIM, `sim` (set under `lock` by on_log and write_stats).
+ * Without the header (older libdiag) everything is SIM 1. */
+#define SIMS 2
+static int sim = 0;
+static int sim_tags = 0;               /* the extended header was granted */
+
+static struct slot win_s[SIMS][SLOTS];
+#define win (win_s[sim])
+static struct ca_cell ca_s[SIMS][SLOTS];   /* [0] = PCell, [n] = SCell n */
+#define ca (ca_s[sim])
+static int ca_seen_s[SIMS];
+#define ca_seen (ca_seen_s[sim])
+/* A SIM that sent no log for SILENT_MS is off or out of service (an idle
+ * SIM still measures every paging cycle, <= 2.56 s): its last carrier lists
+ * are not shown. */
+#define SILENT_MS 10000
+static long last_log_s[SIMS];
+#define last_log_ms (last_log_s[sim])
+static long n_logs = 0;
+static const char *lib_route = "default";   /* how libdiag was opened: "default" or "sphal" */
+static volatile int stopping = 0;
+static volatile sig_atomic_t stop_flag = 0;
+
+static void on_signal(int s) { (void)s; stop_flag = 1; }
+static long now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000L + t.tv_nsec / 1000000; }
+static uint16_t le16(const uint8_t *p) { return p[0] | (p[1] << 8); }
+static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+
+/* Little-endian bit field (bit 0 = LSB of byte 0), as in the Qualcomm ICD. */
+static uint32_t bits(const uint8_t *p, int off, int len) {
+    uint32_t v = 0;
+    for (int i = 0; i < len; i++) {
+        int b = off + i;
+        v |= (uint32_t)((p[b >> 3] >> (b & 7)) & 1) << i;
+    }
+    return v;
+}
+
+/* Reads a generated { bit offset, width } position; width 0 = absent. */
+static uint32_t at(const uint8_t *p, struct pos f) { return f.bits ? bits(p, f.off, f.bits) : 0; }
+/* Whether a position lies within an n-byte buffer. */
+static int fits(struct pos f, int n) { return f.off + f.bits <= n * 8; }
+
+/* The layout for version v in a generated table, or NULL (unsupported). */
+#define FIND_LAYOUT(table, v, out) do { \
+        (out) = NULL; \
+        for (size_t i_ = 0; i_ < sizeof (table) / sizeof (table)[0]; i_++) if ((table)[i_].ver == (v)) (out) = &(table)[i_]; \
+    } while (0)
+
+/* NR logs start with their version: minor (16 bits), then major. */
+static uint32_t nr_ver(const uint8_t *p) { return (uint32_t)le16(p + 2) << 16 | le16(p); }
+
+static int mod_index(int raw) {     /* 2,4,6,8,10 bits/symbol -> QPSK..1024QAM */
+    switch (raw) { case 2: return 0; case 4: return 1; case 6: return 2; case 8: return 3; case 10: return 4; }
+    return -1;
+}
+
+/* ── Decoders (called with lock held) ────────────────────────────────────── */
+
+/* Versions 3 and 4 have variable-size PCell records. Both have a six-byte
+ * record header and six-byte TBs; v4 adds a two-byte PMCH/area trailer and
+ * 12 placeholder bytes for each absent slot below two TBs. */
+static void b173_legacy(const uint8_t *p, int n) {
+    int ver = p[0], count = p[1], pos = 4;
+    for (int r = 0; r < count; r++) {
+        if (pos + 6 > n) return;
+        const uint8_t *rec = p + pos;
+        int layers = rec[3], ntb = rec[4];
+        if (ntb > 4) return;
+        int rec_bytes = ver == 3 ? 6 + ntb * 6
+                                 : 8 + ntb * 6 + (ntb < 2 ? (2 - ntb) * 12 : 0);
+        if (pos + rec_bytes > n) return;
+        struct slot *s = &win[0];
+        int counted = 0;
+        for (int t = 0; t < ntb && t < 2; t++) {
+            const uint8_t *tb = rec + 6 + t * 6;
+            int rnti = tb[1] & 0xf;
+            if (rnti > 1) continue;
+            int crc = tb[0] >> 7, size = (tb[2] | tb[3] << 8) & 0x3fff;
+            s->tb++;
+            if (!crc) s->fail++;
+            s->bytes_all += size;
+            if (crc) s->bytes_pass += size;
+            s->mcs_sum += tb[4];
+            s->rb_sum += ver == 3 ? rec[2] : tb[5];
+            counted = 1;
+        }
+        if (counted) { s->recs++; s->layers_sum += layers; }
+        pos += rec_bytes;
+    }
+}
+
+/* LTE PDSCH Stat Indication: fixed-size records with up to two TB slots;
+ * positions per version from qbm_layouts.h, except legacy v3/v4 above. */
+static void b173(const uint8_t *p, int n) {
+    if (n < 4) return;
+    if (p[0] == 3 || p[0] == 4) { b173_legacy(p, n); return; }
+    const struct b173_layout *L;
+    FIND_LAYOUT(B173_LAYOUTS, p[0], L);
+    if (!L) return;
+    int count = at(p, L->rec_count), rec_bytes = L->rec_bits / 8, pos = L->rec_start / 8;
+    for (int r = 0; r < count && pos + rec_bytes <= n; r++, pos += rec_bytes) {
+        const uint8_t *rec = p + pos;
+        int layers = at(rec, L->layers), ntb = at(rec, L->ntb), carrier = at(rec, L->carrier);
+        if (ntb > 2) ntb = 2;
+        if (carrier >= SLOTS) continue;
+        struct slot *s = &win[carrier];
+        int counted = 0;
+        for (int t = 0; t < ntb; t++) {
+            const uint8_t *tb = rec + (L->tb_start + t * L->tb_bits) / 8;
+            int rnti = at(tb, L->rnti);
+            if (rnti > 1) continue;                     /* C-RNTI / SPS-C-RNTI only */
+            int crc = at(tb, L->crc);
+            int size = at(tb, L->tb_size);
+            s->tb++;
+            if (!crc) s->fail++;
+            s->bytes_all += size;
+            if (crc) s->bytes_pass += size;
+            /* MCS mean: LTE retransmissions mostly carry a reserved index
+             * (29-31; 28 with QPSK on the 256QAM table) that gives only the
+             * modulation. Up to 1.22.2 they were averaged in ("mcs_all" keeps
+             * that figure); in the test logs they raised the mean by 0.1-1.9
+             * on average per log. They still count for throughput and BLER. */
+            int mcs = at(tb, L->mcs);
+            int mod_raw = L->mod.bits ? (int)at(tb, L->mod) : 0;
+            s->mcs_all_sum += mcs;
+            if (mcs < 29 && !(mcs == 28 && mod_raw == 2)) {
+                s->mcs_sum += mcs;
+                s->mcs_tb++;
+            }
+            s->rb_sum += at(tb, L->rbs);
+            if (L->mod.bits) {
+                int m = mod_index(mod_raw);
+                if (m >= 0) s->mod[m]++;
+            }
+            counted = 1;
+        }
+        if (counted) { s->recs++; s->layers_sum += layers; }
+    }
+}
+
+/* LTE PUSCH scheduling records. PHY throughput counts every non-dropped TB;
+ * retransmissions are traffic over the air and are deliberately included. */
+static void b139(const uint8_t *p, int n) {
+    if (n < 1) return;
+    const struct b139_layout *L;
+    FIND_LAYOUT(B139_LAYOUTS, p[0], L);
+    if (!L || !fits(L->rec_count, n)) return;
+    int count = at(p, L->rec_count);
+    int start = L->rec_start / 8;
+    int size = L->rec_bits / 8;
+    if (!size || start > n || count > (n - start) / size) return;
+    if (start + count * size != n) return;
+    long add_tb[SLOTS] = { 0 };
+    long add_bytes[SLOTS] = { 0 };
+    for (int i = 0; i < count; i++) {
+        const uint8_t *record = p + start + i * size;
+        int carrier = L->carrier.bits ? at(record, L->carrier) : 0;
+        if (carrier >= SLOTS || (L->drop.bits && at(record, L->drop))) continue;
+        add_tb[carrier]++;
+        add_bytes[carrier] += at(record, L->tb_size);
+        if (L->rbs.bits) {
+            struct slot *s = &win[carrier];
+            int mod = L->mod.bits ? (int)at(record, L->mod) : -1;
+            s->ul_recs++;
+            s->ul_rb_sum += at(record, L->rbs);
+            if (mod >= 0 && mod < 6) s->ul_mod[mod]++;
+        }
+    }
+    for (int i = 0; i < SLOTS; i++) {
+        win[i].ul_tb += add_tb[i];
+        win[i].ul_bytes += add_bytes[i];
+    }
+}
+
+/* LTE PUSCH power control (B16E): each record's actual transmit power, in
+ * dBm (signed 8 bits at record bit 79), and its carrier (bits 0-2). v48 and
+ * v50: 12-byte records; v51: 16-byte. All start at byte 4 with the count at
+ * byte 3 (QCAT for v48; Airscreen 2.7.8's v48 and v51 readers; v50 from an
+ * X75 capture: every packet 4 + count x 12 bytes, actual power at or below
+ * the requested and the maximum power on every record). */
+static void b16e(const uint8_t *p, int n) {
+    if (n < 4) return;
+    int size = p[0] == 48 || p[0] == 50 ? 12 : p[0] == 51 ? 16 : 0;
+    int count = p[3];
+    if (!size || 4 + count * size != n) return;
+    for (int i = 0; i < count; i++) {
+        const uint8_t *r = p + 4 + i * size;
+        int carrier = (int)bits(r, 0, 3);
+        if (carrier >= SLOTS) continue;
+        int raw = (int)bits(r, 79, 8);
+        win[carrier].ul_pwr_sum += raw >= 128 ? raw - 256 : raw;
+        win[carrier].n_ul_pwr++;
+    }
+}
+
+/* LTE GM TX report (B16D v49 and v52, Airscreen 2.7.8's readers, every
+ * captured packet walking to its exact end): count at byte 3, records from
+ * byte 4 of 36 (v49) or 48 (v52) bytes plus 12 when CA (bit 57) is set.
+ * Channel type at bit 32 (1 PUSCH), carrier at 33/3; the PUSCH block starts
+ * at bit 96 (192 with CA), MCS at its bit 46/5. 29-31 only signal a
+ * retransmission's redundancy version; a retransmission index (23/5 in the
+ * PUSCH block) above 0 counts toward the uplink BLER, the share of PUSCH
+ * records retransmitted (NSG's retransmission rate within 0.3 points on
+ * three phones). The other records are PUCCH: their
+ * total transmit power (signed 8 bits at 86, 182 with CA, dBm) is the PUCCH
+ * power (NSG's within 0.1 dB on three phones). Walked completely first.
+ * v48 (X55) is b16d_v48(). */
+static void b16d_v48(const uint8_t *p, int n);
+static void b16d(const uint8_t *p, int n) {
+    if (n >= 1 && p[0] == 48) { b16d_v48(p, n); return; }
+    if (n < 4 || (p[0] != 49 && p[0] != 52)) return;
+    long add_mcs[SLOTS] = { 0 }, add_n[SLOTS] = { 0 }, add_pucch[SLOTS] = { 0 }, add_pucch_n[SLOTS] = { 0 };
+    long add_pusch[SLOTS] = { 0 }, add_retx[SLOTS] = { 0 };
+    int pos = 4;
+    for (int i = 0; i < p[3]; i++) {
+        if (pos + 8 > n) return;
+        const uint8_t *r = p + pos;
+        int with_ca = (int)bits(r, 57, 1);
+        int size = (p[0] == 49 ? 36 : 48) + 12 * with_ca;
+        if (size > n - pos) return;
+        pos += size;
+        int carrier = (int)bits(r, 33, 3), mcs = (int)bits(r, 96 + 96 * with_ca + 46, 5);
+        if (carrier >= SLOTS) continue;
+        if (!bits(r, 32, 1)) {
+            int power = (int)bits(r, 86 + 96 * with_ca, 8);
+            add_pucch[carrier] += power >= 128 ? power - 256 : power;
+            add_pucch_n[carrier]++;
+            continue;
+        }
+        add_pusch[carrier]++;
+        if (bits(r, 96 + 96 * with_ca + 23, 5)) add_retx[carrier]++;
+        if (mcs > 28) continue;
+        add_mcs[carrier] += mcs;
+        add_n[carrier]++;
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        win[i].ul_mcs_sum += add_mcs[i];
+        win[i].ul_mcs_n += add_n[i];
+        win[i].ul_pucch_sum += add_pucch[i];
+        win[i].n_ul_pucch += add_pucch_n[i];
+        win[i].ul_pusch_n += add_pusch[i];
+        win[i].ul_retx_n += add_retx[i];
+    }
+}
+
+/* B16D v48 (X55): fixed 52-byte records from byte 4, count at byte 3,
+ * channel type at bit 32 (1 PUSCH). PUSCH: carrier 33/3, retransmission
+ * index 288/5, MCS 325/5; PUCCH: total transmit power, signed 8 bits at 47
+ * (dBm), on the primary carrier. Checked on two X55 phones against B139 of
+ * the same subframe (RBs, TB size and retransmission index agree on every
+ * record; the MCS fits the modulation in the 64QAM or 256QAM table). Same
+ * outputs as v49/v52. */
+static void b16d_v48(const uint8_t *p, int n) {
+    if (n < 4 || 4 + 52 * p[3] != n) return;
+    for (int i = 0; i < p[3]; i++) {
+        const uint8_t *r = p + 4 + 52 * i;
+        if (!bits(r, 32, 1)) {
+            int power = (int)bits(r, 47, 8);
+            win[0].ul_pucch_sum += power >= 128 ? power - 256 : power;
+            win[0].n_ul_pucch++;
+            continue;
+        }
+        int carrier = (int)bits(r, 33, 3), mcs = (int)bits(r, 325, 5);
+        if (carrier >= SLOTS) continue;
+        win[carrier].ul_pusch_n++;
+        if (bits(r, 288, 5)) win[carrier].ul_retx_n++;
+        if (mcs > 28) continue;
+        win[carrier].ul_mcs_sum += mcs;
+        win[carrier].ul_mcs_n++;
+    }
+}
+
+/* LTE PDSCH demapper configuration: one carrier per log, fixed-size records;
+ * positions per version from qbm_layouts.h. */
+static void b126(const uint8_t *p, int n) {
+    if (n < 8) return;
+    const struct b126_layout *L;
+    FIND_LAYOUT(B126_LAYOUTS, p[0], L);
+    if (!L) return;
+    int carrier = L->carrier.bits ? at(p, L->carrier) : 0;
+    int count = L->rec_count.bits ? at(p, L->rec_count) : 1;
+    if (carrier >= SLOTS) return;
+    static const int txmap[4] = { 1, 2, 4, 0 }, rxmap[4] = { 1, 2, 3, 4 };
+    struct slot *s = &win[carrier];
+    int size = L->rec_bits / 8, pos = L->rec_start / 8;
+    for (int r = 0; r < count && pos + size <= n; r++, pos += size) {
+        const uint8_t *rec = p + pos;
+        if (at(rec, L->rnti) > 1) continue;             /* C-RNTI / SPS-C-RNTI only */
+        s->n126++;
+        s->rank[at(rec, L->rank)]++;
+        s->scheme[at(rec, L->scheme)]++;
+        int tx = txmap[at(rec, L->tx)];
+        if (tx) s->tx = tx;
+        s->rx = rxmap[at(rec, L->rx)];
+    }
+}
+
+/* LTE CA metrics: the PCell and an SCell list; positions per version from
+ * qbm_layouts.h. */
+static void b184(const uint8_t *p, int n) {
+    if (n < 2) return;
+    const struct b184_layout *L;
+    FIND_LAYOUT(B184_LAYOUTS, p[0], L);
+    if (!L || L->sc_start / 8 > n || !fits(L->sc_count, n)) return;
+    int count = at(p, L->sc_count), sc_bytes = L->sc_bits / 8;
+    if (count < 0 || count > 32 || L->sc_start / 8 + count * sc_bytes > n) return;
+    const uint8_t *pc = p + L->pcell_at / 8;
+    memset(ca, 0, sizeof ca);
+    ca[0].known = 1;
+    ca[0].earfcn = at(pc, L->p_earfcn);
+    ca[0].pci = at(pc, L->p_pci);
+    ca[0].band = at(pc, L->p_band);
+    ca[0].bw_raw = L->p_bw.bits ? (int)at(pc, L->p_bw) : -1;
+    ca[0].state = 2;
+    for (int i = 0; i < count && i + 1 < SLOTS; i++) {
+        int off = L->sc_start / 8 + i * sc_bytes;
+        const uint8_t *c = p + off;
+        /* The SCell's own carrier slot where the version has one: during an
+         * SCell swap a lone SCell can be listed first with slot 2. */
+        int slot = L->s_slot.bits ? (int)at(c, L->s_slot) : i + 1;
+        if (slot < 1 || slot >= SLOTS) slot = i + 1;
+        ca[slot].known = 1;
+        ca[slot].earfcn = at(c, L->s_earfcn);
+        ca[slot].pci = at(c, L->s_pci);
+        ca[slot].band = at(c, L->s_band);
+        ca[slot].bw_raw = L->s_bw.bits ? (int)at(c, L->s_bw) : -1;
+        ca[slot].state = (int)at(c, L->s_state) + L->state_add; /* normalized: 0 absent, 1 deactivated, 2 activated */
+    }
+    ca_seen = 1;
+}
+
+/* ML1 measurement scales; null codes skipped. */
+static int rsrp_db(int raw, double *v) { if (raw == 0xFFF || raw == 0x961) return 0; *v = -180.0 + raw / 16.0; return *v >= -180 && *v <= -30; }
+static int rsrq_db(int raw, double *v) { if (raw == 0x1FF || raw == 0x281) return 0; *v = -30.0 + raw / 16.0; return *v >= -30 && *v <= 10; }
+
+/* SINR in 0.1 dB steps from -20 dB (9-bit fields up to 30 dB, 10-bit up to 40 dB). */
+static int snr_tenth_db(int raw, double high, double *v) {
+    int max_code = (int)((high + 20.0) * 10);
+    if (raw == 0x1FF || raw == max_code + 1) return 0;
+    *v = -20.0 + raw / 10.0;
+    return *v >= -20.0 && *v <= (high > 45.0 ? high : 45.0);
+}
+
+/* The combined value, else the best valid chain (absent chains skipped). */
+static int best(const uint8_t *r, int mask, struct pos combined, int combined_add, const struct pos *chain, int (*conv)(int, double *), double *out) {
+    int code = (int)at(r, combined);
+    if (code != (1 << combined.bits) - 1 && conv(code + combined_add, out)) return 1;
+    int have = 0;
+    for (int i = 0; i < 4; i++) {
+        double v;
+        if ((mask & (1 << i)) && chain[i].bits && conv((int)at(r, chain[i]), &v) && (!have || v > *out)) { *out = v; have = 1; }
+    }
+    return have;
+}
+
+/* One packet's serving record per carrier slot (the strongest, as in the
+ * Python parser), added to the window once the packet is read. The *_rx
+ * values are per RX chain, valid where the chain's bit is set in the mask. */
+struct meas {
+    int have_rsrp, have_rsrq, have_sinr; double rsrp, rsrq, sinr; uint32_t earfcn; int pci;
+    unsigned rsrp_chains, rsrq_chains, sinr_chains;
+    double rsrp_rx[RX_CHAINS], rsrq_rx[RX_CHAINS], sinr_rx[RX_CHAINS];
+};
+
+/* Adds the chains in mask to per-chain window sums. */
+static void add_chains(double *sum, long *count, const double *v, unsigned mask) {
+    for (int c = 0; c < RX_CHAINS; c++) {
+        if (!(mask & (1U << c))) continue;
+        sum[c] += v[c];
+        count[c]++;
+    }
+}
+
+/* Which carrier each slot is, from B193's serving records. B184 is only
+ * sent on CA events on some modems (X85: 19 in a whole drive log), so a
+ * helper started after CA was set up may never see one; B193 arrives
+ * several times a second. */
+struct live_cell { uint32_t earfcn; int pci; long at_ms; };
+static struct live_cell live_s[SIMS][SLOTS];
+#define live (live_s[sim])
+/* This SIM's modem reports configured SCells in B179 (about every 200 ms,
+ * activated or not). Then a B184 SCell that B179 and B193 no longer measure
+ * has been released: modems that send B184 on events only (X85) leave the
+ * old list standing for many seconds after an SCell release, e.g. when the
+ * SCG is added. */
+static int b179_scells_s[SIMS];
+#define b179_scells (b179_scells_s[sim])
+/* With B179 reporting SCells, one unmeasured this long has been released
+ * (shorter than HOLD_MS, which bridges idle paging-cycle gaps). */
+#define SCELL_GONE_MS 3000
+#define LIVE_MS 3000
+
+/* Idle: the modem measures once per paging cycle (1.28 or 2.56 s), so many
+ * 1 s windows have no sample. A row stays shown for HOLD_MS after its last
+ * serving record and keeps each value's last mean that long, for the same
+ * cell only (matching carriers still uses LIVE_MS). */
+#define HOLD_MS 5000
+struct held { double v; long at_ms; uint32_t arfcn; int pci; };
+static struct held lte_held_s[SIMS][SLOTS][3], nr_held_s[SIMS][SLOTS][5];
+#define lte_held (lte_held_s[sim])
+#define nr_held (nr_held_s[sim])
+/* The same per RX chain, [value][chain]: LTE RSRP, RSRQ and SINR; NR RSRP,
+ * SS-SINR and CSI-SINR. */
+static struct held lte_chain_held_s[SIMS][SLOTS][3][RX_CHAINS], nr_chain_held_s[SIMS][SLOTS][3][RX_CHAINS];
+#define lte_chain_held (lte_chain_held_s[sim])
+#define nr_chain_held (nr_chain_held_s[sim])
+
+/* The window's mean when it has samples (remembered for this cell), else the
+ * remembered value while it's under HOLD_MS old and for the same cell. A
+ * negative pci (cell unknown) never holds. */
+static int held_value(struct held *h, double sum, long n, uint32_t arfcn, int pci, long now, double *v) {
+    if (n) {
+        *v = sum / n;
+        *h = (struct held){ *v, now, arfcn, pci };
+        return 1;
+    }
+    if (pci >= 0 && h->at_ms && now - h->at_ms < HOLD_MS && h->arfcn == arfcn && h->pci == pci) {
+        *v = h->v;
+        return 1;
+    }
+    return 0;
+}
+
+/* held_value for each RX chain; returns a mask of the chains with a value. */
+static unsigned held_chains(struct held *h, const double *sum, const long *n, uint32_t arfcn, int pci, long now,
+                            double *v) {
+    unsigned mask = 0;
+    for (int c = 0; c < RX_CHAINS; c++)
+        if (held_value(&h[c], sum[c], n[c], arfcn, pci, now, &v[c])) mask |= 1U << c;
+    return mask;
+}
+
+/* The combined RSRP code is based at -180 dB in some versions and -140 dB in
+ * others (40, 48, 57, 66 so far), while the per-chain codes are always
+ * -180-based. The combined value is never above the best chain and at most
+ * 17 dB below it (every capture); on the wrong base it would be 40 dB or more
+ * below. So a gap over RSRP_BASE_GAP votes for -140, a smaller one for -180,
+ * per version (the log version is the modem's, the same for both SIMs). Until
+ * a version has RSRP_BASE_VOTES votes, each record follows its own gap, and
+ * a record without valid chains the table's rsrp_add. */
+#define RSRP_BASE_GAP (28 * 16)
+#define RSRP_BASE_VOTES 8
+#define RSRP_VOTE_CAP 1000
+static int rsrp_base_votes[256];        /* > 0: -140 base, < 0: -180 */
+
+static int rsrp_code_valid(int code, int bits) { return code != 0 && code != (1 << bits) - 1 && code != 0x961; }
+
+static int b193_rsrp_add(const struct b193_layout *L, const uint8_t *r, int mask) {
+    int *votes = &rsrp_base_votes[L->ver];
+    int combined = L->rsrp.bits ? (int)at(r, L->rsrp) : 0;
+    int chain = -1, own = -1;
+    for (int i = 0; i < 4; i++) {
+        if (!(mask & (1 << i)) || !L->rsrp_ch[i].bits) continue;
+        int c = (int)at(r, L->rsrp_ch[i]);
+        if (rsrp_code_valid(c, L->rsrp_ch[i].bits) && c > chain) chain = c;
+    }
+    if (rsrp_code_valid(combined, L->rsrp.bits) && chain >= 0) {
+        int gap = chain - combined;
+        if (gap > RSRP_BASE_GAP) {
+            own = 640;
+            if (*votes < RSRP_VOTE_CAP) (*votes)++;
+        } else if (gap >= -32) {                        /* a combined value far above every chain votes for neither */
+            own = 0;
+            if (*votes > -RSRP_VOTE_CAP) (*votes)--;
+        }
+    }
+    if (*votes >= RSRP_BASE_VOTES) return 640;
+    if (*votes <= -RSRP_BASE_VOTES) return 0;
+    return own >= 0 ? own : L->rsrp_add;
+}
+
+/* Each RX chain's own RSRP and RSRQ, for the antenna card (the chains'
+ * SINR is read with the best one, below). A chain counts only with a valid
+ * RSRP code: before the valid-RX mask (v50), a chain the carrier doesn't use
+ * still has fields, and an RSRQ code of 0 would read as -30 dB. */
+static void b193_chains(const struct b193_layout *L, const uint8_t *r, int mask, struct meas *m) {
+    for (int i = 0; i < RX_CHAINS; i++) {
+        if (!(mask & (1 << i)) || !L->rsrp_ch[i].bits) continue;
+        int code = (int)at(r, L->rsrp_ch[i]);
+        double v;
+        if (!rsrp_code_valid(code, L->rsrp_ch[i].bits) || !rsrp_db(code, &v)) continue;
+        m->rsrp_rx[i] = v;
+        m->rsrp_chains |= 1U << i;
+        if (L->rsrq_ch[i].bits && rsrq_db((int)at(r, L->rsrq_ch[i]), &v)) {
+            m->rsrq_rx[i] = v;
+            m->rsrq_chains |= 1U << i;
+        }
+    }
+    m->sinr_chains &= m->rsrp_chains;
+}
+
+static void b193_cell(const struct b193_layout *L, const uint8_t *r, uint32_t earfcn, struct meas *pk) {
+    if (L->serving.bits && !at(r, L->serving)) return;  /* serving cell records only (older: one cell, serving) */
+    int slot = at(r, L->slot);                          /* absent before CA: the PCell */
+    if (slot >= SLOTS) return;
+    /* Chains outside the cell's valid-RX mask are skipped (zeros on X85). */
+    int mask = L->valid_rx.bits ? (int)at(r, L->valid_rx) : 0xF;
+    struct meas m = { 0 };
+    m.earfcn = earfcn;
+    m.pci = (int)at(r, L->pci);
+    m.have_rsrp = best(r, mask, L->rsrp, b193_rsrp_add(L, r, mask), L->rsrp_ch, rsrp_db, &m.rsrp);
+    m.have_rsrq = best(r, mask, L->rsrq, 0, L->rsrq_ch, rsrq_db, &m.rsrq);
+    for (int i = 0; i < 4; i++) {
+        if (!(mask & (1 << i)) || !L->snr_ch[i].bits) continue;
+        double db;
+        if (L->snr_linear) {                            /* v59: linear, referenced to 0xFD00 */
+            uint32_t lin = at(r, L->snr_ch[i]);
+            if (lin == 0) continue;
+            db = 10.0 * log10(lin / 64768.0);
+            if (db <= -30 || db >= 60) continue;
+        } else if (!snr_tenth_db((int)at(r, L->snr_ch[i]), L->snr_ch[i].bits == 10 ? 40 : 30, &db)) {
+            continue;
+        }
+        if (!m.have_sinr || db > m.sinr) { m.sinr = db; m.have_sinr = 1; }
+        m.sinr_rx[i] = db;
+        m.sinr_chains |= 1U << i;
+    }
+    b193_chains(L, r, mask, &m);
+    /* Aliases of one carrier in a packet: keep the stronger RSRP. */
+    struct meas *prev = &pk[slot];
+    int seen = prev->have_rsrp || prev->have_rsrq || prev->have_sinr;
+    if (!seen || !prev->have_rsrp || (m.have_rsrp && m.rsrp >= prev->rsrp)) *prev = m;
+}
+
+/* The end of a field in bits; 0 for an absent field. */
+static int end_bit(struct pos f) { return f.bits ? f.off + f.bits : 0; }
+
+/* The last bit a B193 cell record must hold for this layout's fields. */
+static int b193_fields_end(const struct b193_layout *L) {
+    int end = 0;
+    struct pos single[] = { L->pci, L->slot, L->serving, L->valid_rx, L->rsrp, L->rsrq };
+    for (int i = 0; i < 6; i++)
+        if (end_bit(single[i]) > end) end = end_bit(single[i]);
+    for (int i = 0; i < 4; i++) {
+        if (end_bit(L->rsrp_ch[i]) > end) end = end_bit(L->rsrp_ch[i]);
+        if (end_bit(L->rsrq_ch[i]) > end) end = end_bit(L->rsrq_ch[i]);
+        if (end_bit(L->snr_ch[i]) > end) end = end_bit(L->snr_ch[i]);
+    }
+    return end;
+}
+
+/* The size of one cell record. A subpacket version can come in two record
+ * sizes with the same field positions (v59: 164 bytes on one SM8550
+ * firmware, 148 on another), so a cell list that splits evenly into
+ * `count` records gives the size; the table's size is the fallback. */
+static uint32_t b193_cell_bytes(const struct b193_layout *L, uint32_t list_bytes, uint32_t count) {
+    uint32_t table = L->cell_bits / 8;
+    if (count == 0 || list_bytes % count != 0) return table;
+    uint32_t measured = list_bytes / count;
+    return (int)(measured * 8) >= b193_fields_end(L) ? measured : table;
+}
+
+static void b193(const uint8_t *p, int n) {
+    if (n < 4 || p[0] != 1) return;                     /* packet version 1 */
+    int nsub = p[1], pos = 4;
+    struct meas pk[SLOTS];
+    memset(pk, 0, sizeof pk);
+    for (int k = 0; k < nsub; k++) {
+        if (pos + 4 > n) return;
+        int id = p[pos], ver = p[pos + 1], size = le16(p + pos + 2);
+        /* Branches disagree whether the size includes the 4-byte header.
+         * The Python parser prefers the reading that leaves room for the
+         * remaining headers, then "includes the header"; the shorter body
+         * always leaves at least as much room, so that's "includes the
+         * header" whenever it fits (seen on SM8550: v59, 176 -> 172). */
+        int remaining = n - (pos + 4), blen;
+        if (size >= 4 && size - 4 <= remaining) blen = size - 4;
+        else if (size <= remaining) blen = size;
+        else return;
+        const uint8_t *body = p + pos + 4;
+        pos += 4 + blen;
+        if (id != 0x19) continue;
+        const struct b193_layout *L;
+        FIND_LAYOUT(B193_LAYOUTS, ver, L);
+        if (!L || blen * 8 < L->cells_at || !fits(L->count, blen)) continue;
+        /* Older versions have no cell list: the body is the one cell. */
+        uint32_t count = L->count.bits ? at(body, L->count) : 1, earfcn = at(body, L->earfcn);
+        uint32_t first = L->cells_at / 8;
+        uint32_t cell = L->count.bits ? b193_cell_bytes(L, blen - first, count) : L->cell_bits / 8;
+        for (uint32_t c = 0; c < count && first + (c + 1) * cell <= (uint32_t)blen; c++)
+            b193_cell(L, body + first + c * cell, earfcn, pk);
+    }
+    for (int i = 0; i < SLOTS; i++) {
+        struct slot *s = &win[i];
+        if (pk[i].have_rsrp) { s->rsrp_sum += pk[i].rsrp; s->n_rsrp++; }
+        if (pk[i].have_rsrq) { s->rsrq_sum += pk[i].rsrq; s->n_rsrq++; }
+        if (pk[i].have_sinr) { s->sinr_sum += pk[i].sinr; s->n_sinr++; }
+        add_chains(s->rsrp_rx_sum, s->n_rsrp_rx, pk[i].rsrp_rx, pk[i].rsrp_chains);
+        add_chains(s->rsrq_rx_sum, s->n_rsrq_rx, pk[i].rsrq_rx, pk[i].rsrq_chains);
+        add_chains(s->sinr_rx_sum, s->n_sinr_rx, pk[i].sinr_rx, pk[i].sinr_chains);
+        if (pk[i].have_rsrp || pk[i].have_rsrq || pk[i].have_sinr) {
+            live[i].earfcn = pk[i].earfcn;
+            live[i].pci = pk[i].pci;
+            live[i].at_ms = now_ms();
+        }
+    }
+}
+
+/* ── Timing Advance (random-access RAR) ──────────────────────────────────── */
+
+/* The serving card shows the raw TA index: the LTE RAR TA is an 11-bit index
+ * in 16Ts units (36.213), the NR one a 12-bit index (38.213). A TA belongs to
+ * the cell it was received on, so it is shown only while that cell is still
+ * the PCell; after a cell change the card shows "–" until the next random
+ * access. */
+
+/* A serving cell's identity, as the TA is tied to it. */
+struct cell_id { int known; uint32_t arfcn; int pci; };
+
+/* The last random access's TA and the cell it was tied to (bound = 0 until
+ * the serving cell was known once after it arrived). */
+struct ta {
+    int have;
+    int value;
+    long ms;                /* when it arrived, or was last re-bound */
+    int bound;
+    struct cell_id cell;
+};
+static struct ta lte_ta_s[SIMS], nr_ta_s[SIMS];
+#define lte_ta (lte_ta_s[sim])
+#define nr_ta (nr_ta_s[sim])
+
+/* A random access that completes a handover reports the target cell while the
+ * measurements still name the old one for a moment: a value younger than
+ * REBIND_MS moves to the new cell instead of being dropped. */
+#define REBIND_MS 5000
+
+static void ta_store(struct ta *t, int value) {
+    t->have = 1;
+    t->value = value;
+    t->ms = now_ms();
+    t->bound = 0;
+}
+
+/* Ties a stored TA to the current serving cell; returns whether it may be
+ * shown. */
+static int ta_bind(struct ta *t, struct cell_id serving, long now) {
+    if (!t->have)
+        return 0;
+    if (!serving.known)
+        return t->bound;                 /* keep the earlier tie until the cell is known */
+    if (!t->bound) {                     /* first known cell after the value arrived */
+        t->bound = 1;
+        t->cell = serving;
+        return 1;
+    }
+    if (t->cell.arfcn == serving.arfcn && t->cell.pci == serving.pci)
+        return 1;
+    if (now - t->ms <= REBIND_MS) {      /* handover just completed: follow it */
+        t->cell = serving;
+        t->ms = now;
+        return 1;
+    }
+    t->have = 0;                         /* an older value belongs to the old cell */
+    return 0;
+}
+
+/* LTE Random Access MSG2: the RAR's timing advance. Version 24 only (X60,
+ * X70, X80 and X85 all send it; v1 never appeared in a log). A failed RACH
+ * has the included bit clear; values past the 11-bit index maximum are the
+ * modem's "not present" filler (0xFFFF). Only the PCell's (cell index 0):
+ * an SCell's random access (connected mode, index 1+) has its own, usually
+ * much smaller TA, which would otherwise replace the PCell's on its card. */
+static void b168(const uint8_t *p, int n) {
+    if (n < 12 || p[0] != 24) return;
+    const uint8_t *b = p + 1;                            /* 11-byte body */
+    if (bits(b, 24, 3) != 0) return;                     /* cell index: PCell only */
+    if (!bits(b, 50, 1)) return;                         /* timing_advance_included */
+    uint32_t ta = bits(b, 72, 16);
+    if (ta > 1282) return;
+    ta_store(&lte_ta, (int)ta);
+}
+
+/* NR RACH Attempt: the RAR's timing advance. The container layout differs
+ * per log version (the message offsets move), so only TA positions validated
+ * on real logs are decoded (each matched every RAR of its log). The message
+ * bitmask says which of Msg1..Msg4 the record holds (bit 1 = Msg2): an
+ * attempt that got no RAR has TA 0 there, which isn't a measurement. */
+static const struct { uint32_t ver; int mask, off, bytes; } B88A_TA[] = {
+    { 0x00020007, 23,  64, 108 },   /* 2.7, X60 */
+    { 0x00030008, 16, 104, 160 },   /* 3.8, X65: Msg2's T_RNTI (102) returns as
+                                     * Msg4's C-RNTI in every contention-based
+                                     * access, and RA-RNTI fits Msg1 (38.321) */
+    { 0x0003000A, 19, 120, 180 },   /* 3.10, X70: msg2 block at 112, TA 8 bytes in */
+    { 0x0003000E, 19, 140, 196 },   /* 3.14, X75 (Quectel module): same checks as 3.8 */
+    { 0x00030012, 19, 176, 232 },   /* 3.18, X80 */
+    { 0x00030013, 19, 184, 240 },   /* 3.19, X85 */
+};
+
+static void b88a(const uint8_t *p, int n) {
+    if (n < 4) return;
+    uint32_t ver = nr_ver(p);
+    for (size_t i = 0; i < sizeof B88A_TA / sizeof B88A_TA[0]; i++) {
+        if (B88A_TA[i].ver != ver) continue;
+        if (n < B88A_TA[i].bytes) return;
+        if (!(p[B88A_TA[i].mask] & 2)) return;           /* no Msg2 (RAR) */
+        uint32_t ta = le16(p + B88A_TA[i].off);
+        if (ta > 3846) return;                           /* 12-bit index maximum */
+        ta_store(&nr_ta, (int)ta);
+        return;
+    }
+}
+
+/* Connected-mode intra-frequency measurements: one record per serving
+ * carrier with the modem's filtered RSRP/RSRQ (no SINR). A deactivated SCell
+ * isn't in B193 but is still measured here, about once a second, so idle
+ * SCells keep their values. The carrier index matches B193's slot: v4 uses
+ * the serving index; v56 uses the firmware serving index. */
+static void b179(const uint8_t *p, int n) {
+    if (n < 22 || (p[0] != 4 && p[0] != 56)) return;
+    const uint8_t *b = p + 1;
+    int slot = (int)bits(b, p[0] == 4 ? 24 : 27, 3);
+    if (slot >= SLOTS) return;
+    uint32_t earfcn = bits(b, 56, 32);
+    int pci = (int)bits(b, 88, 16);
+    if (pci > 503) return;
+    double rsrp = le16(p + 16) / 16.0 - 180.0;
+    double rsrq = le16(p + 20) / 16.0 - 30.0;
+    if (rsrp <= -160 || rsrp >= -20) return;
+    /* Around an SCell change or release B179 can still name the old cell for
+     * a second or two after the new carrier list (B184): while that list is
+     * current (its PCell is the live one), only its carriers count. */
+    int b184_current = ca[0].known && live[0].at_ms && ca[0].earfcn == live[0].earfcn && ca[0].pci == live[0].pci;
+    if (b184_current && slot > 0 && (!ca[slot].known || ca[slot].state == 0 ||
+                                     ca[slot].earfcn != earfcn || ca[slot].pci != pci)) return;
+    struct slot *s = &win[slot];
+    if (s->n_frsrp && (s->f_earfcn != earfcn || s->f_pci != pci)) {
+        s->frsrp_sum = s->frsrq_sum = 0;                 /* a new cell in this slot */
+        s->n_frsrp = s->n_frsrq = 0;
+    }
+    s->f_earfcn = earfcn;
+    s->f_pci = pci;
+    s->frsrp_sum += rsrp; s->n_frsrp++;
+    if (rsrq > -40 && rsrq < 0) { s->frsrq_sum += rsrq; s->n_frsrq++; }
+    /* The carrier stays live while it's measured, as with B193. */
+    live[slot].earfcn = earfcn;
+    live[slot].pci = pci;
+    live[slot].at_ms = now_ms();
+    if (slot > 0) b179_scells = 1;
+}
+
+/* ── NR ──────────────────────────────────────────────────────────────────── */
+
+/* Per NR carrier (cc_id 0-7, the modem's numbering shared by B825, B97F,
+ * B8D8 and B8A7), reset on every "stats". */
+struct nr_slot {
+    /* B887, C-RNTI and CS-RNTI TBs only. mcs_sum/mcs_tb leave out
+     * retransmissions signalled with a reserved MCS index (see b887());
+     * mcs_all_sum is over every TB, as before 1.22.2, kept for comparison. */
+    long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, layers_sum, mod[5], rx[4];
+    /* B883 PUSCH TBs, including retransmissions */
+    long ul_tb, ul_bytes;
+    /* The uplink card, means over the window: B883 PUSCH blocks (RBs, DMRS
+     * ports = layers, modulation; MCS without the reserved indices that
+     * mark a retransmission; the last block's TX mode + 1, 0 = none) and
+     * B884's PUSCH and PUCCH power */
+    long ul_recs, ul_rb_sum, ul_layers_sum, ul_mcs_sum, ul_mcs_n, ul_mod[6], n_ul_pwr, n_ul_pucch;
+    long ul_retx_bytes;   /* B883 TB bytes of HARQ retransmissions (TX Type RE_TX) */
+    int ul_tx_mode;
+    double ul_pwr_sum, ul_pucch_sum;
+    /* B97F serving cell; B8D8/B8DD best chain of SSB records (SS-SINR) and
+     * of TRS records (CSI-SINR); B96A strongest beam's SNR: means over the
+     * window */
+    double rsrp_sum, rsrq_sum, sinr_sum, csinr_sum, bsinr_sum;
+    long n_rsrp, n_rsrq, n_sinr, n_csinr, n_bsinr;
+    /* Per RX chain (the antenna card), means over the window: B97F serving
+     * cell RSRP (see b97f_serving_chains), B8D8/B8DD SNR of SSB and of TRS
+     * records */
+    double rsrp_rx_sum[RX_CHAINS], sinr_rx_sum[RX_CHAINS], csinr_rx_sum[RX_CHAINS];
+    long n_rsrp_rx[RX_CHAINS], n_sinr_rx[RX_CHAINS], n_csinr_rx[RX_CHAINS];
+    /* B8A7: last report in the window */
+    int cqi, ri, have_csf;
+};
+static struct nr_slot nrwin_s[SIMS][SLOTS];
+#define nrwin (nrwin_s[sim])
+
+/* Length of a count-prefixed channel block. */
+static int b883_counted_bytes(const uint8_t *p, int n, int base_bits,
+                              int item_bits) {
+    int base = base_bits / 8;
+    if (base > n) return -1;
+    int item = item_bits / 8;
+    if (!item || !n) return -1;
+    int count = p[0];
+    if (count > (n - base) / item) return -1;
+    return base + count * item;
+}
+
+/* NR UL scheduling records contain a variable sequence of channel blocks.
+ * Walk the complete packet first and publish byte totals only when its final
+ * boundary is exact, so a malformed record cannot partly update a window. */
+static void b883(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b883_layout *L;
+    FIND_LAYOUT(B883_LAYOUTS, nr_ver(p), L);
+    if (!L || !fits(L->rec_count, n)) return;
+    int records = at(p, L->rec_count);
+    int pos = L->rec_start / 8;
+    long add_tb[SLOTS] = { 0 };
+    long add_bytes[SLOTS] = { 0 };
+    /* The uplink card's per-carrier sums, published with the bytes. */
+    long add_recs[SLOTS] = { 0 }, add_rbs[SLOTS] = { 0 }, add_layers[SLOTS] = { 0 };
+    long add_mcs[SLOTS] = { 0 }, add_mcs_n[SLOTS] = { 0 }, add_mod[SLOTS][6] = { { 0 } }, add_retx[SLOTS] = { 0 };
+    int last_mode[SLOTS] = { 0 };
+    for (int r = 0; r < records; r++) {
+        int record = pos;
+        if (record > n || !fits(L->carrier_count, n - record)) return;
+        int carriers = at(p + record, L->carrier_count);
+        pos = record + L->carriers_at / 8;
+        for (int c = 0; c < carriers; c++) {
+            int header = L->header_bits / 8;
+            if (header > n - pos) return;
+            const uint8_t *carrier_header = p + pos;
+            int carrier = at(carrier_header, L->carrier);
+            int mask = at(carrier_header, L->mask);
+            pos += header;
+            if (mask & 16) return;
+            if (mask & 1) {
+                int size = L->pusch_bits / 8;
+                if (size > n - pos || !fits(L->tb_size, size)) return;
+                if (carrier < SLOTS) {
+                    const uint8_t *b = p + pos;
+                    int mcs = (int)at(b, L->mcs), mod = (int)at(b, L->mod), mode = (int)at(b, L->tx_mode);
+                    int table = (int)at(b, L->mcs_table);
+                    add_tb[carrier]++;
+                    add_bytes[carrier] += at(b, L->tb_size);
+                    /* Uplink BLER: the share of PUSCH bytes that were HARQ
+                     * retransmissions (NSG's MAC BLER within 0.3 points on
+                     * five captures; a block count isn't: the X85
+                     * retransmits small grants). */
+                    if ((int)at(b, L->tx_type) == L->retx_type) add_retx[carrier] += at(b, L->tb_size);
+                    add_recs[carrier]++;
+                    add_rbs[carrier] += at(b, L->rbs);
+                    /* A DMRS port of 15 is unused. */
+                    add_layers[carrier] += (at(b, L->ports[0]) != 15) + (at(b, L->ports[1]) != 15);
+                    /* Reserved indices only give a retransmission's
+                     * modulation: 29-31 in the 64QAM and low-SE tables,
+                     * 28-31 in the 256QAM and transform-precoding ones. */
+                    if (mcs <= (L->mcs28_tables >> table & 1 ? 28 : 27)) { add_mcs[carrier] += mcs; add_mcs_n[carrier]++; }
+                    if (mod < 6) add_mod[carrier][mod]++;
+                    if (mode < 3) last_mode[carrier] = mode + 1;
+                }
+                pos += size;
+            }
+            if (mask & 2) {
+                int size = b883_counted_bytes(p + pos, n - pos,
+                                              L->pucch_base_bits,
+                                              L->pucch_item_bits);
+                if (size < 0) return;
+                pos += size;
+            }
+            if (mask & 4) {
+                int size = b883_counted_bytes(p + pos, n - pos,
+                                              L->srs_base_bits,
+                                              L->srs_item_bits);
+                if (size < 0) return;
+                pos += size;
+            }
+            if (mask & 8) {
+                int size = L->prach_bits / 8;
+                if (size > n - pos) return;
+                pos += size;
+            }
+        }
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        struct nr_slot *s = &nrwin[i];
+        s->ul_tb += add_tb[i];
+        s->ul_bytes += add_bytes[i];
+        s->ul_retx_bytes += add_retx[i];
+        s->ul_recs += add_recs[i];
+        s->ul_rb_sum += add_rbs[i];
+        s->ul_layers_sum += add_layers[i];
+        s->ul_mcs_sum += add_mcs[i];
+        s->ul_mcs_n += add_mcs_n[i];
+        for (int m = 0; m < 6; m++) s->ul_mod[m] += add_mod[i][m];
+        if (last_mode[i]) s->ul_tx_mode = last_mode[i];
+    }
+}
+
+/* NR UL power control (B884 3.3 and 3.5): records of carriers of 16-byte
+ * channel blocks. A PUSCH block (type 4) gives the carrier (bits 0-3), the
+ * power-control transmit power (signed 12 bits at 8, 0.1 dB) and the
+ * maximum transmit power (signed 12 bits at 44, 0.1 dB); the power sent is the
+ * first capped at the second (matches the separate RF target log on every
+ * checked block). PUCCH blocks (type 5) carry the same two fields; capped
+ * the same way they match NSG's PUCCH power. Walked completely first, like
+ * B883. */
+static void b884(const uint8_t *p, int n) {
+    if (n < 8) return;
+    uint32_t ver = nr_ver(p);
+    if (ver != 0x30003 && ver != 0x30005) return;
+    double add_pwr[SLOTS] = { 0 }, add_pucch[SLOTS] = { 0 };
+    long add_n[SLOTS] = { 0 }, add_pucch_n[SLOTS] = { 0 };
+    int pos = 8;
+    for (int r = 0; r < p[7]; r++) {
+        if (pos + 12 > n) return;
+        int carriers = p[pos + 4];
+        pos += 12;
+        for (int c = 0; c < carriers; c++) {
+            if (pos + 4 > n) return;
+            int channels = p[pos];
+            pos += 4;
+            for (int k = 0; k < channels; k++) {
+                if (pos + 16 > n) return;
+                const uint8_t *b = p + pos;
+                pos += 16;
+                int type = (int)bits(b, 4, 4), carrier = (int)bits(b, 0, 4);
+                if (type != 1 && type != 3 && type != 4 && type != 5) return;
+                if ((type != 4 && type != 5) || carrier >= SLOTS) continue;
+                int raw = (int)bits(b, 8, 12), raw_max = (int)bits(b, 44, 12);
+                double power = (raw >= 2048 ? raw - 4096 : raw) / 10.0;
+                double max = (raw_max >= 2048 ? raw_max - 4096 : raw_max) / 10.0;
+                if (type == 4) { add_pwr[carrier] += power < max ? power : max; add_n[carrier]++; }
+                else { add_pucch[carrier] += power < max ? power : max; add_pucch_n[carrier]++; }
+            }
+        }
+    }
+    if (pos != n) return;
+    for (int i = 0; i < SLOTS; i++) {
+        nrwin[i].ul_pwr_sum += add_pwr[i];
+        nrwin[i].n_ul_pwr += add_n[i];
+        nrwin[i].ul_pucch_sum += add_pucch[i];
+        nrwin[i].n_ul_pucch += add_pucch_n[i];
+    }
+}
+
+/* B825 serving-cell list (replaced by every B825; empty = idle or no NR). */
+struct nr_cell {
+    int known, pci, band, bw_mhz, scs_khz, max_layers;
+    uint32_t dl_arfcn, ssb_arfcn;
+};
+static struct nr_cell nrcc_s[SIMS][SLOTS];
+#define nrcc (nrcc_s[sim])
+static int nr_b825_seen_s[SIMS];
+#define nr_b825_seen (nr_b825_seen_s[sim])
+/* B97F: which carrier each cc_id is right now (SSB NR-ARFCN, serving PCI). */
+static struct live_cell nrlive_s[SIMS][SLOTS];
+#define nrlive (nrlive_s[sim])
+/* B887: each carrier's bandwidth and SCS as its TBs report them, for the
+ * cell named (B825 is only sent when the configuration changes, so a helper
+ * started mid-session may never see one). */
+struct nr_tb_info { int pci, bw_mhz, scs_khz; uint32_t arfcn; };
+static struct nr_tb_info nrtb_s[SIMS][SLOTS];
+#define nrtb (nrtb_s[sim])
+/* B823: the PCell (serving cell) and its band (0 = not in this version). */
+static int nr_pcell_pci_s[SIMS] = { -1, -1 };
+#define nr_pcell_pci (nr_pcell_pci_s[sim])
+static uint32_t nr_pcell_arfcn_s[SIMS];
+#define nr_pcell_arfcn (nr_pcell_arfcn_s[sim])
+static int nr_pcell_band_s[SIMS];
+#define nr_pcell_band (nr_pcell_band_s[sim])
+static long nr_pcell_ms_s[SIMS];
+#define nr_pcell_ms (nr_pcell_ms_s[sim])
+
+/* NR5G RRC Configuration Info: count-field arrays (CC groups) before the
+ * serving cell list, then the cells; positions per version from
+ * qbm_layouts.h, bandwidth codes per version (3.1/3.2 have no 35/45 MHz). */
+static void b825(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b825_layout *L;
+    FIND_LAYOUT(B825_LAYOUTS, nr_ver(p), L);
+    if (!L || L->arrays_at > n * 8 || !fits(L->cell_count, n)) return;
+    int pos = L->arrays_at / 8;
+    for (int k = 0; k < 2; k++) {
+        if (L->skip[k].bits && !fits(L->skip[k], n)) return;
+        int skip_n = at(p, L->skip[k]), skip_b = L->skip_bits[k] / 8;
+        if (skip_n < 0 || skip_n > 64 || pos + skip_n * skip_b > n) return;
+        pos += skip_n * skip_b;
+    }
+    int cc_n = at(p, L->cell_count), stride = L->cell_bits / 8;
+    if (cc_n < 0 || cc_n > 32 || pos + cc_n * stride > n) return;
+    memset(nrcc, 0, sizeof nrcc);
+    nr_b825_seen = 1;
+    for (int i = 0; i < cc_n; i++, pos += stride) {
+        const uint8_t *c = p + pos;
+        /* The CC Id is only where the cell is kept (cells are matched to
+         * carriers by PCI and NR-ARFCN). NSA SCG cells can be numbered past
+         * the table (X85: n3 = 7, n78 = 8); those take the first free entry. */
+        int id = at(c, L->cc);
+        if (id >= SLOTS || nrcc[id].known)
+            for (id = 0; id < SLOTS && nrcc[id].known; id++) {}
+        if (id >= SLOTS) continue;
+        struct nr_cell *x = &nrcc[id];
+        x->known = 1;
+        x->pci = at(c, L->pci);
+        x->dl_arfcn = at(c, L->dl_arfcn);
+        x->ssb_arfcn = at(c, L->ssb_arfcn);
+        x->band = at(c, L->band);
+        int bw = at(c, L->bw), scs = at(c, L->scs);
+        x->bw_mhz = bw < 18 ? L->bw_mhz[bw] : 0;
+        x->scs_khz = L->scs.bits && scs < 5 ? 15 << scs : 0;
+        x->max_layers = at(c, L->max_layers);
+    }
+}
+
+/* NR5G RRC Serving Cell Info: the PCell's PCI, DL NR-ARFCN and band. The
+ * band is the modem's own, so it settles overlapping bands (n77/n78) where
+ * the NR-ARFCN can't; B825, which also names it, only comes with a
+ * reconfiguration. */
+static void b823(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b823_layout *L;
+    FIND_LAYOUT(B823_LAYOUTS, nr_ver(p), L);
+    if (!L || !fits(L->pci, n) || !fits(L->dl_arfcn, n)) return;
+    nr_pcell_pci = at(p, L->pci);
+    nr_pcell_arfcn = at(p, L->dl_arfcn);
+    nr_pcell_band = L->band.bits && fits(L->band, n) ? (int)at(p, L->band) : 0;
+    nr_pcell_ms = now_ms();
+}
+
+/* The B825 cell with this PCI and NR-ARFCN (SSB or DL), or NULL. */
+static const struct nr_cell *nr_cfg_for(int pci, uint32_t arfcn) {
+    for (int i = 0; i < SLOTS; i++)
+        if (nrcc[i].known && nrcc[i].pci == pci && (nrcc[i].ssb_arfcn == arfcn || nrcc[i].dl_arfcn == arfcn)) return &nrcc[i];
+    return NULL;
+}
+
+/* The cc_id a (PCI, NR-ARFCN) belongs to, from B97F's live map, then B825;
+ * -1 when unknown. */
+static int nr_cc_for(int pci, uint32_t arfcn) {
+    long now = now_ms();
+    for (int i = 0; i < SLOTS; i++)
+        if (nrlive[i].at_ms && now - nrlive[i].at_ms < LIVE_MS && nrlive[i].pci == pci && nrlive[i].earfcn == arfcn) return i;
+    for (int i = 0; i < SLOTS; i++)
+        if (nrcc[i].known && nrcc[i].pci == pci && (nrcc[i].ssb_arfcn == arfcn || nrcc[i].dl_arfcn == arfcn)) return i;
+    return -1;
+}
+
+/* The B887 layout for a version (qbm_layouts.h). 3.7 and 3.8 have no table
+ * entry of their own; they're decoded with 3.6's layout. */
+static const struct b887_layout *b887_layout(uint32_t ver) {
+    if (ver == 0x30007 || ver == 0x30008) ver = 0x30006;
+    const struct b887_layout *L;
+    FIND_LAYOUT(B887_LAYOUTS, ver, L);
+    return L;
+}
+
+/* NR5G MAC PDSCH Status: records, each with an item per TB. Each item names
+ * its cell (PCI, NR-ARFCN), which picks the carrier. */
+static void b887(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b887_layout *L = b887_layout(nr_ver(p));
+    if (!L || (L->rec_count.off + L->rec_count.bits) > n * 8) return;
+    int records = at(p, L->rec_count), pos = L->rec_start / 8;
+    int item_bytes = L->item_bits / 8;
+    for (int r = 0; r < records; r++) {
+        if (pos + L->items_at / 8 > n) return;
+        const uint8_t *rec = p + pos;
+        int items = at(rec, L->item_count);
+        if (items == 0 || items > 16) return;
+        pos += L->items_at / 8;
+        for (int k = 0; k < items; k++, pos += item_bytes) {
+            if (pos + item_bytes > n) return;
+            const uint8_t *it = p + pos;
+            int rnti = at(it, L->rnti);
+            if (rnti != 0 && rnti != 3) continue;       /* C-RNTI / CS-RNTI only */
+            int pci = at(it, L->pci);
+            uint32_t arfcn = at(it, L->arfcn);
+            int cc = nr_cc_for(pci, arfcn);
+            /* Else the item's SCell field: it equals the cc_id (seen on
+             * SM8550: 0 for the n41 carrier, 1 for n28). */
+            if (cc < 0) cc = at(it, L->scell);
+            if (cc >= SLOTS) continue;
+            /* Bandwidth code: 3GPP's list without 35/45 MHz (n41 90 MHz = 11,
+             * n28 20 MHz = 3 on SM8550); SCS from the numerology. */
+            static const int tb_bw[13] = { 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100 };
+            int bwc = L->bw.bits ? (int)at(it, L->bw) : 99, mu = L->scs_mu.bits ? (int)at(it, L->scs_mu) : 99;
+            nrtb[cc].pci = pci;
+            nrtb[cc].arfcn = arfcn;
+            nrtb[cc].bw_mhz = bwc < 13 ? tb_bw[bwc] : 0;
+            /* FR2 uses another code list: code 1 = 100 MHz (66 RBs at 120 kHz
+             * on X55/X60 mmWave captures; the generic list would say 10 MHz).
+             * Other FR2 codes are unconfirmed and left unknown. */
+            if (L->band_type.bits && at(it, L->band_type)) nrtb[cc].bw_mhz = bwc == 1 ? 100 : 0;
+            nrtb[cc].scs_khz = mu < 4 ? 15 << mu : 0;
+            struct nr_slot *s = &nrwin[cc];
+            int size = at(it, L->tb_size), crc = at(it, L->crc);
+            s->tb++;
+            if (!crc) s->fail++;
+            s->bytes_all += size;
+            if (crc) s->bytes_pass += size;
+            /* MCS mean: a retransmission may be signalled with a reserved
+             * index (28-31 on the 256QAM table, 29-31 on 64QAM) that only
+             * gives the modulation; the TB size is the first transmission's.
+             * Such TBs still count for throughput, BLER, RBs and layers, but
+             * not for the MCS mean. In the test logs (X55 to X85) no new
+             * transmission used 28-31 on the 256QAM table, while nearly every
+             * retransmission did, raising the old all-TB mean by about 1-2 at
+             * 10% BLER. Up to 1.22.1 the mean included them ("mcs_all" keeps
+             * that figure for comparison). Versions without a new-transmission
+             * field leave out 29-31, reserved on every table. */
+            int mcs = at(it, L->mcs);
+            int reserved = L->new_tx.bits ? (!at(it, L->new_tx) && mcs >= 28) : mcs >= 29;
+            s->mcs_all_sum += mcs;
+            if (!reserved) {
+                s->mcs_sum += mcs;
+                s->mcs_tb++;
+            }
+            s->rb_sum += at(it, L->rbs);
+            s->layers_sum += at(it, L->layers) + 1;      /* raw field: layers - 1 */
+            if (L->mod.bits) {
+                int m = at(it, L->mod);
+                if (m < 5) s->mod[m]++;
+            }
+            if (L->rx.bits) {
+                int rxc = at(it, L->rx);
+                if (rxc < 4) s->rx[rxc]++;              /* 0-3: 1-4 RX */
+            }
+        }
+    }
+}
+
+/* NR5G ML1 Searcher Measurement Database Update Ext: per carrier layer
+ * (NR-ARFCN, cc_id from 2.9), its cells with RSRP/RSRQ (Q7), each followed by
+ * its beams. Positions per version from qbm_layouts.h. */
+static double q7(int32_t v) { return v / 128.0; }
+static int nr_slot_by_unique_pci(int pci, uint32_t *arfcn) {
+    int match = -1;
+    for (int i = 0; i < SLOTS; i++) if (nrcc[i].known && nrcc[i].pci == pci) {
+        if (match >= 0) return -1;                /* ambiguous PCI: do not mis-assign */
+        match = i;
+    }
+    if (match >= 0 && arfcn)
+        *arfcn = nrcc[match].ssb_arfcn ? nrcc[match].ssb_arfcn : nrcc[match].dl_arfcn;
+    return match;
+}
+/* NR-ARFCN -> kHz (3GPP 38.104 global raster). */
+static long nr_khz(uint32_t n) {
+    if (n < 600000) return 5L * n;
+    if (n < 2016667) return 3000000L + 15L * (n - 600000);
+    return 24250080L + 60L * (n - 2016667);
+}
+
+/* B825 0.x names a carrier by its DL NR-ARFCN only (no SSB ARFCN), while
+ * B97F before 2.9 names it by its SSB raster (X55, n258: SSB 40-164
+ * ARFCNs from the DL ARFCN of the same 100 MHz carrier). The B825 cell whose
+ * bandwidth contains this SSB (nearest, same PCI) is that carrier; its SSB
+ * ARFCN is learned so the other matches by (PCI, NR-ARFCN) work. -1 if none. */
+static int nr_learn_ssb(uint32_t ssb, int spci) {
+    int best = -1;
+    long best_d = 0;
+    for (int i = 0; i < SLOTS; i++) {
+        const struct nr_cell *c = &nrcc[i];
+        if (!c->known || c->ssb_arfcn || !c->bw_mhz || (spci != 0xFFFF && c->pci != spci)) continue;
+        long d = labs(nr_khz(ssb) - nr_khz(c->dl_arfcn));
+        if (d <= c->bw_mhz * 500L && (best < 0 || d < best_d)) { best = i; best_d = d; }
+    }
+    if (best >= 0) nrcc[best].ssb_arfcn = ssb;
+    return best;
+}
+
+/* A pre-2.9 layer naming a serving cell while B825 lists none (RRC idle,
+ * where B825 is empty, or a helper started mid-connection): the slot this
+ * NR-ARFCN already holds (the PCI changes on reselection), else the first
+ * slot not live. Idle X60 (B97F 2.7) reports its camped cell this way and
+ * would otherwise show nothing until a connection brings a B825. -1 while
+ * B825 lists cells: a layer it doesn't name isn't a configured carrier. */
+static int nr_slot_unconfigured(uint32_t arfcn) {
+    long now = now_ms();
+    for (int i = 0; i < SLOTS; i++) if (nrcc[i].known) return -1;
+    for (int i = 0; i < SLOTS; i++)
+        if (nrlive[i].at_ms && now - nrlive[i].at_ms < LIVE_MS && nrlive[i].earfcn == arfcn) return i;
+    for (int i = 0; i < SLOTS; i++)
+        if (!nrlive[i].at_ms || now - nrlive[i].at_ms >= LIVE_MS) return i;
+    return -1;
+}
+
+/*
+ * The serving cell's RSRP per RX chain, for the antenna card. Each beam
+ * holds its RSRP on RX 0 and 1 ("RX Beam Info"; in FR2 the beam pair's two
+ * receivers), and the layer the serving SSB and the serving cell's RSRP on
+ * RX 2 and 3 ("ServingRSRP_Rx23", 0 when only two receivers measured: FR2
+ * and some FR1 captures). Signed Q7. Positions checked on the real captures
+ * in SCAT's tests (versions 2.6, 2.7, 2.9 and 2.10; n25, n28, n66, n78 and
+ * FR2), where the serving SSB names one of the serving cell's beams, except
+ * on SCells from 2.9 (below). From 2.9 the serving cell's list index comes
+ * before the serving SSB. 3.0 and 3.1 keep the 2.10 beam and widen the
+ * layer's array to four values, of which the first two are RX 2 and 3
+ * (checked on 3.1 captures, n3 + n28 + n78). Before 2.6 the beam layout is
+ * not known: no chains.
+ */
+struct b97f_chains { uint32_t ver; struct pos serving_ssb, rx23[2], beam_ssb, rx01[2]; };
+static const struct b97f_chains B97F_CHAINS[] = {
+    { 0x20006, { 64, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.6 */
+    { 0x20007, { 64, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.7 */
+    { 0x20008, { 64, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.8 */
+    { 0x20009, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.9 */
+    { 0x2000a, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 2.10 */
+    { 0x30000, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 3.0 */
+    { 0x30001, { 72, 8 }, { { 96, 32 }, { 128, 32 } }, { 0, 16 }, { { 160, 32 }, { 192, 32 } } },   /* 3.1 */
+};
+
+/* One Q7 RSRP; 0 (not measured) and the -156 dBm floor are not values. */
+static unsigned q7_rsrp(uint32_t raw, double *v) {
+    *v = q7((int32_t)raw);
+    return *v > -156 && *v < -20;
+}
+
+/* Adds the serving cell's chains to its carrier: RX 0 and 1 from the beam of
+ * the serving SSB among the cell's beams (at beams, payload offset), RX 2
+ * and 3 from the layer. */
+static void b97f_serving_chains(const struct b97f_chains *P, const uint8_t *layer, const uint8_t *p, int n,
+                                int beams, int count, int beam_bytes, struct nr_slot *s) {
+    double v[RX_CHAINS] = { 0 };
+    unsigned chains = 0;
+    int ssb = (int)at(layer, P->serving_ssb);
+    for (int b = 0; b < count && beams + (b + 1) * beam_bytes <= n; b++) {
+        const uint8_t *beam = p + beams + b * beam_bytes;
+        int beam_ssb = (int)at(beam, P->beam_ssb);
+        /* From 2.9 an SCell's serving SSB is unset and its main beam comes
+         * first (2.9, 2.10 and 3.1 captures). Keep both receivers on that
+         * beam, even if another beam is stronger. */
+        int main_beam = P->ver >= 0x20009 && ssb == 255 && b == 0 && beam_ssb < 64;
+        if (beam_ssb != ssb && !main_beam) continue;
+        if (ssb == 255 && !main_beam) break;
+        for (int i = 0; i < 2; i++) chains |= q7_rsrp(at(beam, P->rx01[i]), &v[i]) << i;
+        break;
+    }
+    for (int i = 0; i < 2; i++) chains |= q7_rsrp(at(layer, P->rx23[i]), &v[2 + i]) << (2 + i);
+    add_chains(s->rsrp_rx_sum, s->n_rsrp_rx, v, chains);
+}
+
+/*
+ * NR neighbour beams for the neighbour list, as NSG lists them (AirScreen
+ * 2.7.8's NR beam table; the notes' nr-neighbours/ study reproduces every
+ * paired NSG export with it): one row per measured beam (NR-ARFCN, PCI, SSB
+ * index) with its newest values in the window, except each serving carrier's
+ * serving beam (the serving cell's other beams stay), strongest RSRP first.
+ * A beam's RSRP/RSRQ are its filtered L3 values, or its L2NR L3 values when
+ * the filtered RSRP is 0 (not measured). A beam counts with -150 < RSRP < -20
+ * and -40 < RSRQ < 20 under a cell whose own values pass the same test, and
+ * both below -1 dBm. A carrier's serving cell index 255 marks a non-serving
+ * carrier; its serving beam is the serving SSB, or with none (255) the
+ * serving cell's first counted beam. Positions from AirScreen's readers (2.9
+ * also checked against QCAT text, 2.7, 2.10 and 3.1 by the NSG exports);
+ * before 2.6 the layer's frequency isn't an NR-ARFCN: no rows.
+ */
+struct b97f_nb_pos { uint32_t ver; struct pos sci, sssb, ssb, rsrp, rsrq, l2_rsrp, l2_rsrq; };
+static const struct b97f_nb_pos B97F_NB[] = {
+    { 0x20006, { 40, 8 }, { 64, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.6 */
+    { 0x20007, { 40, 8 }, { 64, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.7 */
+    { 0x20008, { 40, 8 }, { 64, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.8 */
+    { 0x20009, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 224, 32 }, { 256, 32 }, { 288, 32 }, { 320, 32 } },   /* 2.9 */
+    { 0x2000a, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 544, 32 }, { 576, 32 }, { 608, 32 }, { 640, 32 } },   /* 2.10 */
+    { 0x30000, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 544, 32 }, { 576, 32 }, { 608, 32 }, { 640, 32 } },   /* 3.0 */
+    { 0x30001, { 64, 8 }, { 72, 8 }, { 0, 16 }, { 544, 32 }, { 576, 32 }, { 608, 32 }, { 640, 32 } },   /* 3.1 */
+};
+
+#define NR_NB_MAX 48
+struct nr_nb { uint32_t arfcn; int pci, ssb; double rsrp, rsrq; };
+struct nr_nb_set { int n; struct nr_nb e[NR_NB_MAX]; };
+/* Per SIM: this window's beams and serving beams (newest per key), whether a
+ * B97F with a measured layer came, and the last list shown (held HOLD_MS). */
+static struct nr_nb_set nrnb_s[SIMS], nrnb_serving_s[SIMS], nrnb_last_s[SIMS];
+static int nrnb_seen_s[SIMS];
+static long nrnb_last_ms_s[SIMS];
+#define nrnb (nrnb_s[sim])
+#define nrnb_serving (nrnb_serving_s[sim])
+#define nrnb_last (nrnb_last_s[sim])
+#define nrnb_seen (nrnb_seen_s[sim])
+#define nrnb_last_ms (nrnb_last_ms_s[sim])
+
+/* Stores the newest values of a beam; a serving beam is one per cell. */
+static void nr_nb_put(struct nr_nb_set *set, uint32_t arfcn, int pci, int ssb, double rsrp, double rsrq, int per_cell) {
+    for (int i = 0; i < set->n; i++) {
+        struct nr_nb *e = &set->e[i];
+        if (e->arfcn == arfcn && e->pci == pci && (per_cell || e->ssb == ssb)) {
+            e->ssb = ssb; e->rsrp = rsrp; e->rsrq = rsrq;
+            return;
+        }
+    }
+    if (set->n < NR_NB_MAX) set->e[set->n++] = (struct nr_nb){ arfcn, pci, ssb, rsrp, rsrq };
+}
+
+/* A beam's RSRP/RSRQ (see above); true when it counts. */
+static int b97f_beam_values(const struct b97f_nb_pos *P, const uint8_t *beam, double *rsrp, double *rsrq) {
+    *rsrp = q7((int32_t)at(beam, P->rsrp));
+    *rsrq = q7((int32_t)at(beam, P->rsrq));
+    if (*rsrp > -0.001) {
+        *rsrp = q7((int32_t)at(beam, P->l2_rsrp));
+        *rsrq = q7((int32_t)at(beam, P->l2_rsrq));
+    }
+    return *rsrp > -150 && *rsrp < -20 && *rsrq > -40 && *rsrq < 20 && *rsrp < -1;
+}
+
+static void b97f(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b97f_layout *Lay;
+    FIND_LAYOUT(B97F_LAYOUTS, nr_ver(p), Lay);
+    if (!Lay || (Lay->layers_at / 8) > n) return;
+    const struct b97f_chains *chain_pos;
+    FIND_LAYOUT(B97F_CHAINS, nr_ver(p), chain_pos);
+    const struct b97f_nb_pos *nbp;
+    FIND_LAYOUT(B97F_NB, nr_ver(p), nbp);
+    int layers = at(p, Lay->layer_count), pos = Lay->layers_at / 8;
+    int layer_bytes = Lay->cells_at / 8, cell_bytes = Lay->beams_at / 8, beam_bytes = Lay->beam_bits / 8;
+    for (int l = 0; l < layers && pos + layer_bytes <= n; l++) {
+        const uint8_t *L = p + pos;
+        uint32_t arfcn = at(L, Lay->arfcn);
+        int cc = Lay->cc.bits ? (int)at(L, Lay->cc) : -1, ncell = at(L, Lay->ncell), spci = at(L, Lay->spci);
+        /* Neighbour beams: a measured first layer makes this a list update. */
+        int serving_carrier = nbp && at(L, nbp->sci) != 255, sssb = nbp ? (int)at(L, nbp->sssb) : 255, serving_found = 0;
+        if (nbp && l == 0 && arfcn) nrnb_seen = 1;
+        pos += layer_bytes;
+        if (cc < 0 && Lay->arfcn.bits) {                 /* before 2.9: match by frequency */
+            for (int i = 0; i < SLOTS && cc < 0; i++)
+                if (nrcc[i].known && (nrcc[i].ssb_arfcn == arfcn || nrcc[i].dl_arfcn == arfcn)) cc = i;
+            if (cc < 0) cc = nr_learn_ssb(arfcn, spci);
+            if (cc < 0 && spci != 0xFFFF) cc = nr_slot_unconfigured(arfcn);
+        } else if (cc < 0 && Lay->spci.bits) {            /* 2.3: raster frequency is not an ARFCN */
+            cc = nr_slot_by_unique_pci(spci, &arfcn);
+        }
+        for (int c = 0; c < ncell && pos + cell_bytes <= n; c++) {
+            const uint8_t *C = p + pos;
+            int pci = at(C, Lay->pci), beams = at(C, Lay->nbeam);
+            double cell_rsrp = q7((int32_t)at(C, Lay->rsrp)), cell_rsrq = q7((int32_t)at(C, Lay->rsrq));
+            if (nbp && cell_rsrp > -150 && cell_rsrp < -1 && cell_rsrq > -40 && cell_rsrq < 20) {
+                for (int b = 0; b < beams && pos + cell_bytes + (b + 1) * beam_bytes <= n; b++) {
+                    const uint8_t *B = p + pos + cell_bytes + b * beam_bytes;
+                    int ssb = (int)at(B, nbp->ssb);
+                    double rsrp, rsrq;
+                    if (!b97f_beam_values(nbp, B, &rsrp, &rsrq)) continue;
+                    if (serving_carrier && pci == spci && !serving_found && (sssb > 254 || sssb == ssb)) {
+                        nr_nb_put(&nrnb_serving, arfcn, pci, ssb, rsrp, rsrq, 1);
+                        serving_found = 1;
+                    } else nr_nb_put(&nrnb, arfcn, pci, ssb, rsrp, rsrq, 0);
+                }
+            }
+            if (cc >= 0 && cc < SLOTS && spci != 0xFFFF && pci == spci) {
+                double rsrp = q7((int32_t)at(C, Lay->rsrp)), rsrq = q7((int32_t)at(C, Lay->rsrq));
+                struct nr_slot *s = &nrwin[cc];
+                /* A deactivated SCell's entry is often zeros, not a measurement
+                 * (RSRQ 0 dB would pass its range): RSRQ counts only with a
+                 * valid RSRP from the same entry. The carrier stays live. */
+                if (rsrp > -160 && rsrp < -20) {
+                    s->rsrp_sum += rsrp; s->n_rsrp++;
+                    if (rsrq > -40 && rsrq < 10) { s->rsrq_sum += rsrq; s->n_rsrq++; }
+                }
+                if (chain_pos) {
+                    b97f_serving_chains(chain_pos, L, p, n, pos + cell_bytes, beams, beam_bytes, s);
+                    /* Explicitly unmeasured receivers must not retain RSRP
+                     * from an earlier 4Rx period after returning to 2Rx. */
+                    for (int i = 0; i < 2; i++)
+                        if (at(L, chain_pos->rx23[i]) == 0) nr_chain_held[cc][0][2 + i].at_ms = 0;
+                }
+                nrlive[cc].earfcn = arfcn;
+                nrlive[cc].pci = pci;
+                nrlive[cc].at_ms = now_ms();
+            }
+            pos += cell_bytes + beams * beam_bytes;
+        }
+    }
+}
+
+/* NR5G LL1 FW Serving SNR (B8D8; B8DD on X65): carrier and four linear
+ * chain SNRs, 10*log10(raw/1024); the best chain is used. Records measured
+ * on SSB give SS-SINR, on TRS (a CSI-RS for tracking) CSI-SINR: two
+ * different measurements (4-9 dB apart on SM8550). Versions without the
+ * reference-signal field count as SS-SINR. */
+static void serving_snr(const struct b8d8_layout *layout, const uint8_t *payload, int size) {
+    if (!layout || !fits(layout->carrier, size) || !fits(layout->rs, size))
+        return;
+    if (layout->payload_bytes && size != layout->payload_bytes)
+        return;
+    int carrier = at(payload, layout->carrier);
+    if (layout->pci.bits) {
+        if (!fits(layout->pci, size) || !fits(layout->arfcn, size))
+            return;
+        /* Older records rotate between frequencies without a usable slot. */
+        carrier = nr_cc_for(at(payload, layout->pci), at(payload, layout->arfcn));
+    }
+    if (carrier < 0 || carrier >= SLOTS)
+        return;
+    int have = 0;
+    double best_db = 0;
+    /* Each chain's own SNR as well, for the antenna card. */
+    double chain_db[RX_CHAINS] = { 0 };
+    unsigned chains = 0;
+    for (int i = 0; i < 4; i++) {
+        if (!fits(layout->snr[i], size))
+            return;
+        uint32_t raw = at(payload, layout->snr[i]);
+        if (!raw)
+            continue;
+        double db = 10.0 * log10(raw / 1024.0);
+        if (db > -30 && db < 60) {
+            chain_db[i] = db;
+            chains |= 1U << i;
+        }
+        if (!have || db > best_db) {
+            best_db = db;
+            have = 1;
+        }
+    }
+    if (!have || best_db <= -30 || best_db >= 60)
+        return;
+    struct nr_slot *s = &nrwin[carrier];
+    if (layout->rs.bits && at(payload, layout->rs)) {
+        s->csinr_sum += best_db;
+        s->n_csinr++;
+        add_chains(s->csinr_rx_sum, s->n_csinr_rx, chain_db, chains);
+    } else {
+        s->sinr_sum += best_db;
+        s->n_sinr++;
+        add_chains(s->sinr_rx_sum, s->n_sinr_rx, chain_db, chains);
+    }
+}
+
+static void b8d8(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b8d8_layout *L;
+    FIND_LAYOUT(B8D8_LAYOUTS, nr_ver(p), L);
+    serving_snr(L, p, n);
+}
+
+static void b8dd(const uint8_t *p, int n) {
+    if (n < 4) return;
+    const struct b8d8_layout *L;
+    FIND_LAYOUT(B8DD_LAYOUTS, nr_ver(p), L);
+    serving_snr(L, p, n);
+}
+
+/* Keep the strongest beam separately for each configured cell. Older groups
+ * contain beams of different PCIs, so their first beam cannot name the group. */
+static void b96a_beams(const struct b96a_layout *layout, const uint8_t *beams,
+                      int count, uint32_t arfcn, int packet_pci) {
+    struct meas best_beam[SLOTS] = {{0}};
+    for (int i = 0; i < count; i++) {
+        const uint8_t *beam = beams + i * (layout->beam_bits / 8);
+        int pci = layout->beam_pci.bits ? (int)at(beam, layout->beam_pci) : packet_pci;
+        int carrier = nr_cc_for(pci, arfcn);
+        if (carrier < 0 || carrier >= SLOTS)
+            continue;
+        double rsrp = -1e9;
+        double snr = -1e9;
+        for (int chain = 0; chain < 2; chain++) {
+            double power = (int16_t)at(beam, layout->rsrp[chain]) / 128.0;
+            double ratio = (int16_t)at(beam, layout->snr[chain]) / 128.0;
+            if (power > rsrp)
+                rsrp = power;
+            if (ratio > snr)
+                snr = ratio;
+        }
+        struct meas *best = &best_beam[carrier];
+        if (rsrp > -160 && rsrp < -20 && (!best->have_rsrp || rsrp > best->rsrp)) {
+            best->have_rsrp = 1;
+            best->rsrp = rsrp;
+            best->sinr = snr;
+        }
+    }
+    for (int carrier = 0; carrier < SLOTS; carrier++) {
+        const struct meas *best = &best_beam[carrier];
+        if (best->have_rsrp && best->sinr > -30 && best->sinr < 60) {
+            nrwin[carrier].bsinr_sum += best->sinr;
+            nrwin[carrier].n_bsinr++;
+        }
+    }
+}
+
+/* Validate the whole parent/group/beam hierarchy before applying any values.
+ * Newer layouts omit parent counts and carry groups through the payload end. */
+static int b96a_walk(const struct b96a_layout *layout, const uint8_t *payload, int size, int apply) {
+    int legacy = layout->parent_count.bits != 0;
+    int parents = legacy ? (int)at(payload, layout->parent_count) : 1;
+    int position = (legacy ? layout->parents_at : layout->groups_at) / 8;
+    int header_bytes = layout->group_bits / 8;
+    int beam_bytes = layout->beam_bits / 8;
+    int pci = at(payload, layout->pci);
+    for (int parent = 0; parent < parents; parent++) {
+        int groups = -1;
+        if (legacy) {
+            int parent_bytes = layout->parent_bits / 8;
+            if (position > size || parent_bytes > size - position)
+                return 0;
+            groups = at(payload + position, layout->group_count);
+            position += parent_bytes;
+        }
+        for (int group = 0; legacy ? group < groups : position < size; group++) {
+            if (position > size || header_bytes > size - position)
+                return 0;
+            const uint8_t *header = payload + position;
+            int beams = at(header, layout->g_count);
+            uint32_t arfcn = at(header, layout->g_arfcn);
+            position += header_bytes;
+            if (beams > (size - position) / beam_bytes)
+                return 0;
+            if (apply)
+                b96a_beams(layout, payload + position, beams, arfcn, pci);
+            position += beams * beam_bytes;
+        }
+    }
+    return position == size;
+}
+
+/* Per-beam SNR is separate from the serving reference-signal SINR. */
+static void b96a(const uint8_t *payload, int size) {
+    if (size < 4)
+        return;
+    const struct b96a_layout *layout;
+    FIND_LAYOUT(B96A_LAYOUTS, nr_ver(payload), layout);
+    if (!layout || !fits(layout->pci, size) || !fits(layout->parent_count, size))
+        return;
+    if (b96a_walk(layout, payload, size, 0))
+        b96a_walk(layout, payload, size, 1);
+}
+
+/* Bound all fixed-size reports before updating state: a truncated later
+ * record must not leave a partially applied packet. */
+static int b8a7_complete(const struct b8a7_layout *layout, const uint8_t *payload, int size) {
+    int position = layout->rec_start / 8;
+    int records = at(payload, layout->rec_count);
+    int header_bytes = layout->reps_at / 8;
+    int report_bytes = layout->rep_bits / 8;
+    for (int i = 0; i < records; i++) {
+        if (position > size || header_bytes > size - position
+            || !fits(layout->rep_count, size - position))
+            return 0;
+        int reports = at(payload + position, layout->rep_count);
+        position += header_bytes;
+        if (reports > (size - position) / report_bytes)
+            return 0;
+        position += reports * report_bytes;
+    }
+    return position == size;
+}
+
+/* Every record can update the resource carrier's RI/CQI. L1-RSRP reports
+ * have no CSI metrics. Variable-size layouts retain the first-report-only
+ * fallback until their intervening blocks can be traversed safely. */
+static void b8a7(const uint8_t *payload, int size) {
+    if (size < 4)
+        return;
+    const struct b8a7_layout *layout;
+    FIND_LAYOUT(B8A7_LAYOUTS, nr_ver(payload), layout);
+    if (!layout || !fits(layout->rec_count, size))
+        return;
+    int report_bytes = layout->rep_bits / 8;
+    int records = at(payload, layout->rec_count);
+    if (report_bytes && !b8a7_complete(layout, payload, size))
+        return;
+    if (!report_bytes && records > 1)
+        records = 1;
+    int position = layout->rec_start / 8;
+    for (int i = 0; i < records; i++) {
+        if (position > size || !fits(layout->rep_count, size - position))
+            return;
+        int reports = at(payload + position, layout->rep_count);
+        position += layout->reps_at / 8;
+        if (!report_bytes && reports > 1)
+            reports = 1;
+        for (int j = 0; j < reports; j++, position += report_bytes) {
+            if (position > size || !fits(layout->cqi, size - position)
+                || !fits(layout->ri, size - position) || !fits(layout->carrier, size - position)
+                || !fits(layout->quantity, size - position))
+                return;
+            const uint8_t *report = payload + position;
+            if (at(report, layout->quantity) & 32)
+                continue;
+            int carrier = at(report, layout->carrier);
+            if (carrier >= SLOTS)
+                continue;
+            nrwin[carrier].ri = at(report, layout->ri) + 1;
+            nrwin[carrier].cqi = at(report, layout->cqi);
+            nrwin[carrier].have_csf = 1;
+        }
+    }
+}
+
+/* DCI log: [u16 len][u16 code][u64 timestamp][payload]. With the extended
+ * header: [0x98][1][2 reserved][u32 subscription][i32 -1][log] (seen on
+ * SM8550 with two SIMs; every log carries it). */
+/* Which DCI client feeds the decoders when two are open (see main): the
+ * first one to deliver a log. 0 is the SoC-side client, 1 the external
+ * modem's. */
+static int decode_src = -1;
+
+/* One log record, [u16 len][u16 code][u64 timestamp][payload], for SIM sub
+ * (1 or 2). Both backends end here: DCI (on_log_from) and USB DIAG
+ * (qbm-diagd-usb.c, the record inside a 0x10 frame). */
+static void decode_log(int src, int sub, const unsigned char *ptr, int len) {
+    if (len < 12 || stopping) return;
+    if (sub < 1 || sub > SIMS) return;
+    uint16_t code = le16(ptr + 2);
+    const uint8_t *pl = ptr + 12;
+    int pn = len - 12;
+    pthread_mutex_lock(&lock);
+    if (decode_src < 0) decode_src = src;
+    if (src != decode_src) { pthread_mutex_unlock(&lock); return; }
+    sim = sub - 1;
+    rrc_csi_select(sim);
+    last_log_ms = now_ms();
+    n_logs++;
+    if (code == 0xB173) b173(pl, pn);
+    else if (code == 0xB126) b126(pl, pn);
+    else if (code == 0xB139) b139(pl, pn);
+    else if (code == 0xB16E) b16e(pl, pn);
+    else if (code == 0xB16D) b16d(pl, pn);
+    else if (code == 0xB184) b184(pl, pn);
+    else if (code == 0xB193) b193(pl, pn);
+    else if (code == 0xB168) b168(pl, pn);
+    else if (code == 0xB179) b179(pl, pn);
+    else if (code == 0xB883) b883(pl, pn);
+    else if (code == 0xB884) b884(pl, pn);
+    else if (code == 0xB887) b887(pl, pn);
+    else if (code == 0xB97F) b97f(pl, pn);
+    else if (code == 0xB8D8) b8d8(pl, pn);
+    else if (code == 0xB8DD) b8dd(pl, pn);
+    else if (code == 0xB96A) b96a(pl, pn);
+    else if (code == 0xB8A7) b8a7(pl, pn);
+    else if (code == 0xB825) b825(pl, pn);
+    else if (code == 0xB823) b823(pl, pn);
+    else if (code == 0xB88A) b88a(pl, pn);
+    else if (code == 0xB821) rrc_csi_b821(pl, pn);
+    pthread_mutex_unlock(&lock);
+}
+
+#ifndef QBM_USB_DIAG
+static void on_log_from(int src, unsigned char *ptr, int len) {
+    if (len < 12 || stopping) return;
+    int sub = 1;
+    if (len >= 24 && (int32_t)le32(ptr + 8) == -1 && le16(ptr + 12) + 12 == len) {
+        sub = (int)le32(ptr + 4);
+        ptr += 12;
+        len -= 12;
+    }
+    decode_log(src, sub, ptr, len);
+}
+static void on_log(unsigned char *ptr, int len) { on_log_from(0, ptr, len); }
+static void on_log_external(unsigned char *ptr, int len) { on_log_from(1, ptr, len); }
+static void on_event(unsigned char *p, int len) { (void)p; (void)len; }
+#endif
+
+/* ── Stats ───────────────────────────────────────────────────────────────── */
+
+static const char *MOD_NAMES[5] = { "QPSK", "16QAM", "64QAM", "256QAM", "1024QAM" };
+/* Uplink modulation codes (B139, B883): 0 is (pi/2-)BPSK. */
+static const char *UL_MOD_NAMES[6] = { "BPSK", "QPSK", "16QAM", "64QAM", "256QAM", "1024QAM" };
+static const char *TX_MODES[3] = { "SISO", "SMSL", "SMDL" };
+
+/* Majority transmission scheme -> transmission mode. The scheme is per grant
+ * (a TM4 cell can fall back to TX diversity), so the majority is used. Ports
+ * 7-10 schemes are reported as TM9 (TM8 is a TDD-only rarity). */
+static int scheme_to_tm(int s) {
+    switch (s) {
+    case 1: return 1; case 2: return 2; case 3: return 3; case 4: return 4;
+    case 5: return 5; case 6: return 6; case 7: return 7;
+    case 8: case 9: case 10: case 11: return 9;
+    }
+    return 0;
+}
+
+/* B184 bandwidth: RB count or 0-5 index -> MHz (0 when unknown). */
+static double bw_mhz(int raw) {
+    static const int rbs[6] = { 6, 15, 25, 50, 75, 100 };
+    static const double mhz[6] = { 1.4, 3, 5, 10, 15, 20 };
+    for (int i = 0; i < 6; i++) if (raw == rbs[i]) return mhz[i];
+    return raw >= 0 && raw <= 5 ? mhz[raw] : 0;
+}
+
+/* The modulation split: each modulation's share of the window's counts, in
+ * percent, as ",\"name\":[...]" (MOD_NAMES / UL_MOD_NAMES order). */
+static void put_pct(char *out, size_t cap, size_t *o, const char *name, const long *v, int n) {
+    long total = 0;
+    for (int i = 0; i < n; i++) total += v[i];
+    if (total <= 0) return;
+    int k = snprintf(out + *o, *o < cap ? cap - *o : 0, ",\"%s\":[", name);
+    if (k > 0) *o += (size_t)k;
+    for (int i = 0; i < n; i++) {
+        k = snprintf(out + *o, *o < cap ? cap - *o : 0, "%s%.1f", i ? "," : "", 100.0 * v[i] / total);
+        if (k > 0) *o += (size_t)k;
+    }
+    k = snprintf(out + *o, *o < cap ? cap - *o : 0, "]");
+    if (k > 0) *o += (size_t)k;
+}
+
+static int argmax(const long *v, int n) {
+    int best = -1;
+    for (int i = 0; i < n; i++) if (v[i] > 0 && (best < 0 || v[i] > v[best])) best = i;
+    return best;
+}
+
+static long window_start;
+
+/* Appends ,"name":[a,b,null,null] to a stats reply, as PUT does: each RX
+ * chain's window mean or held value (held_chains), null for a chain with
+ * neither; nothing when no chain has a value. */
+static void put_chains(char *out, size_t cap, size_t *o, const char *name, struct held *held, const double *sum,
+                       const long *count, uint32_t arfcn, int pci, long now) {
+    double v[RX_CHAINS];
+    unsigned mask = held_chains(held, sum, count, arfcn, pci, now, v);
+    if (!mask) return;
+    char text[96];
+    size_t t = (size_t)snprintf(text, sizeof text, ",\"%s\":[", name);
+    for (int c = 0; c < RX_CHAINS && t < sizeof text; c++) {
+        const char *comma = c ? "," : "";
+        if (mask & (1U << c))
+            t += (size_t)snprintf(text + t, sizeof text - t, "%s%.2f", comma, v[c]);
+        else
+            t += (size_t)snprintf(text + t, sizeof text - t, "%snull", comma);
+    }
+    if (t + 1 >= sizeof text) return;                   /* never a cut array */
+    int k = snprintf(out + (*o < cap ? *o : cap), *o < cap ? cap - *o : 0, "%s]", text);
+    if (k > 0) *o += (size_t)k;
+}
+
+/* The NR PCell a TA is tied to: B823's carrier, else (no B823 yet) the first
+ * live carrier, which in SA with one carrier is the PCell. */
+static struct cell_id nr_ta_cell(int pcell, const int *live_of, const struct nr_cell *const *cfg_of) {
+    struct cell_id id = { 0, 0, -1 };
+    if (pcell >= 0) {
+        id.known = 1;
+        if (live_of[pcell]) {
+            id.arfcn = nrlive[pcell].earfcn;
+            id.pci = nrlive[pcell].pci;
+        } else {
+            const struct nr_cell *c = cfg_of[pcell];
+            id.arfcn = c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn;
+            id.pci = c->pci;
+        }
+        return id;
+    }
+    for (int i = 0; i < SLOTS; i++) {
+        if (!live_of[i])
+            continue;
+        id.known = 1;
+        id.arfcn = nrlive[i].earfcn;
+        id.pci = nrlive[i].pci;
+        return id;
+    }
+    return id;
+}
+
+static int write_stats(char *out, size_t cap, int for_sim) {
+    pthread_mutex_lock(&lock);
+    sim = for_sim >= 1 && for_sim <= SIMS ? for_sim - 1 : 0;
+    rrc_csi_select(sim);
+    long now = now_ms(), ms = now - window_start;
+    if (ms < 1) ms = 1;
+    size_t o = 0;
+#define PUT(...) do { int k = snprintf(out + o, o < cap ? cap - o : 0, __VA_ARGS__); if (k > 0) o += (size_t)k; } while (0)
+    PUT("{\"ok\":true,\"version\":\"%s\",\"lib\":\"%s\",\"ms\":%ld,\"logs\":%ld,\"sim\":%d,\"sim_tags\":%s,\"ca_known\":%s,\"carriers\":[",
+        HELPER_VERSION, lib_route, ms, n_logs, sim + 1, sim_tags ? "true" : "false", ca_seen ? "true" : "false");
+    int first = 1;
+    int silent = !last_log_ms || now - last_log_ms > SILENT_MS;
+    /* A B184 is only current while its PCell is the live one: after a
+     * handover or release without a new B184 (X85 sends them on events
+     * only), its SCell list belongs to the old PCell. */
+    int live0 = live[0].at_ms && now - live[0].at_ms < LIVE_MS;
+    int b184_current = !live0 || (ca[0].known && ca[0].earfcn == live[0].earfcn && ca[0].pci == live[0].pci);
+    /* Which carrier each slot is: B193's live serving record first (it
+     * follows handovers and reconfigurations even without a B184), then the
+     * last B184. Band, bandwidth and state come from B184 only when it names
+     * the same carrier. Shown HOLD_MS after its last record. */
+    int lte_live[SLOTS], lte_b184[SLOTS], lte_show[SLOTS], lte_gone[SLOTS];
+    uint32_t lte_ch[SLOTS];
+    for (int i = 0; i < SLOTS; i++) {
+        struct slot *s = &win[i];
+        lte_live[i] = live[i].at_ms && now - live[i].at_ms < HOLD_MS;
+        lte_b184[i] = ca[i].known && b184_current && (!lte_live[i] || (ca[i].earfcn == live[i].earfcn && ca[i].pci == live[i].pci));
+        lte_ch[i] = lte_live[i] ? live[i].earfcn : lte_b184[i] ? ca[i].earfcn : 0;
+        /* An SCell needs a measurement within SCELL_GONE_MS where B179
+         * reports SCells (see b179_scells); otherwise B184's list is the
+         * authority. */
+        int configured = i > 0 && b179_scells ? live[i].at_ms && now - live[i].at_ms < SCELL_GONE_MS
+                                              : lte_live[i] || (lte_b184[i] && (i == 0 || ca[i].state > 0));
+        lte_show[i] = configured || s->tb || s->ul_tb || s->n126 || s->n_rsrp;
+    }
+    /* A carrier frequency is served once. When the modem moves an SCell to
+     * another slot, the old slot's last measurement is still held for a few
+     * seconds and would show the carrier twice (frequent with intra-band CA,
+     * e.g. two band 3 carriers swapping slots). Of the shown slots naming the
+     * same EARFCN, the one measured this window wins (around a swap the
+     * measurements can still come under the old slot for a second), then
+     * the one the current B184 lists, then the latest measured; the PCell
+     * and a slot that carried data this window always stay. */
+    for (int i = 0; i < SLOTS; i++) {
+        lte_gone[i] = 0;
+        if (i == 0 || !lte_show[i] || !lte_ch[i] || win[i].tb || win[i].ul_tb) continue;
+        int mi = win[i].n_rsrp || win[i].n_frsrp, si = 2 * mi + lte_b184[i];
+        for (int j = 0; j < SLOTS; j++) {
+            if (j == i || !lte_show[j] || lte_ch[j] != lte_ch[i]) continue;
+            int mj = win[j].n_rsrp || win[j].n_frsrp, sj = 2 * mj + lte_b184[j];
+            if (j == 0 || win[j].tb || win[j].ul_tb || sj > si ||
+                (sj == si && (live[j].at_ms > live[i].at_ms || (live[j].at_ms == live[i].at_ms && j < i)))) {
+                lte_gone[i] = 1;
+                break;
+            }
+        }
+    }
+    for (int i = 0; i < SLOTS && !silent; i++) {
+        struct slot *s = &win[i];
+        if (lte_gone[i] || !lte_show[i]) continue;
+        int is_live = lte_live[i];
+        int b184_ok = lte_b184[i];
+        PUT("%s{\"slot\":%d", first ? "" : ",", i);
+        first = 0;
+        if (is_live || b184_ok) {
+            /* Without B184 a live SCell counts as activated when it carried
+             * data this window, else configured. */
+            int state = b184_ok ? ca[i].state : (i == 0 || s->tb > 0 ? 2 : 1);
+            PUT(",\"earfcn\":%u,\"pci\":%d,\"state\":%d", is_live ? live[i].earfcn : ca[i].earfcn,
+                is_live ? live[i].pci : ca[i].pci, state);
+            if (b184_ok) {
+                PUT(",\"band\":%d", ca[i].band);
+                double bw = bw_mhz(ca[i].bw_raw);
+                if (bw > 0) PUT(",\"bw\":%.1f", bw);
+            }
+        }
+        {
+            uint32_t ch = is_live ? live[i].earfcn : b184_ok ? ca[i].earfcn : 0;
+            int pci = is_live ? live[i].pci : b184_ok ? ca[i].pci : -1;
+            double v;
+            /* B193 first; B179's filtered values when B193 measured nothing
+             * for this carrier (deactivated SCells). */
+            int f = s->n_rsrp == 0 && s->n_frsrp && s->f_earfcn == ch && s->f_pci == pci;
+            if (held_value(&lte_held[i][0], f ? s->frsrp_sum : s->rsrp_sum, f ? s->n_frsrp : s->n_rsrp, ch, pci, now, &v))
+                PUT(",\"rsrp\":%.2f", v);
+            if (held_value(&lte_held[i][1], f ? s->frsrq_sum : s->rsrq_sum, f ? s->n_frsrq : s->n_rsrq, ch, pci, now, &v))
+                PUT(",\"rsrq\":%.2f", v);
+            if (held_value(&lte_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
+            /* Per RX chain, B193 only (B179 has none). */
+            put_chains(out, cap, &o, "rsrp_rx", lte_chain_held[i][0], s->rsrp_rx_sum, s->n_rsrp_rx, ch, pci, now);
+            put_chains(out, cap, &o, "rsrq_rx", lte_chain_held[i][1], s->rsrq_rx_sum, s->n_rsrq_rx, ch, pci, now);
+            put_chains(out, cap, &o, "sinr_rx", lte_chain_held[i][2], s->sinr_rx_sum, s->n_sinr_rx, ch, pci, now);
+        }
+        PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
+            s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
+        if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
+        if (s->ul_recs > 0) {
+            int m = argmax(s->ul_mod, 6);
+            PUT(",\"ul_rbs\":%.2f", (double)s->ul_rb_sum / s->ul_recs);
+            if (m >= 0) PUT(",\"ul_mod\":\"%s\"", UL_MOD_NAMES[m]);
+            put_pct(out, cap, &o, "ul_mod_pct", s->ul_mod, 6);
+        }
+        if (s->ul_mcs_n > 0) PUT(",\"ul_mcs\":%.2f", (double)s->ul_mcs_sum / s->ul_mcs_n);
+        if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
+        if (s->n_ul_pucch > 0) PUT(",\"ul_pucch\":%.2f", (double)s->ul_pucch_sum / s->n_ul_pucch);
+        if (s->ul_pusch_n > 0) PUT(",\"ul_bler\":%.2f", 100.0 * s->ul_retx_n / s->ul_pusch_n);
+        if (s->tb > 0) {
+            int m = argmax(s->mod, 5);
+            PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
+            if (s->mcs_tb > 0) PUT(",\"mcs\":%.2f", (double)s->mcs_sum / s->mcs_tb);
+            PUT(",\"mcs_all\":%.2f,\"rbs\":%.2f", (double)s->mcs_all_sum / s->tb, (double)s->rb_sum / s->tb);
+            if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
+            put_pct(out, cap, &o, "mod_pct", s->mod, 5);
+        }
+        if (s->recs > 0) PUT(",\"layers\":%.2f", (double)s->layers_sum / s->recs);
+        if (s->n126 > 0) {
+            int r = argmax(s->rank, 4), tm = scheme_to_tm(argmax(s->scheme, 16));
+            if (r >= 0) PUT(",\"rank\":%d", r + 1);
+            if (tm) PUT(",\"tm\":%d", tm);
+            if (s->tx) PUT(",\"tx\":%d", s->tx);
+            if (s->rx) PUT(",\"rx\":%d", s->rx);
+        }
+        PUT("}");
+    }
+    PUT("]");
+
+    /* NR carriers by the modem's carrier slot (cc_id, as B97F, B887, B8D8 and
+     * B8A7 number them). B825 numbers its cells by RRC SCell index, which
+     * changes when an SCell is replaced while the slot stays (X75: an n28
+     * SCell swapping PCI moves between B825 ids 1/2 and 3 while B97F keeps
+     * its slot), so its cells are matched to live slots by PCI and NR-ARFCN. A B825 cell no
+     * live slot claims is shown under its own id (before any B97F). PCell
+     * from B823. */
+    const struct nr_cell *cfg_of[SLOTS] = { 0 };
+    int live_of[SLOTS];
+    for (int i = 0; i < SLOTS; i++) live_of[i] = nrlive[i].at_ms && now - nrlive[i].at_ms < HOLD_MS;
+    /* After a reconfiguration a slot's old cell can stay live for LIVE_MS
+     * while its new slot already reports it: keep only the fresher. */
+    for (int i = 0; i < SLOTS; i++)
+        for (int j = 0; j < SLOTS; j++)
+            if (i != j && live_of[i] && live_of[j] && nrlive[i].pci == nrlive[j].pci && nrlive[i].earfcn == nrlive[j].earfcn
+                && nrlive[i].at_ms < nrlive[j].at_ms) live_of[i] = 0;
+    for (int i = 0; i < SLOTS; i++) if (live_of[i]) cfg_of[i] = nr_cfg_for(nrlive[i].pci, nrlive[i].earfcn);
+    for (int i = 0; i < SLOTS; i++) {
+        if (live_of[i] || !nrcc[i].known) continue;
+        int claimed = 0;
+        for (int j = 0; j < SLOTS; j++) if (cfg_of[j] == &nrcc[i]) claimed = 1;
+        if (!claimed) cfg_of[i] = &nrcc[i];
+    }
+    int pcell = -1;
+    if (nr_pcell_pci >= 0)
+        for (int i = 0; i < SLOTS && pcell < 0; i++) {
+            const struct nr_cell *c = cfg_of[i];
+            if ((c && c->pci == nr_pcell_pci && (c->ssb_arfcn == nr_pcell_arfcn || c->dl_arfcn == nr_pcell_arfcn))
+                || (live_of[i] && nrlive[i].pci == nr_pcell_pci && nrlive[i].earfcn == nr_pcell_arfcn)) pcell = i;
+        }
+    /* Each RAT's TA is shown only while its cell is the PCell (see ta_bind).
+     * LTE PCell: slot 0's live serving record. */
+    struct cell_id lte_cell = { live[0].at_ms && now - live[0].at_ms < HOLD_MS, live[0].earfcn, live[0].pci };
+    int show_lte_ta = ta_bind(&lte_ta, lte_cell, now);
+    int show_nr_ta = ta_bind(&nr_ta, nr_ta_cell(pcell, live_of, cfg_of), now);
+    PUT(",\"nr\":[");
+    first = 1;
+    for (int i = 0; i < SLOTS && !silent; i++) {
+        struct nr_slot *s = &nrwin[i];
+        const struct nr_cell *c = cfg_of[i];
+        int lv = live_of[i], cfg = c != NULL;
+        if (!cfg && !lv) continue;
+        /* "pcell" only when B823 named it; otherwise the app decides. */
+        PUT("%s{\"cc\":%d,\"pcell\":%s", first ? "" : ",", i, pcell >= 0 ? (pcell == i ? "true" : "false") : "null");
+        first = 0;
+        PUT(",\"pci\":%d,\"arfcn\":%u", lv ? nrlive[i].pci : c->pci,
+            lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn));
+        /* RRC names cells by PCI and SSB frequency, not by carrier slot. */
+        int csi_ports = rrc_csi_ports(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn,
+                                      pcell >= 0 ? pcell == i : -1);
+        if (csi_ports) PUT(",\"csi_ports\":%d", csi_ports);
+        /* Band: B825's, else B823's for the PCell, else what the RRC
+         * configuration names (B825 only comes with a reconfiguration, so a
+         * helper started mid-session can lack it; the RRC band is the first
+         * of the cell's band list). */
+        int band = cfg && c->band ? c->band : 0;
+        if (!band && pcell == i) band = nr_pcell_band;
+        if (!band) band = rrc_csi_band(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn);
+        if (cfg) {
+            PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, band);
+            if (c->bw_mhz) PUT(",\"bw\":%d", c->bw_mhz);
+            /* B825 0.x has no SCS: this carrier's TBs give it (same cell). */
+            const struct nr_tb_info *t = &nrtb[i];
+            int tb_cell = t->pci == c->pci && (t->arfcn == c->dl_arfcn || t->arfcn == c->ssb_arfcn);
+            if (c->scs_khz) PUT(",\"scs\":%d", c->scs_khz);
+            else if (tb_cell && t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
+            if (c->max_layers) PUT(",\"max_layers\":%d", c->max_layers);
+        } else {
+            if (band) PUT(",\"band\":%d", band);
+            /* No B825: bandwidth and SCS from this carrier's TBs (same cell). */
+            struct nr_tb_info *t = &nrtb[i];
+            if (t->pci == nrlive[i].pci && t->arfcn == nrlive[i].earfcn) {
+                if (t->bw_mhz) PUT(",\"bw\":%d", t->bw_mhz);
+                if (t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
+            }
+        }
+        {
+            uint32_t ch = lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn);
+            int pci = lv ? nrlive[i].pci : c->pci;
+            double v;
+            if (held_value(&nr_held[i][0], s->rsrp_sum, s->n_rsrp, ch, pci, now, &v)) PUT(",\"rsrp\":%.2f", v);
+            if (held_value(&nr_held[i][1], s->rsrq_sum, s->n_rsrq, ch, pci, now, &v)) PUT(",\"rsrq\":%.2f", v);
+            if (held_value(&nr_held[i][2], s->sinr_sum, s->n_sinr, ch, pci, now, &v)) PUT(",\"sinr\":%.2f", v);
+            if (held_value(&nr_held[i][3], s->csinr_sum, s->n_csinr, ch, pci, now, &v)) PUT(",\"csinr\":%.2f", v);
+            if (held_value(&nr_held[i][4], s->bsinr_sum, s->n_bsinr, ch, pci, now, &v)) PUT(",\"bsinr\":%.2f", v);
+            put_chains(out, cap, &o, "rsrp_rx", nr_chain_held[i][0], s->rsrp_rx_sum, s->n_rsrp_rx, ch, pci, now);
+            put_chains(out, cap, &o, "sinr_rx", nr_chain_held[i][1], s->sinr_rx_sum, s->n_sinr_rx, ch, pci, now);
+            put_chains(out, cap, &o, "csinr_rx", nr_chain_held[i][2], s->csinr_rx_sum, s->n_csinr_rx, ch, pci, now);
+        }
+        if (s->have_csf) PUT(",\"cqi\":%d,\"ri\":%d", s->cqi, s->ri);
+        PUT(",\"tb\":%ld,\"mbps\":%.3f,\"mbps_sched\":%.3f",
+            s->tb, s->bytes_pass * 8.0 / (ms * 1000.0), s->bytes_all * 8.0 / (ms * 1000.0));
+        if (s->ul_tb > 0) PUT(",\"ul_mbps\":%.3f", s->ul_bytes * 8.0 / (ms * 1000.0));
+        if (s->ul_recs > 0) {
+            int m = argmax(s->ul_mod, 6);
+            PUT(",\"ul_rbs\":%.2f,\"ul_layers\":%.2f", (double)s->ul_rb_sum / s->ul_recs,
+                (double)s->ul_layers_sum / s->ul_recs);
+            if (s->ul_mcs_n > 0) PUT(",\"ul_mcs\":%.2f", (double)s->ul_mcs_sum / s->ul_mcs_n);
+            if (m >= 0) PUT(",\"ul_mod\":\"%s\"", UL_MOD_NAMES[m]);
+            put_pct(out, cap, &o, "ul_mod_pct", s->ul_mod, 6);
+        }
+        if (s->ul_tx_mode) PUT(",\"ul_tx_mode\":\"%s\"", TX_MODES[s->ul_tx_mode - 1]);
+        if (s->n_ul_pwr > 0) PUT(",\"ul_pwr\":%.2f", s->ul_pwr_sum / s->n_ul_pwr);
+        if (s->n_ul_pucch > 0) PUT(",\"ul_pucch\":%.2f", (double)s->ul_pucch_sum / s->n_ul_pucch);
+        if (s->ul_bytes > 0) PUT(",\"ul_bler\":%.2f", 100.0 * s->ul_retx_bytes / s->ul_bytes);
+        if (s->tb > 0) {
+            int m = argmax(s->mod, 5), rx = argmax(s->rx, 4);
+            PUT(",\"bler\":%.2f", 100.0 * s->fail / s->tb);
+            if (s->mcs_tb > 0) PUT(",\"mcs\":%.2f", (double)s->mcs_sum / s->mcs_tb);
+            PUT(",\"mcs_all\":%.2f,\"rbs\":%.2f,\"layers\":%.2f", (double)s->mcs_all_sum / s->tb,
+                (double)s->rb_sum / s->tb, (double)s->layers_sum / s->tb);
+            if (m >= 0) PUT(",\"mod\":\"%s\"", MOD_NAMES[m]);
+            put_pct(out, cap, &o, "mod_pct", s->mod, 5);
+            if (rx >= 0) PUT(",\"rx\":%d", rx + 1);
+        }
+        PUT("}");
+    }
+    PUT("]");
+    /* NR neighbour beams as [NR-ARFCN, PCI, SSB, RSRP, RSRQ], strongest first:
+     * this window's without the serving beams; with no B97F this window, the
+     * last list for HOLD_MS. */
+    if (nrnb_seen) {
+        nrnb_last.n = 0;
+        for (int i = 0; i < nrnb.n; i++) {
+            const struct nr_nb *e = &nrnb.e[i];
+            int serving = 0;
+            for (int j = 0; j < nrnb_serving.n && !serving; j++)
+                serving = nrnb_serving.e[j].arfcn == e->arfcn && nrnb_serving.e[j].pci == e->pci && nrnb_serving.e[j].ssb == e->ssb;
+            if (serving) continue;
+            int k = nrnb_last.n++;
+            while (k > 0 && nrnb_last.e[k - 1].rsrp < e->rsrp) { nrnb_last.e[k] = nrnb_last.e[k - 1]; k--; }
+            nrnb_last.e[k] = *e;
+        }
+        nrnb_last_ms = now;
+    }
+    if (!silent && nrnb_last_ms && now - nrnb_last_ms < HOLD_MS) {
+        PUT(",\"nr_nb\":[");
+        for (int i = 0; i < nrnb_last.n; i++) {
+            const struct nr_nb *e = &nrnb_last.e[i];
+            PUT("%s[%u,%d,%d,%.2f,%.2f]", i ? "," : "", e->arfcn, e->pci, e->ssb, e->rsrp, e->rsrq);
+        }
+        PUT("]");
+    }
+    /* The last random access's TA, as the raw index. */
+    if (!silent && show_lte_ta) PUT(",\"lte_ta\":%d", lte_ta.value);
+    if (!silent && show_nr_ta) PUT(",\"nr_ta\":%d", nr_ta.value);
+    PUT("}\n");
+#undef PUT
+    /* Every SIM's window restarts: the next answer for either SIM covers the
+     * time since this one. */
+    memset(win_s, 0, sizeof win_s);
+    memset(nrwin_s, 0, sizeof nrwin_s);
+    memset(nrnb_s, 0, sizeof nrnb_s);
+    memset(nrnb_serving_s, 0, sizeof nrnb_serving_s);
+    memset(nrnb_seen_s, 0, sizeof nrnb_seen_s);
+    window_start = now;
+    pthread_mutex_unlock(&lock);
+    return o < cap ? (int)o : -1;
+}
+
+/* ── Socket ──────────────────────────────────────────────────────────────── */
+
+static int listen_socket(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un a;
+    memset(&a, 0, sizeof a);
+    a.sun_family = AF_UNIX;
+    size_t n = strlen(SOCKET_NAME);
+    memcpy(a.sun_path + 1, SOCKET_NAME, n);             /* abstract: leading NUL */
+    if (bind(fd, (struct sockaddr *)&a, (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + n)) < 0 || listen(fd, 2) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static int write_all(int fd, const char *s, size_t n) {
+    while (n > 0) {
+        ssize_t k = write(fd, s, n);
+        if (k < 0) { if (errno == EINTR) continue; return -1; }
+        s += k; n -= (size_t)k;
+    }
+    return 0;
+}
+
+#ifdef QBM_USB_DIAG
+#include "qbm-diagd-usb.c"   /* USB DIAG backend and its main() */
+#else
+/*
+ * Opens vendor libdiag. A binary in /data runs in the linker's "default"
+ * namespace; older Android lets that namespace load /vendor/lib64 (with a
+ * warning), newer Android refuses ("not accessible for the namespace").
+ * Then the library is opened in the platform's exported "sphal" namespace,
+ * the one system processes use for same-process vendor libraries, whose
+ * paths include /vendor/lib64 and which links libdiag's system dependencies.
+ * QBM_DIAG_FORCE_SPHAL=1 skips the first attempt (testing).
+ */
+#define LIBDIAG "/vendor/lib64/libdiag.so"
+typedef struct android_namespace_t *(*get_ns_t)(const char *);
+
+static void *open_libdiag(void) {
+    char err1[512] = "skipped";
+    const char *force = getenv("QBM_DIAG_FORCE_SPHAL");
+    if (!force || strcmp(force, "1")) {
+        void *h = dlopen(LIBDIAG, RTLD_NOW);
+        if (h) return h;
+        snprintf(err1, sizeof err1, "%s", dlerror());
+    }
+    void *dla = dlopen("/apex/com.android.runtime/lib64/bionic/libdl_android.so", RTLD_NOW);
+    if (!dla) dla = dlopen("libdl_android.so", RTLD_NOW);
+    get_ns_t get_ns = dla ? (get_ns_t)dlsym(dla, "android_get_exported_namespace") : NULL;
+    struct android_namespace_t *ns = get_ns ? get_ns("sphal") : NULL;
+    if (!ns) {
+        fprintf(stderr, "dlopen libdiag: %s\nsphal namespace: not available (%s)\n", err1,
+                !dla ? "no libdl_android" : !get_ns ? "no android_get_exported_namespace" : "not exported");
+        return NULL;
+    }
+    android_dlextinfo info;
+    memset(&info, 0, sizeof info);
+    info.flags = ANDROID_DLEXT_USE_NAMESPACE;
+    info.library_namespace = ns;
+    void *h = android_dlopen_ext(LIBDIAG, RTLD_NOW, &info);
+    if (!h) {
+        fprintf(stderr, "dlopen libdiag: %s\nsphal namespace: %s\n", err1, dlerror());
+        return NULL;
+    }
+    lib_route = "sphal";
+    return h;
+}
+
+/*
+ * Whether a processor's MPSS (the modem) supports DCI: 1 yes, 0 no, -1
+ * unknown (no query in this libdiag, or it failed). libdiag only knows its
+ * DCI processors once a client is registered: asked before, every processor
+ * is out of range (1008), so main asks after the first registration.
+ */
+static int proc_has_modem(dci_list_t query, int proc) {
+    uint16_t mask = 0;
+    if (!query || query(proc, &mask) != DCI_NO_ERROR) return -1;
+    return (mask & DIAG_CON_MPSS) != 0;
+}
+
+#define SYM(T, name) T name = (T)dlsym(h, #name); if (!name) { fprintf(stderr, "libdiag: missing %s\n", #name); return 1; }
+
+int main(int argc, char **argv) {
+    long app_uid = -1;
+    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "-uid")) app_uid = strtol(argv[i + 1], NULL, 10);
+    if (app_uid < 0) { fprintf(stderr, "usage: %s -uid <app uid>\n", argv[0]); return 2; }
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
+    signal(SIGPIPE, SIG_IGN);
+
+    /* Bind first: a second instance fails here, before touching DIAG. */
+    int lfd = listen_socket();
+    if (lfd < 0) { fprintf(stderr, "socket %s: %s\n", SOCKET_NAME, strerror(errno)); return 1; }
+
+    void *h = open_libdiag();
+    if (!h) return 1;
+    SYM(lsm_init_t, Diag_LSM_Init);
+    SYM(lsm_deinit_t, Diag_LSM_DeInit);
+    SYM(reg_client_t, diag_register_dci_client);
+    SYM(rel_client_t, diag_release_dci_client);
+    SYM(reg_stream_t, diag_register_dci_stream_proc);
+    SYM(log_cfg_t, diag_log_stream_config);
+
+    if (!Diag_LSM_Init(NULL)) { fprintf(stderr, "Diag_LSM_Init failed\n"); return 1; }
+    int client = 0, sig = SIGCONT;
+    uint16_t periph = DIAG_CON_MPSS;
+    int r = diag_register_dci_client(&client, &periph, DIAG_PROC_MSM, &sig);
+    if (r != DCI_NO_ERROR) {
+        fprintf(stderr, "DCI register failed: %d\n", r);
+        Diag_LSM_DeInit();
+        return 1;
+    }
+    /* The extended header names each log's subscription (dual SIM). */
+    set_version_t diag_dci_set_version = (set_version_t)dlsym(h, "diag_dci_set_version");
+    sim_tags = diag_dci_set_version && diag_dci_set_version(client, 1) == DCI_NO_ERROR;
+    diag_register_dci_stream_proc(client, on_log, on_event);
+    r = diag_log_stream_config(client, 1, CODES, NCODES);
+    if (r != DCI_NO_ERROR) {
+        fprintf(stderr, "DCI subscribe failed: %d\n", r);
+        diag_release_dci_client(&client);
+        Diag_LSM_DeInit();
+        return 1;
+    }
+
+    /*
+     * An external modem. On Snapdragon 865/870 the modem is an X55 on PCIe:
+     * its DCI reaches the phone as a remote processor (1), and the SoC side
+     * (0) has no MPSS, so the client above gets no modem logs. Now that
+     * libdiag knows its processors, ask which one has the modem:
+     *   SoC side yes (an integrated modem): the client above stays alone.
+     *   SoC side no, processor 1 yes (the X55): a client there, and the one
+     *     above goes.
+     *   Unclear (a query missing or failing) and the driver reports a remote
+     *     device: a client on processor 1 too; the first client to deliver
+     *     feeds the decoders (decode_src).
+     */
+    int client2 = 0, external = 0, soc_open = 1;
+    dci_list_t dci_query = (dci_list_t)dlsym(h, "diag_get_dci_support_list_proc");
+    int soc = proc_has_modem(dci_query, DIAG_PROC_MSM), mdm = proc_has_modem(dci_query, DIAG_PROC_MDM);
+    uint16_t remote_mask = 0;
+    remote_dev_t has_remote = (remote_dev_t)dlsym(h, "diag_has_remote_device");
+    if (has_remote) has_remote(&remote_mask);
+    if (soc != 1 && (mdm == 1 || ((soc < 0 || mdm < 0) && remote_mask))) {
+        uint16_t periph2 = DIAG_CON_MPSS;
+        int sig2 = SIGCONT;
+        int r2 = diag_register_dci_client(&client2, &periph2, DIAG_PROC_MDM, &sig2);
+        if (r2 == DCI_NO_ERROR) {
+            int tags2 = diag_dci_set_version && diag_dci_set_version(client2, 1) == DCI_NO_ERROR;
+            diag_register_dci_stream_proc(client2, on_log_external, on_event);
+            r2 = diag_log_stream_config(client2, 1, CODES, NCODES);
+            if (r2 == DCI_NO_ERROR) {
+                external = 1;
+                if (soc == 0 && mdm == 1) {
+                    /* The modem is only on processor 1: the SoC-side client goes. */
+                    diag_log_stream_config(client, 0, CODES, NCODES);
+                    usleep(200 * 1000);
+                    diag_release_dci_client(&client);
+                    soc_open = 0;
+                    sim_tags = tags2;
+                }
+            } else {
+                diag_release_dci_client(&client2);
+            }
+        }
+        if (!external) fprintf(stderr, "DCI on the external modem failed: %d\n", r2);
+    }
+    window_start = now_ms();
+
+    long last_request = now_ms();
+    int cfd = -1;
+    char in[512];
+    size_t in_len = 0;
+    static char out[16384];
+    while (!stop_flag && now_ms() - last_request < WATCHDOG_MS) {
+        struct pollfd pf[2] = { { lfd, POLLIN, 0 }, { cfd, POLLIN, 0 } };
+        if (poll(pf, cfd >= 0 ? 2 : 1, 500) < 0 && errno != EINTR) break;
+        if (pf[0].revents & POLLIN) {
+            int nfd = accept4(lfd, NULL, NULL, SOCK_CLOEXEC);
+            if (nfd >= 0) {
+                struct ucred cr;
+                socklen_t cl = sizeof cr;
+                if (getsockopt(nfd, SOL_SOCKET, SO_PEERCRED, &cr, &cl) < 0 || ((long)cr.uid != app_uid && cr.uid != 0)) {
+                    close(nfd);
+                } else {
+                    if (cfd >= 0) close(cfd);           /* newest client wins */
+                    cfd = nfd;
+                    in_len = 0;
+                }
+            }
+        }
+        if (cfd >= 0 && (pf[1].revents & (POLLIN | POLLHUP | POLLERR))) {
+            ssize_t k = read(cfd, in + in_len, sizeof in - 1 - in_len);
+            if (k <= 0) { close(cfd); cfd = -1; continue; }
+            in_len += (size_t)k;
+            in[in_len] = 0;
+            char *nl;
+            while ((nl = strchr(in, '\n')) != NULL) {
+                *nl = 0;
+                if (strstr(in, "\"stats\"")) {
+                    last_request = now_ms();
+                    const char *n_sim = strstr(in, "\"sim\":");
+                    int n = write_stats(out, sizeof out, n_sim ? atoi(n_sim + 6) : 1);
+                    if (n < 0 || write_all(cfd, out, (size_t)n) < 0) { close(cfd); cfd = -1; break; }
+                } else if (strstr(in, "\"stop\"")) {
+                    write_all(cfd, "{\"ok\":true,\"stopping\":true}\n", 28);
+                    stop_flag = 1;
+                } else {
+                    char msg[96];
+                    int n = snprintf(msg, sizeof msg, "{\"ok\":true,\"version\":\"%s\"}\n", HELPER_VERSION);
+                    write_all(cfd, msg, (size_t)n);
+                }
+                size_t used = (size_t)(nl - in) + 1;
+                memmove(in, nl + 1, in_len - used + 1);
+                in_len -= used;
+            }
+            if (in_len >= sizeof in - 1) in_len = 0;    /* overlong line: drop */
+        }
+    }
+
+    /* Unsubscribe, let in-flight callbacks drain, then release (releasing
+     * under load without the drain segfaulted in Diag_LSM_DeInit). */
+    if (soc_open) diag_log_stream_config(client, 0, CODES, NCODES);
+    if (external) diag_log_stream_config(client2, 0, CODES, NCODES);
+    usleep(500 * 1000);
+    stopping = 1;
+    usleep(200 * 1000);
+    if (external) diag_release_dci_client(&client2);
+    if (soc_open) diag_release_dci_client(&client);
+    Diag_LSM_DeInit();
+    if (cfd >= 0) close(cfd);
+    close(lfd);
+    return 0;
+}
+#endif /* QBM_USB_DIAG */

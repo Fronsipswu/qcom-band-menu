@@ -1,0 +1,40 @@
+{
+	"luci-app-qbm-diagd": {
+		"description": "Grant access to qbm-diagd modem statistics, band and cell locking",
+		"read": {
+			"ubus": {
+				"luci.qbm-diagd": [
+					"stats",
+					"status",
+					"ports",
+					"qmi_query",
+					"serving",
+					"operator",
+					"at",
+					"modem",
+					"at_bands",
+					"at_serving"
+				]
+			},
+			"uci": [
+				"qbm-diagd"
+			]
+		},
+		"write": {
+			"ubus": {
+				"luci.qbm-diagd": [
+					"qmi",
+					"airplane",
+					"reconnect",
+					"refresh_ip",
+					"at",
+					"at_bands_set",
+					"mtk_restore"
+				]
+			},
+			"uci": [
+				"qbm-diagd"
+			]
+		}
+	}
+}
