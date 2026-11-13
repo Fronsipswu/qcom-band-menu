@@ -1,8 +1,11 @@
 name: CI build
 
+# The debug APK, for every push to main that touches the app.
 on:
   push:
     branches: [main]
+    paths:
+      - 'app/**'
   workflow_dispatch:
 
 concurrency:
