@@ -57,6 +57,7 @@ function parseGtact(r) {
 		return String(reply || '').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return /^\+GTACT:/.test(l); })[0];
 	}
 	var test = line(replies[0]), now = line(replies[1]);
+	st.raw = now || null;
 	if (test) {
 		var groups = [], m, re = /\(([^)]*)\)/g;
 		while ((m = re.exec(test))) groups.push(m[1] ? m[1].split(',').map(Number) : []);
@@ -80,6 +81,28 @@ function parseGtact(r) {
 		st.valid = !!test;
 	}
 	return st;
+}
+
+/*
+ * The FM350's last band selection per RAT, kept in the browser: a RAT that is
+ * switched off goes to the modem as its fallback band only, so the modem no
+ * longer holds its bands. The page shows these for an unchecked RAT and sends
+ * them again when the RAT is checked. Saved on every Apply (all three RATs,
+ * checked or not) and from the modem's own mask for each RAT that is on.
+ */
+var REMEMBER_KEY = 'qbm-gtact-bands';
+function remembered() {
+	try {
+		var v = JSON.parse(localStorage.getItem(REMEMBER_KEY) || '{}');
+		var out = {};
+		[ 'nr', 'lte', 'wcdma' ].forEach(function(r) { out[r] = Array.isArray(v[r]) ? v[r].filter(function(b) { return b > 0; }) : []; });
+		return out;
+	} catch (e) { return { nr: [], lte: [], wcdma: [] }; }
+}
+function remember(sel) {
+	var v = remembered();
+	[ 'nr', 'lte', 'wcdma' ].forEach(function(r) { if (sel[r] && sel[r].length) v[r] = sel[r].slice(); });
+	try { localStorage.setItem(REMEMBER_KEY, JSON.stringify(v)); } catch (e) {}
 }
 
 function atOk(r) {
@@ -415,6 +438,14 @@ return view.extend({
 		});
 		var isAuto = st.rat === 10;
 		var ratNow = isAuto ? [] : [ 'nr', 'lte', 'wcdma' ].filter(function(r) { return curBands[r].length > 0; });
+		/* The modem's mask is the truth for each RAT that is on; an RAT that is
+		 * off (fallback only) shows the bands it had last. */
+		if (!isAuto) remember(curBands);
+		var memory = remembered();
+		var shown = {};
+		[ 'nr', 'lte', 'wcdma' ].forEach(function(r) {
+			shown[r] = curBands[r].length ? curBands[r] : memory[r].filter(function(b) { return st.hw[r].indexOf(b) >= 0; });
+		});
 		var ratBoxes = {};
 		var ratNames = [ [ 'nr', 'NR' ], [ 'lte', 'LTE' ], [ 'wcdma', 'WCDMA' ] ].filter(function(n) {
 			return st.hw[n[0]].length || ratNow.indexOf(n[0]) >= 0;
@@ -430,14 +461,40 @@ return view.extend({
 			return E('label', {}, [ b, n[1] ]);
 		})));
 
+		/* The modem's setting as AT+GTACT? reports it, raw and per RAT. */
+		function ratLine(r, name, prefix) {
+			var all = st.cur[r] || [];
+			var text = isAuto ? _('all bands (automatic)')
+				: curBands[r].length ? curBands[r].map(function(b) { return prefix + b; }).join(' ')
+				: all.length ? _('off (fallback %s only)').format(all.map(function(b) { return prefix + b; }).join(' '))
+				: _('off');
+			return E('tr', { 'class': 'tr' }, [
+				E('td', { 'class': 'td', 'style': 'width:7em; font-weight:bold' }, name),
+				E('td', { 'class': 'td' }, text)
+			]);
+		}
+		var current = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Current setting')),
+			E('div', { 'class': 'qbm-actions' }, [ E('code', {}, st.raw || '+GTACT: ?') ]),
+			E('table', { 'class': 'table', 'style': 'margin-top:.5em' }, [
+				E('tr', { 'class': 'tr' }, [
+					E('td', { 'class': 'td', 'style': 'width:7em; font-weight:bold' }, _('Mode')),
+					E('td', { 'class': 'td' }, isAuto ? _('Automatic (RAT 10)')
+						: _('RAT %s, preferred %s').format(st.rat, [ st.p1, st.p2 ].filter(function(x) { return x != null; })
+							.map(function(p) { return { 2: 'WCDMA', 3: 'LTE', 6: 'NR' }[p] || p; }).join(', ') || '–'))
+				]),
+				ratLine('nr', 'NR', 'n'),
+				ratLine('lte', 'LTE', 'B'),
+				st.hw.wcdma.length || (st.cur.wcdma || []).length ? ratLine('wcdma', 'WCDMA', 'B') : ''
+			])
+		]);
+
 		var sections = [
 			bar,
+			current,
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Network mode')),
-				ratRow,
-				E('div', { 'class': 'qbm-actions' }, [
-					E('span', { 'class': 'qbm-meta' }, _('current: AT+GTACT=%s').format([ st.rat, st.p1, st.p2 ].filter(function(x) { return x != null; }).join(',')))
-				])
+				ratRow
 			])
 		];
 
@@ -480,8 +537,10 @@ return view.extend({
 				return !filterList || filterSet[key] || (rat === 'wcdma' && filterSet['B' + b]);
 			});
 			if (filterList && !hw.length) return;
-			sections.push(self.bandGroup(title, prefix, hw, curBands[rat], null,
-				curBands[rat].length ? null : _('The modem lists no %s band in its current setting.').format(title), {
+			var note = curBands[rat].length || isAuto ? null
+				: shown[rat].length ? _('%s is off. These are its last bands: they are sent again when %s is checked.').format(title, title)
+				: _('The modem lists no %s band in its current setting.').format(title);
+			sections.push(self.bandGroup(title, prefix, hw, shown[rat], null, note, {
 					noApply: true,
 					onChange: function(bands) { picked[rat] = bands; updatePreview(); }
 				}));
@@ -496,6 +555,7 @@ return view.extend({
 				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, function() {
 					var m = currentMask();
 					if (m.error) { ui.addNotification(null, E('p', m.error), 'warning'); return; }
+					if (m.rat !== 10) remember(picked);
 					return self.sendAt(m.rat, m.p1, m.p2, m.codes,
 						m.rat === 10 ? _('Automatic mode applied.') : _('Band mask applied.'));
 				}) }, _('Apply')),

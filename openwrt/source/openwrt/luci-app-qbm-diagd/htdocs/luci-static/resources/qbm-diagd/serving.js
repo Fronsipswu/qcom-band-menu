@@ -681,6 +681,193 @@ function snapshotAt(reply, diag, gnbBits, nrSupported) {
 	};
 }
 
+/*
+ * The same card's model for a Qualcomm modem whose USB mode (RNDIS, ECM,
+ * MBIM) has no QMI port, from one AT round: reply.replies =
+ * [ AT+QENG="servingcell", AT+QCAINFO, AT+QSPN, AT+CEREG?, AT+C5GREG?, AT+COPS? ].
+ * The first three are Quectel's (RG520N/RM5x0N AT manual 5.19-5.21); a
+ * modem without them still gets the mode, operator and roaming from the
+ * 3GPP commands. QENG serving lines ("-" = not valid):
+ *   SA:   "servingcell",state,"NR5G-SA",duplex,mcc,mnc,cellid,pci,tac,arfcn,band,bw,rsrp,rsrq,sinr,scs,srxlev
+ *   LTE:  "servingcell",state,"LTE",is_tdd,mcc,mnc,cellid,pci,earfcn,band,ul_bw,dl_bw,tac,rsrp,...
+ *   NSA:  "servingcell",state / "LTE",is_tdd,mcc,... (as LTE) / "NR5G-NSA",mcc,mnc,pci,rsrp,sinr,rsrq,arfcn,band,bw,scs
+ *   WCDMA: "servingcell",state,"WCDMA",mcc,mnc,lac,cellid,uarfcn,psc,...
+ * cellid, tac and lac are hex. NR bw is a code (QNR_BW), LTE bw 0-5
+ * (1.4-20 MHz), scs 0-4 (15-240 kHz).
+ */
+var QNR_BW = [ 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 200, 400, 35, 45 ];
+var QCA_LTE_BW = { 6: 1.4, 15: 3, 25: 5, 50: 10, 75: 15, 100: 20 };
+
+/* The value lines of one AT reply that start with `tag` ("+QENG:"), split
+ * on commas outside quotes, quotes removed, "-" as null. */
+function atRecords(reply, tag) {
+	return atLines(reply).filter(function(l) { return l.indexOf(tag) === 0; }).map(function(l) {
+		var out = [], cur = '', q = false, s = l.slice(tag.length).trim();
+		for (var i = 0; i < s.length; i++) {
+			var ch = s.charAt(i);
+			if (ch === '"') q = !q;
+			else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; }
+			else cur += ch;
+		}
+		out.push(cur.trim());
+		return out.map(function(v) { return v === '-' || v === '' ? null : v; });
+	});
+}
+
+function intOr(v, base) {
+	if (v == null || !/^-?[0-9A-Fa-f]+$/.test(v)) return null;
+	var n = parseInt(v, base || 10);
+	return isNaN(n) ? null : n;
+}
+
+/* UCS2 hex (AT+QSPN alphabet 1) to text. */
+function ucs2(hex) {
+	if (!hex || !/^([0-9A-Fa-f]{4})+$/.test(hex)) return hex;
+	var s = '';
+	for (var i = 0; i < hex.length; i += 4) s += String.fromCharCode(parseInt(hex.substr(i, 4), 16));
+	return s;
+}
+
+function snapshotQuectel(reply, diag, gnbBits, nrSupported) {
+	var failed = [];
+	if (!reply || !reply.ok || !reply.replies) failed.push('AT');
+	var r = (reply && reply.replies) || [];
+	var qeng = atRecords(r[0], '+QENG:'), qca = atRecords(r[1], '+QCAINFO:'), qspn = atRecords(r[2], '+QSPN:')[0];
+	var cereg = atRecords(r[3], '+CEREG:')[0], c5greg = atRecords(r[4], '+C5GREG:')[0], cops = atRecords(r[5], '+COPS:')[0];
+	var dLte = (diag && diag.carriers) || [], dNr = (diag && diag.nr) || [];
+
+	var state = null, lte = null, nr = null, nrSa = false, wcdma = null;
+	qeng.forEach(function(f) {
+		var i = 0;
+		if (f[0] === 'servingcell') { state = f[1]; i = 2; }
+		var rat = f[i];
+		if (rat === 'LTE' && !lte) lte = { mcc: f[i + 2], mnc: f[i + 3], cellId: intOr(f[i + 4], 16), pci: intOr(f[i + 5]),
+			ch: intOr(f[i + 6]), band: intOr(f[i + 7]), bwMhz: lteMhz(intOr(f[i + 9])), tac: intOr(f[i + 10], 16) };
+		else if (rat === 'NR5G-SA' && !nr) { nrSa = true; nr = { mcc: f[i + 2], mnc: f[i + 3], cellId: intOr(f[i + 4], 16),
+			pci: intOr(f[i + 5]), tac: intOr(f[i + 6], 16), ch: intOr(f[i + 7]), band: intOr(f[i + 8]),
+			bwMhz: QNR_BW[intOr(f[i + 9])], scs: nrScsKhz(intOr(f[i + 13])) }; }
+		else if (rat === 'NR5G-NSA' && !nr) nr = { mcc: f[i + 1], mnc: f[i + 2], pci: intOr(f[i + 3]), ch: intOr(f[i + 7]),
+			band: intOr(f[i + 8]), bwMhz: QNR_BW[intOr(f[i + 9])], scs: nrScsKhz(intOr(f[i + 10])) };
+		else if (rat === 'WCDMA' && !wcdma) wcdma = { mcc: f[i + 1], mnc: f[i + 2], lac: intOr(f[i + 3], 16),
+			cellId: intOr(f[i + 4], 16), uarfcn: intOr(f[i + 5]), psc: intOr(f[i + 6]) };
+	});
+	/* An NSA line without a PCI is an SCG that isn't added (idle). */
+	if (nr && !nrSa && nr.pci == null) nr = null;
+
+	/* No QENG (not a Quectel): the mode from COPS's access technology. */
+	var act = cops && cops.length >= 4 ? intOr(cops[3]) : null;
+	var mode = lte && nr ? 'NR_NSA' : lte ? 'LTE' : nr ? 'NR_SA' : wcdma ? 'WCDMA'
+		: state === 'LIMSRV' ? 'LIMITED' : state === 'SEARCH' ? 'NO_SERVICE'
+		: act === 7 ? 'LTE' : act === 13 ? 'NR_NSA' : act === 11 || act === 12 ? 'NR_SA'
+		: act === 2 || (act >= 4 && act <= 6) ? 'WCDMA' : act === 0 || act === 1 || act === 3 ? 'GSM'
+		: failed.length ? 'UNKNOWN' : 'NO_SERVICE';
+
+	var serving = lte || nr || wcdma;
+	var plmn = null;
+	if (serving && /^\d{3}$/.test(serving.mcc || '') && /^\d{1,3}$/.test(serving.mnc || ''))
+		plmn = { mcc: serving.mcc, mnc: serving.mnc.length < 2 ? '0' + serving.mnc : serving.mnc };
+	else {
+		var num = qspn && qspn[4] ? qspn[4] : cops && cops[1] === '2' ? cops[2] : null;
+		if (num && /^\d{5,6}$/.test(num)) plmn = { mcc: num.slice(0, 3), mnc: num.slice(3) };
+	}
+
+	var opName = null;
+	if (qspn) opName = [ qspn[0], qspn[1], qspn[2] ].map(function(x) { return qspn[3] === '1' ? ucs2(x) : x; })
+		.filter(function(x) { return x && !/^[0-9 \-]*$/.test(x); })[0] || null;
+	if (!opName && cops && cops[1] === '0' && cops[2] && !/^[0-9 \-]*$/.test(cops[2])) opName = cops[2];
+
+	/* registration status 1 = home, 5 = roaming (3GPP 27.007) */
+	var reg = mode === 'NR_SA' ? (c5greg || cereg) : (cereg || c5greg);
+	var stat = reg && reg.length >= 2 ? intOr(reg[1]) : null;
+	var roaming = stat === 5 ? true : stat === 1 ? false : null;
+
+	var rrc = state === 'CONNECT' ? 'Connected' : state === 'NOCONN' ? 'Idle' : null;
+
+	function row(list, label, v) { list.push({ label: label, value: v == null ? '–' : String(v) }); }
+
+	function lteCell() {
+		var d = dLte.filter(function(c) { return c.slot === 0; })[0] || null;
+		var f = [];
+		row(f, 'PCI', lte.pci);
+		row(f, 'TAC', lte.tac);
+		row(f, 'TA', diag ? diag.lte_ta : null);
+		row(f, 'Band', lte.band != null ? 'B' + lte.band : null);
+		var bw = d && d.bw != null ? d.bw : lte.bwMhz;
+		row(f, 'Bandwidth', bw != null ? mhz(bw) : null);
+		row(f, 'EARFCN', lte.ch);
+		if (lte.cellId != null && lte.cellId <= 0x0FFFFFFF)
+			f.push({ label: 'eNB/Cell', value: Math.floor(lte.cellId / 256) + '/' + (lte.cellId % 256) });
+		var fr = lte.ch != null ? radio.lteFreq(lte.ch) : null;
+		if (fr) f.push({ label: 'DL / UL', value: fmt(fr.dl) + ' / ' + (fr.ul != null ? fmt(fr.ul) : '—') + ' MHz' });
+		return { title: mode === 'NR_NSA' ? 'LTE MCG' : 'LTE primary cell', rat: 'LTE', fields: f };
+	}
+
+	function nrCell(sa) {
+		var d = dNr.filter(function(c) { return c.pci === nr.pci && (c.arfcn === nr.ch || c.dl_arfcn === nr.ch); })[0] || null;
+		var bandText = nr.band != null && nr.band > 0 ? 'n' + nr.band
+			: d && d.band > 0 ? 'n' + d.band : nr.ch != null ? radio.nrBandLabel(nr.ch, nrSupported) : null;
+		var freq = nr.ch != null && radio.nrFreq(nr.ch) != null ? mhz(radio.nrFreq(nr.ch)) : null;
+		var nci = nr.cellId != null && nr.cellId <= 0xFFFFFFFFF ? nr.cellId : null;
+		var bw = d && d.bw != null ? d.bw : nr.bwMhz;
+		var scs = nr.scs != null ? nr.scs : d && d.scs ? d.scs : null;
+		var f = [];
+		row(f, 'Band', bandText);
+		row(f, 'Bandwidth', bw != null ? mhz(bw) : null);
+		row(f, 'NARFCN', nr.ch);
+		row(f, 'SCS', scs != null ? scs + ' kHz' : null);
+		row(f, 'Frequency', freq);
+		row(f, 'TA', diag ? diag.nr_ta : null);
+		row(f, 'PCI', nr.pci);
+		if (sa) {
+			row(f, 'TAC', nr.tac);
+			row(f, 'gNB / Cell', nci != null ? formatNrNci(nci, gnbBits) : null);
+		}
+		return { title: sa ? 'NR primary cell' : 'NR SCG', rat: 'NR', fields: f, nci: sa ? nci : null };
+	}
+
+	function wcdmaCell() {
+		var f = [], u = wcdma.uarfcn, b = u != null ? radio.wcdmaBand(u) : null;
+		if (b != null) f.push({ label: 'Band', value: 'B' + b });
+		if (u != null) f.push({ label: 'UARFCN', value: String(u) });
+		if (u != null && radio.wcdmaFreq(u) != null) f.push({ label: 'Frequency', value: mhz(radio.wcdmaFreq(u)) });
+		if (wcdma.psc != null) f.push({ label: 'PSC', value: String(wcdma.psc) });
+		if (wcdma.cellId != null) f.push({ label: 'Cell ID', value: Math.floor(wcdma.cellId / 65536) + ' / ' + (wcdma.cellId % 65536) });
+		if (wcdma.lac != null) f.push({ label: 'LAC', value: String(wcdma.lac) });
+		return { title: 'WCDMA serving cell', rat: 'WCDMA', fields: f };
+	}
+
+	/* LTE DL bandwidth is only valid while connected; QCAINFO's PCC has it in RBs. */
+	if (lte && lte.bwMhz == null) {
+		var pcc = qca.filter(function(f) { return f[0] === 'PCC' && /^LTE/.test(f[3] || ''); })[0];
+		if (pcc && QCA_LTE_BW[intOr(pcc[2])] != null) lte.bwMhz = QCA_LTE_BW[intOr(pcc[2])];
+	}
+
+	var cells = [];
+	if (lte) cells.push(lteCell());
+	if (nr) cells.push(nrCell(!lte));
+	if (!lte && !nr && wcdma) cells.push(wcdmaCell());
+
+	/* Carrier count from QCAINFO: the PCC plus the SCCs that are configured
+	 * (scell_state 1, 2) on the serving RAT; NR SCCs in NSA are the SCG. */
+	var modeLabel = MODES[mode][0];
+	var lteScc = qca.filter(function(f) { return f[0] === 'SCC' && /^LTE/.test(f[3] || '') && (f[4] === '1' || f[4] === '2'); });
+	var nrScc = qca.filter(function(f) { return f[0] === 'SCC' && /^NR5G/.test(f[3] || ''); });
+	var nCa = mode === 'LTE' ? 1 + lteScc.length : mode === 'NR_SA' ? 1 + nrScc.length : 0;
+	if (nCa >= 2) modeLabel += ' ' + nCa + 'xCA';
+
+	return {
+		mode: mode, modeLabel: modeLabel, inService: MODES[mode][1] !== '',
+		rrc: rrc,
+		plmn: plmn,
+		roaming: roaming,
+		operatorName: opName,
+		cells: cells,
+		loc: null,
+		failedReads: failed,
+		via: 'at'
+	};
+}
+
 /* The operator name for a PLMN, from GET_PLMN_NAME and GET_HOME_NETWORK
  * (NetworkMonitor.kt readOperatorName): the PLMN's name, else the home
  * network's when this PLMN is home or we're not roaming; a name that's only
@@ -716,5 +903,5 @@ return baseclass.extend({
 	decodeRfBandInfo: decodeRfBandInfo, decodeArfcnList: decodeArfcnList, decodeLteCaInfo: decodeLteCaInfo,
 	decodeHomeNetwork: decodeHomeNetwork, decodePlmnName: decodePlmnName, decodeErrRate: decodeErrRate,
 	formatNrNci: formatNrNci, plmnText: plmnText,
-	snapshot: snapshot, snapshotAt: snapshotAt, operatorName: operatorName, framesOf: framesOf
+	snapshot: snapshot, snapshotAt: snapshotAt, snapshotQuectel: snapshotQuectel, operatorName: operatorName, framesOf: framesOf
 });

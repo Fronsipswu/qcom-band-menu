@@ -30,6 +30,9 @@ var callQuery = rpc.declare({ object: 'luci.qbm-diagd', method: 'qmi_query', par
 var callReconnect = rpc.declare({ object: 'luci.qbm-diagd', method: 'reconnect' });
 /* Fibocom FM350 (no QMI): the serving cell from AT+COPS? and AT+GTCCINFO?. */
 var callAtServing = rpc.declare({ object: 'luci.qbm-diagd', method: 'at_serving' });
+/* A Qualcomm modem without a QMI port (RNDIS/ECM/MBIM mode): Quectel's
+ * AT+QENG/QCAINFO/QSPN and the 3GPP registration and operator commands. */
+var callAtServingQcom = rpc.declare({ object: 'luci.qbm-diagd', method: 'at_serving_qcom' });
 
 /* 'mtk' for an FM350, else 'qcom'; set before the first refresh. */
 var modemFamily = 'qcom';
@@ -890,6 +893,7 @@ function getSnapshot(reply, st) {
 	if (!reply || reply.ok !== true) return null;
 	try {
 		if (modemFamily === 'mtk') return serving.snapshotAt(reply, st, gnbBits(), nrHwBands);
+		if (reply.via === 'at') return serving.snapshotQuectel(reply, st, gnbBits(), nrHwBands);
 		return serving.snapshot(serving.framesOf(reply), st, gnbBits(), nrHwBands);
 	} catch (e) {
 		return null;
@@ -941,7 +945,10 @@ return view.extend({
 			return E('div', { 'class': 'qbm-card qbm-serving' }, [
 				E('div', { 'class': 'qbm-pillrow' }, pillRow),
 				reply ? E('div', { 'class': 'qbm-foot', 'style': 'margin-top:.6em' },
-					_('Serving cell (QMI port): %s. Check the QMI port under Settings, and that the modem is connected.').format(String(why).replace(/\.$/, ''))) : ''
+					(modemFamily === 'mtk'
+						? _('Serving cell (AT port): %s. Check the AT port under Settings, and that the modem is connected.')
+						: _('Serving cell (QMI port, then AT port): %s. Check the QMI and AT ports under Settings, and that the modem is connected.')
+					).format(String(why).replace(/\.$/, ''))) : ''
 			]);
 		}
 
@@ -997,7 +1004,7 @@ return view.extend({
 	wantOperator: function(snap) {
 		var self = this, key = serving.plmnText(snap.plmn);
 		if (key && snap.operatorName) { this.operatorNames[key] = snap.operatorName; return; }   /* AT+COPS? */
-		if (!key || key in this.operatorNames || modemFamily === 'mtk') return;
+		if (!key || key in this.operatorNames || modemFamily === 'mtk' || snap.via === 'at') return;
 		this.operatorNames[key] = null;
 		L.resolveDefault(callOperator(this.sim, snap.plmn.mcc, snap.plmn.mnc), null).then(function(r) {
 			var f = serving.framesOf(r);
@@ -1154,6 +1161,33 @@ return view.extend({
 	/* DIAG every poll (1 s); the serving cell every other one: each read opens
 	 * the QMI port, which the data connection (uqmi) shares. */
 	tick: 0,
+
+	/* A Qualcomm modem's serving cell: QMI, else AT. In RNDIS, ECM or MBIM
+	 * mode there is no QMI port; once QMI has failed and AT has answered,
+	 * this page stays on AT (servingVia) until it is reloaded. */
+	servingVia: null,
+	readServingQcom: function() {
+		var self = this, noReply = { ok: false, error: { message: _('no reply') } };
+		function viaAt(qmiReply) {
+			return L.resolveDefault(callAtServingQcom(), noReply).then(function(r) {
+				var snap = r && r.ok === true ? serving.snapshotQuectel(r, null, gnbBits(), nrHwBands) : null;
+				if (snap && snap.mode !== 'UNKNOWN') {
+					self.servingVia = 'at';
+					r.via = 'at';
+					return r;
+				}
+				if (!qmiReply) return r;
+				var why = (qmiReply.error && (qmiReply.error.message || qmiReply.error)) || _('unknown error');
+				return { ok: false, error: { message: _('%s; the AT port gave no serving cell either').format(String(why).replace(/\.$/, '')) } };
+			});
+		}
+		if (this.servingVia === 'at') return viaAt(null);
+		return L.resolveDefault(callServing(this.sim), noReply).then(function(r) {
+			if (r && r.ok === true) { self.servingVia = 'qmi'; return r; }
+			return viaAt(r);
+		});
+	},
+
 	refresh: function(force) {
 		var self = this;
 		if ((this.paused || !poll.active()) && force !== true) return Promise.resolve();
@@ -1173,7 +1207,7 @@ return view.extend({
 			L.resolveDefault(callStats(this.sim), null),
 			!wantServing ? Promise.resolve(undefined)
 				: modemFamily === 'mtk' ? L.resolveDefault(callAtServing(), { ok: false, error: { message: _('no reply') } })
-				: L.resolveDefault(callServing(this.sim), { ok: false, error: { message: _('no reply') } })
+				: this.readServingQcom()
 		]).then(function(r) {
 			var status = r[0], st = r[1] && r[1].ok === true ? r[1] : null;
 			if (st && st.sim && st.sim !== self.sim && !st.sim_tags) self.sim = 1;

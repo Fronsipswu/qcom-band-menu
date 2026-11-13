@@ -10,6 +10,10 @@
 #                  ARFCN list/LTE CA info), raw, for the Network page
 #   operator       the operator name for a PLMN (NAS GET_PLMN_NAME and
 #                  GET_HOME_NETWORK), raw
+#   at_serving     the FM350's serving cell (AT+COPS?, AT+GTCCINFO?)
+#   at_serving_qcom  the serving cell over AT, for a Qualcomm modem whose USB
+#                  mode (RNDIS, ECM, MBIM) has no QMI port: Quectel's
+#                  AT+QENG/QCAINFO/QSPN, and the 3GPP AT+CEREG?/C5GREG?/COPS?
 # qbm-qmi gets the request as one argument; nothing is evaluated by a shell.
 
 . /usr/share/libubox/jshn.sh
@@ -602,7 +606,7 @@ ports() {
 
 case "$1" in
 	list)
-		echo '{ "stats": { "sim": 1 }, "status": { }, "ports": { }, "qmi_query": { "sim": 1, "cmd": "query" }, "qmi": { "sim": 1, "request": "{}" }, "serving": { "sim": 1 }, "operator": { "sim": 1, "mcc": "000", "mnc": "00" }, "airplane": { }, "reconnect": { }, "refresh_ip": { }, "at": { "cmd": "AT" }, "modem": { }, "at_bands": { }, "at_bands_set": { "rat": "20", "p1": "", "p2": "", "bands": "" }, "at_serving": { }, "mtk_restore": { } }'
+		echo '{ "stats": { "sim": 1 }, "status": { }, "ports": { }, "qmi_query": { "sim": 1, "cmd": "query" }, "qmi": { "sim": 1, "request": "{}" }, "serving": { "sim": 1 }, "operator": { "sim": 1, "mcc": "000", "mnc": "00" }, "airplane": { }, "reconnect": { }, "refresh_ip": { }, "at": { "cmd": "AT" }, "modem": { }, "at_bands": { }, "at_bands_set": { "rat": "20", "p1": "", "p2": "", "bands": "" }, "at_serving": { }, "at_serving_qcom": { }, "mtk_restore": { } }'
 		;;
 	call)
 		case "$2" in
@@ -645,6 +649,9 @@ case "$1" in
 				;;
 			at_serving)
 				at_run "AT+COPS?" "AT+GTCCINFO?"
+				;;
+			at_serving_qcom)
+				at_run 'AT+QENG="servingcell"' "AT+QCAINFO" "AT+QSPN" "AT+CEREG?" "AT+C5GREG?" "AT+COPS?"
 				;;
 			mtk_restore)
 				mtk_restore

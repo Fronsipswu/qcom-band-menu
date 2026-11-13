@@ -13,7 +13,8 @@
 					"at",
 					"modem",
 					"at_bands",
-					"at_serving"
+					"at_serving",
+					"at_serving_qcom"
 				]
 			},
 			"uci": [
