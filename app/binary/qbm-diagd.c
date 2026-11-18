@@ -72,7 +72,7 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 
-#define HELPER_VERSION "1.22.34"
+#define HELPER_VERSION "1.22.35"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -891,6 +891,9 @@ struct nr_slot {
      * retransmissions signalled with a reserved MCS index (see b887());
      * mcs_all_sum is over every TB, as before 1.22.2, kept for comparison. */
     long tb, fail, bytes_pass, bytes_all, mcs_sum, mcs_tb, mcs_all_sum, rb_sum, layers_sum, mod[5], rx[4];
+    long rb_max;          /* the widest TB's RBs on cell rb_pci/rb_arfcn (a check on the RRC BWP size) */
+    int rb_pci;
+    uint32_t rb_arfcn;
     /* B883 PUSCH TBs, including retransmissions */
     long ul_tb, ul_bytes;
     /* The uplink card, means over the window: B883 PUSCH blocks (RBs, DMRS
@@ -1242,6 +1245,12 @@ static void b887(const uint8_t *p, int n) {
                 s->mcs_tb++;
             }
             s->rb_sum += at(it, L->rbs);
+            if (s->rb_pci != pci || s->rb_arfcn != arfcn) {   /* another cell in this slot: start over */
+                s->rb_pci = pci;
+                s->rb_arfcn = arfcn;
+                s->rb_max = 0;
+            }
+            if (at(it, L->rbs) > s->rb_max) s->rb_max = at(it, L->rbs);
             s->layers_sum += at(it, L->layers) + 1;      /* raw field: layers - 1 */
             if (L->mod.bits) {
                 int m = at(it, L->mod);
@@ -2031,9 +2040,21 @@ static int write_stats(char *out, size_t cap, int for_sim) {
         int band = cfg && c->band ? c->band : 0;
         if (!band && pcell == i) band = nr_pcell_band;
         if (!band) band = rrc_csi_band(lv ? nrlive[i].pci : c->pci, lv ? nrlive[i].earfcn : c->ssb_arfcn);
+        /* Bandwidth: the RRC channel bandwidth (SIB1 or the cell's
+         * configuration) first, since B825/B887's code is sometimes the
+         * channel's and sometimes the active BWP's; "bwp" only when the
+         * active BWP is narrower than the channel. This window's widest
+         * downlink TB on the cell checks the BWP size (a missed
+         * reconfiguration leaves it stale). */
+        int bwp_mhz = 0;
+        int id_pci = lv ? nrlive[i].pci : c->pci;
+        uint32_t id_arfcn = lv ? nrlive[i].earfcn : c->ssb_arfcn;
+        int same_cell = s->rb_pci == id_pci && (s->rb_arfcn == id_arfcn || (cfg && s->rb_arfcn == c->dl_arfcn));
+        int rrc_bw = rrc_csi_bandwidth(id_pci, id_arfcn, same_cell ? (int)s->rb_max : 0, &bwp_mhz);
         if (cfg) {
             PUT(",\"dl_arfcn\":%u,\"band\":%d", c->dl_arfcn, band);
-            if (c->bw_mhz) PUT(",\"bw\":%d", c->bw_mhz);
+            if (rrc_bw) PUT(",\"bw\":%d", rrc_bw);
+            else if (c->bw_mhz) PUT(",\"bw\":%d", c->bw_mhz);
             /* B825 0.x has no SCS: this carrier's TBs give it (same cell). */
             const struct nr_tb_info *t = &nrtb[i];
             int tb_cell = t->pci == c->pci && (t->arfcn == c->dl_arfcn || t->arfcn == c->ssb_arfcn);
@@ -2044,11 +2065,12 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             if (band) PUT(",\"band\":%d", band);
             /* No B825: bandwidth and SCS from this carrier's TBs (same cell). */
             struct nr_tb_info *t = &nrtb[i];
-            if (t->pci == nrlive[i].pci && t->arfcn == nrlive[i].earfcn) {
-                if (t->bw_mhz) PUT(",\"bw\":%d", t->bw_mhz);
-                if (t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
-            }
+            int tb_cell = t->pci == nrlive[i].pci && t->arfcn == nrlive[i].earfcn;
+            if (rrc_bw) PUT(",\"bw\":%d", rrc_bw);
+            else if (tb_cell && t->bw_mhz) PUT(",\"bw\":%d", t->bw_mhz);
+            if (tb_cell && t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
         }
+        if (rrc_bw && bwp_mhz && bwp_mhz < rrc_bw) PUT(",\"bwp\":%d", bwp_mhz);
         {
             uint32_t ch = lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn);
             int pci = lv ? nrlive[i].pci : c->pci;

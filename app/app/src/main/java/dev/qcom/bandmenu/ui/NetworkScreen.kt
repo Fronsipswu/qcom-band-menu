@@ -843,7 +843,7 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true, phyUl: Bo
                     c.band?.let { Text(it, modifier = Modifier.width(48.dp), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold, color = bandColor(it) ?: MiuixTheme.colorScheme.onBackground) }
                     Column(Modifier.weight(1f)) {
                         Text(c.channel, style = MiuixTheme.textStyles.body2)
-                        val sub = listOfNotNull(c.pci?.let { "PCI $it" }, c.bandwidthMhz?.let { "${formatPlain(it)} MHz" }).joinToString(" · ")
+                        val sub = listOfNotNull(c.pci?.let { "PCI $it" }, bandwidthText(c)?.let { "$it MHz" }).joinToString(" · ")
                         if (sub.isNotEmpty()) Text(sub, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     if (c.state != null) Chip(displayNetworkText(c.state), highlight = c.state == "Active" || c.state == "Primary")
@@ -855,6 +855,12 @@ private fun CarrierSection(group: CarrierGroup, title: Boolean = true, phyUl: Bo
             }
         }
     }
+}
+
+/** A carrier's bandwidth (MHz), with an NR carrier's active BWP in brackets
+ *  when it is narrower: "70(50)". */
+internal fun bandwidthText(c: Carrier): String? = c.bandwidthMhz?.let { bw ->
+    formatPlain(bw) + (c.nr?.bwpMhz?.takeIf { it < bw }?.let { "($it)" } ?: "")
 }
 
 /** CA table: one column per carrier, one row per parameter. */
@@ -904,7 +910,7 @@ private fun CaTable(
     if (uplink) { UplinkRows(::row, ::text, barMax, cellStyle, sa = carriers.none { it.diag != null }); return@Column }
     if (nr) { NrRows(::row, ::text, barMax, cellStyle, phyUl); return@Column }
     row(stringResource(R.string.display_band)) { text(it.band, bold = true, color = bandColor(it.band) ?: MiuixTheme.colorScheme.onBackground) }
-    row("BW") { text(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
+    row("BW") { text(bandwidthText(it)) }
     // ENDC: EARFCN and NR-ARFCN share the row.
     row(if (endc) "ARFCN" else "EARFCN") { text(it.channel) }
     row("PCI") { text(it.pci?.toString()) }
@@ -963,7 +969,7 @@ private fun NrRows(
     @Composable fun r(label: String, cell: @Composable (Carrier) -> Unit) = row(label, false, cell)
     @Composable fun t(v: String?, bold: Boolean = false, color: Color = fg) = text(v, bold, color)
     r(stringResource(R.string.display_band)) { t(it.band, bold = true, color = bandColor(it.band) ?: fg) }
-    r("BW") { t(it.bandwidthMhz?.let { b -> formatPlain(b) }) }
+    r("BW") { t(bandwidthText(it)) }
     r("NARFCN") { t(it.channel) }
     r("PCI") { t(it.pci?.toString()) }
     r("RSRP") { CellValueBar(it.rsrp, MetricKind.RSRP, barMax, Rat.NR, cellStyle, trackWhenEmpty = true, gradientFill = true) }

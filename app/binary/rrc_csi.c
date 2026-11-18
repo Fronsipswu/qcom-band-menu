@@ -16,6 +16,11 @@
  *
  * Cells are numbered per cell group (0 = master, 1 = secondary in NR-DC or
  * when an NSA secondary configuration arrives on its own).
+ *
+ * The same configuration gives each cell's bandwidth: the channel (carrier)
+ * bandwidth and the size of the active downlink BWP, which can be narrower.
+ * After RRCSetup the PCell's channel bandwidth and initial BWP are only in
+ * its SIB1, so SIB1s are kept too, by PCI and SSB frequency.
  */
 #include <string.h>
 
@@ -38,11 +43,19 @@ struct report {
     uint8_t present, resource_config, codebook_ports;
     int carrier;               /* serving cell whose resources it measures */
 };
+/* Downlink BWPs by BWP-Id (0 = the initial BWP), in RBs at their own SCS. */
+#define BWPS 5
 struct cell {
     int present;
     int pci;                   /* +1, 0 = not signalled */
     uint32_t ssb_arfcn;        /* +1, 0 = not signalled */
     int band;                  /* 0 = not signalled */
+    uint16_t carrier_rb[4];    /* channel bandwidth in RBs per SCS (15/30/60/120 kHz); 0 = not signalled */
+    uint16_t bwp_rb[BWPS];     /* 0 = not configured, or configured without its size */
+    uint8_t bwp_scs[BWPS];
+    uint8_t active_bwp;        /* after RRCSetup the initial BWP (0), then firstActiveDownlinkBWP-Id */
+    uint8_t bwp_exceeded;      /* windows in a row with a TB wider than the active BWP */
+    uint8_t bwp_stale;         /* two of them: a reconfiguration was missed */
     struct resource resource[RESOURCES];
     struct resource_set set[SETS];
     struct resource_config config[RESOURCE_CONFIGS];
@@ -53,12 +66,26 @@ struct group {
     struct cell cell[CELLS];
 };
 
+/* A SIB1's channel bandwidth and initial BWP, for the cell that sent it. */
+#define SIB1S 16
+struct sib1 {
+    int pci;                   /* +1, 0 = empty */
+    uint32_t ssb_arfcn;
+    uint16_t carrier_rb[4];
+    uint16_t initial_rb;
+    uint8_t initial_scs;
+};
+
 /* One configuration per SIM (dual SIM); rrc_csi_select picks the current. */
 #define SIMS 2
 static struct group groups_s[SIMS][GROUPS];
+static struct sib1 sib1s_s[SIMS][SIB1S];
+static int sib1_next_s[SIMS];
 static int initialised_s[SIMS];
 static int sim;
 #define groups (groups_s[sim])
+#define sib1s (sib1s_s[sim])
+#define sib1_next (sib1_next_s[sim])
 #define initialised (initialised_s[sim])
 
 void rrc_csi_select(int index) {
@@ -223,6 +250,54 @@ static void clear_csi(struct cell *cell) {
     memset(cell->report, 0, sizeof cell->report);
 }
 
+/* ── Bandwidth ───────────────────────────────────────────────────────────── */
+
+/* RBs of a BWP: locationAndBandwidth is a RIV over 275 RBs (38.214 5.1.2.2.2). */
+static int riv_rbs(long riv) {
+    if (riv < 0 || riv > 37949)
+        return 0;
+    int high = (int)(riv / 275), low = (int)(riv % 275);
+    return high + low + 1 <= 275 ? high + 1 : 275 - high + 1;
+}
+
+/* scs-SpecificCarrierList: the channel's width in RBs for each SCS. */
+static void store_carriers(uint16_t *carrier_rb, SCS_SpecificCarrier_t *const *carriers, int count) {
+    for (int i = 0; i < count; i++)
+        if (carriers[i]->subcarrierSpacing >= 0 && carriers[i]->subcarrierSpacing < 4)
+            carrier_rb[carriers[i]->subcarrierSpacing] = (uint16_t)carriers[i]->carrierBandwidth;
+}
+
+static void store_bwp(struct cell *cell, long id, const BWP_t *generic) {
+    if (id < 0 || id >= BWPS || !generic || generic->subcarrierSpacing < 0 || generic->subcarrierSpacing > 3)
+        return;
+    cell->bwp_rb[id] = (uint16_t)riv_rbs(generic->locationAndBandwidth);
+    cell->bwp_scs[id] = (uint8_t)generic->subcarrierSpacing;
+}
+
+/* The network sends only changes: AddMod sets a BWP's size when it carries
+ * bwp-Common (a dedicated-only change keeps it), Release drops the BWP, and
+ * firstActiveDownlinkBWP-Id names the active one. */
+static void apply_bwps(struct cell *cell, const ServingCellConfig_t *dedicated) {
+    if (dedicated->downlinkBWP_ToReleaseList || dedicated->downlinkBWP_ToAddModList
+        || dedicated->firstActiveDownlinkBWP_Id)
+        cell->bwp_stale = cell->bwp_exceeded = 0;
+    if (dedicated->downlinkBWP_ToReleaseList)
+        for (int i = 0; i < dedicated->downlinkBWP_ToReleaseList->list.count; i++) {
+            long id = *dedicated->downlinkBWP_ToReleaseList->list.array[i];
+            if (id > 0 && id < BWPS)
+                cell->bwp_rb[id] = 0;
+        }
+    if (dedicated->downlinkBWP_ToAddModList)
+        for (int i = 0; i < dedicated->downlinkBWP_ToAddModList->list.count; i++) {
+            const BWP_Downlink_t *bwp = dedicated->downlinkBWP_ToAddModList->list.array[i];
+            if (bwp->bwp_Common)
+                store_bwp(cell, bwp->bwp_Id, bwp->bwp_Common->genericParameters);
+        }
+    if (dedicated->firstActiveDownlinkBWP_Id && *dedicated->firstActiveDownlinkBWP_Id >= 0
+        && *dedicated->firstActiveDownlinkBWP_Id < BWPS)
+        cell->active_bwp = (uint8_t)*dedicated->firstActiveDownlinkBWP_Id;
+}
+
 /* ── Cell groups ─────────────────────────────────────────────────────────── */
 
 static void apply_dedicated(struct group *group, int index, const ServingCellConfig_t *dedicated) {
@@ -230,6 +305,7 @@ static void apply_dedicated(struct group *group, int index, const ServingCellCon
         return;
     struct cell *cell = &group->cell[index];
     cell->present = 1;
+    apply_bwps(cell, dedicated);
     const struct SetupRelease_CSI_MeasConfig *csi = dedicated->csi_MeasConfig;
     if (!csi)
         return;
@@ -269,14 +345,31 @@ static void apply_common(struct group *group, int index, const ServingCellConfig
         cell->ssb_arfcn = ssb;
     if (band)
         cell->band = band;
+    if (frequency)
+        store_carriers(cell->carrier_rb, frequency->scs_SpecificCarrierList.list.array,
+                       frequency->scs_SpecificCarrierList.list.count);
+    if (common->downlinkConfigCommon && common->downlinkConfigCommon->initialDownlinkBWP)
+        store_bwp(cell, 0, common->downlinkConfigCommon->initialDownlinkBWP->genericParameters);
     cell->present = 1;
+}
+
+/* A decode is whole when it used every byte, or every byte it left is zero:
+ * some modems log messages with a padding byte (handover commands on the
+ * SM8550), and a SIB1 is padded to its transport block. */
+static int whole(asn_dec_rval_t result, const uint8_t *message, size_t length) {
+    if (result.code != RC_OK || result.consumed > length)
+        return 0;
+    for (size_t i = result.consumed; i < length; i++)
+        if (message[i])
+            return 0;
+    return 1;
 }
 
 static void apply_cell_group(const OCTET_STRING_t *encoded, int secondary) {
     CellGroupConfig_t *config = NULL;
     asn_dec_rval_t result =
         uper_decode_complete(NULL, &asn_DEF_CellGroupConfig, (void **)&config, encoded->buf, encoded->size);
-    if (result.code != RC_OK || result.consumed != encoded->size || config->cellGroupId < 0
+    if (!whole(result, encoded->buf, encoded->size) || config->cellGroupId < 0
         || config->cellGroupId >= GROUPS) {
         ASN_STRUCT_FREE(asn_DEF_CellGroupConfig, config);
         return;
@@ -288,10 +381,20 @@ static void apply_cell_group(const OCTET_STRING_t *encoded, int secondary) {
     if (config->spCellConfig) {
         int index = config->spCellConfig->servCellIndex ? (int)*config->spCellConfig->servCellIndex : 0;
         if (index >= 0 && index < CELLS) {
-            /* With sync = a new SpCell (handover, PCell change): start over. */
+            /* With sync = a new SpCell (handover, PCell change): start over.
+             * Without frequencyInfoDL the new SpCell is on the same carrier
+             * (intra-frequency), so the channel bandwidth carries over. */
             if (config->spCellConfig->reconfigurationWithSync) {
-                memset(&group->cell[index], 0, sizeof group->cell[index]);
-                apply_common(group, index, config->spCellConfig->reconfigurationWithSync->spCellConfigCommon);
+                const ServingCellConfigCommon_t *common = config->spCellConfig->reconfigurationWithSync->spCellConfigCommon;
+                struct cell *cell = &group->cell[index];
+                uint16_t carrier_rb[4];
+                uint32_t ssb = cell->ssb_arfcn;
+                memcpy(carrier_rb, cell->carrier_rb, sizeof carrier_rb);
+                memset(cell, 0, sizeof *cell);
+                apply_common(group, index, common);
+                int new_carrier = common && common->downlinkConfigCommon && common->downlinkConfigCommon->frequencyInfoDL;
+                if (!new_carrier && (!cell->ssb_arfcn || cell->ssb_arfcn == ssb))
+                    memcpy(cell->carrier_rb, carrier_rb, sizeof carrier_rb);
             }
             group->spcell = index;
             apply_dedicated(group, index, config->spCellConfig->spCellConfigDedicated);
@@ -416,7 +519,7 @@ static void decode_dl_ccch(const struct b821 *record, const uint8_t *message, in
     DL_CCCH_Message_t *decoded = NULL;
     asn_dec_rval_t result =
         uper_decode_complete(NULL, &asn_DEF_DL_CCCH_Message, (void **)&decoded, message, (size_t)length);
-    if (result.code == RC_OK && result.consumed == (size_t)length
+    if (whole(result, message, (size_t)length)
         && decoded->message->present == DL_CCCH_MessageType_PR_c1
         && decoded->message->choice.c1->present == DL_CCCH_MessageType__c1_PR_rrcSetup) {
         const RRCSetup_t *setup = decoded->message->choice.c1->choice.rrcSetup;
@@ -438,7 +541,7 @@ static void decode_dl_dcch(const struct b821 *record, const uint8_t *message, in
     DL_DCCH_Message_t *decoded = NULL;
     asn_dec_rval_t result =
         uper_decode_complete(NULL, &asn_DEF_DL_DCCH_Message, (void **)&decoded, message, (size_t)length);
-    if (result.code == RC_OK && result.consumed == (size_t)length
+    if (whole(result, message, (size_t)length)
         && decoded->message->present == DL_DCCH_MessageType_PR_c1
         && decoded->message->choice.c1->present == DL_DCCH_MessageType__c1_PR_rrcReconfiguration) {
         name_spcell(record);
@@ -460,6 +563,44 @@ static void decode_bare_reconfiguration(const uint8_t *message, int length) {
     ASN_STRUCT_FREE(asn_DEF_RRCReconfiguration, decoded);
 }
 
+/* SIB1 (channel 2 from v16 on): the channel bandwidth and the initial BWP of
+ * the cell named in the record header. Other system information decodes as
+ * NULL (the reduced decoder doesn't include it). */
+static void decode_sib1(const struct b821 *record, const uint8_t *message, int length) {
+    if (record->pci > 1007)
+        return;
+    BCCH_DL_SCH_Message_t *decoded = NULL;
+    asn_dec_rval_t result =
+        uper_decode_complete(NULL, &asn_DEF_BCCH_DL_SCH_Message, (void **)&decoded, message, (size_t)length);
+    if (whole(result, message, (size_t)length)
+        && decoded->message->present == BCCH_DL_SCH_MessageType_PR_c1
+        && decoded->message->choice.c1->present == BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1
+        && decoded->message->choice.c1->choice.systemInformationBlockType1->servingCellConfigCommon) {
+        const DownlinkConfigCommonSIB_t *downlink =
+            decoded->message->choice.c1->choice.systemInformationBlockType1->servingCellConfigCommon->downlinkConfigCommon;
+        struct sib1 *entry = NULL;
+        for (int i = 0; i < SIB1S && !entry; i++)
+            if (sib1s[i].pci == record->pci + 1 && sib1s[i].ssb_arfcn == record->arfcn)
+                entry = &sib1s[i];
+        if (!entry) {
+            entry = &sib1s[sib1_next];
+            sib1_next = (sib1_next + 1) % SIB1S;
+        }
+        memset(entry, 0, sizeof *entry);
+        entry->pci = record->pci + 1;
+        entry->ssb_arfcn = record->arfcn;
+        if (downlink && downlink->frequencyInfoDL)
+            store_carriers(entry->carrier_rb, downlink->frequencyInfoDL->scs_SpecificCarrierList.list.array,
+                           downlink->frequencyInfoDL->scs_SpecificCarrierList.list.count);
+        const BWP_t *initial = downlink && downlink->initialDownlinkBWP ? downlink->initialDownlinkBWP->genericParameters : NULL;
+        if (initial && initial->subcarrierSpacing >= 0 && initial->subcarrierSpacing < 4) {
+            entry->initial_rb = (uint16_t)riv_rbs(initial->locationAndBandwidth);
+            entry->initial_scs = (uint8_t)initial->subcarrierSpacing;
+        }
+    }
+    ASN_STRUCT_FREE(asn_DEF_BCCH_DL_SCH_Message, decoded);
+}
+
 static int bare_reconfiguration_pdu(int version) {
     switch (version) {
     case 9: case 12: case 17: case 19: return 9;
@@ -477,6 +618,8 @@ void rrc_csi_b821(const uint8_t *payload, int length) {
         return;
     if (record.pdu == 4)
         decode_dl_dcch(&record, record.message, message_length);
+    else if (record.pdu == 2 && record.version >= 16)
+        decode_sib1(&record, record.message, message_length);
     else if (record.pdu == 3 && record.version != 9)   /* DL-CCCH (v9's numbering is unknown) */
         decode_dl_ccch(&record, record.message, message_length);
     else if (record.pdu == bare_reconfiguration_pdu(record.version))
@@ -563,4 +706,74 @@ int rrc_csi_ports(int pci, uint32_t arfcn, int pcell) {
         }
     }
     return 0;
+}
+
+/* MHz for a channel or BWP of `rbs` RBs at SCS 15 << scs kHz: the widest
+ * standard bandwidth that fits (38.101-1 and 38.101-2, Table 5.3.2-1), so a
+ * count between two steps rounds down. */
+static int rbs_to_mhz(int rbs, int scs, int fr2) {
+    static const struct { uint8_t scs, fr2; uint16_t mhz, rbs; } table[] = {
+        { 0, 0, 5, 25 }, { 0, 0, 10, 52 }, { 0, 0, 15, 79 }, { 0, 0, 20, 106 }, { 0, 0, 25, 133 },
+        { 0, 0, 30, 160 }, { 0, 0, 35, 188 }, { 0, 0, 40, 216 }, { 0, 0, 45, 242 }, { 0, 0, 50, 270 },
+        { 1, 0, 5, 11 }, { 1, 0, 10, 24 }, { 1, 0, 15, 38 }, { 1, 0, 20, 51 }, { 1, 0, 25, 65 },
+        { 1, 0, 30, 78 }, { 1, 0, 35, 92 }, { 1, 0, 40, 106 }, { 1, 0, 45, 119 }, { 1, 0, 50, 133 },
+        { 1, 0, 60, 162 }, { 1, 0, 70, 189 }, { 1, 0, 80, 217 }, { 1, 0, 90, 245 }, { 1, 0, 100, 273 },
+        { 2, 0, 10, 11 }, { 2, 0, 15, 18 }, { 2, 0, 20, 24 }, { 2, 0, 25, 31 }, { 2, 0, 30, 38 },
+        { 2, 0, 35, 44 }, { 2, 0, 40, 51 }, { 2, 0, 45, 58 }, { 2, 0, 50, 65 }, { 2, 0, 60, 79 },
+        { 2, 0, 70, 93 }, { 2, 0, 80, 107 }, { 2, 0, 90, 121 }, { 2, 0, 100, 135 },
+        { 2, 1, 50, 66 }, { 2, 1, 100, 132 }, { 2, 1, 200, 264 },
+        { 3, 1, 50, 32 }, { 3, 1, 100, 66 }, { 3, 1, 200, 132 }, { 3, 1, 400, 264 },
+    };
+    int mhz = 0;
+    for (int i = 0; i < (int)(sizeof table / sizeof table[0]); i++)
+        if (table[i].scs == scs && table[i].fr2 == fr2 && table[i].rbs <= rbs && table[i].mhz > mhz)
+            mhz = table[i].mhz;
+    return mhz;
+}
+
+static const struct sib1 *find_sib1(int pci, uint32_t arfcn) {
+    for (int i = 0; i < SIB1S; i++)
+        if (sib1s[i].pci == pci + 1 && sib1s[i].ssb_arfcn == arfcn)
+            return &sib1s[i];
+    return NULL;
+}
+
+int rrc_csi_bandwidth(int pci, uint32_t arfcn, int max_rbs, int *bwp_mhz) {
+    int group;
+    int index;
+    init_once();
+    *bwp_mhz = 0;
+    struct cell *cell = (struct cell *)find_cell(pci, arfcn, &group, &index);
+    if (!cell)
+        return 0;
+    const struct sib1 *sib1 = find_sib1(pci, arfcn);
+    /* The active BWP; BWP 0 from the cell's common configuration, else its SIB1. */
+    int active = cell->active_bwp;
+    int rbs = cell->bwp_rb[active], scs = cell->bwp_scs[active];
+    if (!rbs && active == 0 && sib1 && sib1->initial_rb) {
+        rbs = sib1->initial_rb;
+        scs = sib1->initial_scs;
+    }
+    if (!rbs)
+        return 0;
+    /* The channel at the BWP's SCS: the cell's configuration, else its SIB1. */
+    int carrier = cell->carrier_rb[scs];
+    if (!carrier && sib1)
+        carrier = sib1->carrier_rb[scs];
+    int fr2 = arfcn >= 2016667;
+    int channel = carrier ? rbs_to_mhz(carrier, scs, fr2) : 0;
+    /* TBs wider than the BWP in two windows in a row mean a reconfiguration
+     * was missed (log records can be lost): the BWP stays unshown until the
+     * next change. One window isn't enough: it can hold TBs from just
+     * before a BWP change. */
+    if (max_rbs > rbs) {
+        if (cell->bwp_exceeded < 2)
+            cell->bwp_exceeded++;
+    } else if (max_rbs > 0)
+        cell->bwp_exceeded = 0;
+    if (cell->bwp_exceeded >= 2)
+        cell->bwp_stale = 1;
+    if (channel && !cell->bwp_stale)
+        *bwp_mhz = rbs_to_mhz(rbs, scs, fr2);
+    return channel;
 }

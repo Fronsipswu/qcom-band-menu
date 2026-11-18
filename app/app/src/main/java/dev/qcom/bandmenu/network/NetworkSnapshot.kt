@@ -151,6 +151,14 @@ private fun fmt(v: Double): String =
 
 private fun mhz(v: Double) = "${fmt(v)} MHz"
 
+/** An NR cell's bandwidth: DIAG's, with the active BWP in brackets when it is
+ *  narrower ("70(50) MHz"); QMI's without DIAG. */
+private fun nrBandwidth(d: DiagNrCarrier?, qmi: Double?): String? {
+    val bw = d?.bandwidthMhz?.toDouble() ?: return qmi?.let(::mhz)
+    val bwp = d.bwpMhz?.takeIf { it < bw }
+    return if (bwp != null) "${fmt(bw)}($bwp) MHz" else mhz(bw)
+}
+
 class SnapshotBuilder(
     private val reads: Map<String, ReadOutcome>,
     /** NR bands the modem supports, to resolve overlapping NR-ARFCN ranges. */
@@ -388,7 +396,7 @@ class SnapshotBuilder(
                 row("Band", bandLabel)
                 // DIAG first: some modems (X60) report one fixed RF bandwidth
                 // code for every NR band (100 MHz on n41 90 MHz and on n28).
-                row("Bandwidth", (d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz)?.let(::mhz))
+                row("Bandwidth", nrBandwidth(d, band?.bandwidthMhz))
                 row("NARFCN", ch?.toString())
                 row("SCS", s?.nrScsKhz?.let { "$it kHz" })
                 row("Frequency", frequency)
@@ -407,8 +415,8 @@ class SnapshotBuilder(
                 else put("SCS", (s?.nrScsKhz ?: d?.scsKhz)?.let { "$it kHz" })
                 // QMI has no SCG bandwidth; DIAG does (B825/B887), so with DIAG
                 // on the second row is always PCI, TA, Bandwidth.
-                val bw = d?.bandwidthMhz?.toDouble() ?: band?.bandwidthMhz
-                if (diag != null) put("Bandwidth", bw?.let(::mhz)) else bw?.let { add(Field("Bandwidth", mhz(it))) }
+                val bw = nrBandwidth(d, band?.bandwidthMhz)
+                if (diag != null) put("Bandwidth", bw) else bw?.let { add(Field("Bandwidth", it)) }
             }
         }
         val metrics = listOf(

@@ -97,7 +97,9 @@ data class DiagNrCarrier(
      *  capped at the maximum, dBm. Null when the carrier had none. */
     val ulRbs: Double? = null, val ulMcs: Double? = null, val ulModulation: String? = null,
     val ulLayers: Double? = null, val ulTxMode: String? = null, val ulPower: Double? = null,
-    val ulPucch: Double? = null, val ulBler: Double? = null
+    val ulPucch: Double? = null, val ulBler: Double? = null,
+    /** The active downlink BWP (RRC), only when narrower than [bandwidthMhz]. */
+    val bwpMhz: Int? = null
 ) {
     /** Any uplink value this window. */
     val hasUplink: Boolean get() = ulMbps != null || ulRbs != null || ulPower != null || ulPucch != null
@@ -161,7 +163,7 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     rsrpRx = c.chains("rsrp_rx"), sinrRx = c.chains("sinr_rx"), csiSinrRx = c.chains("csinr_rx"),
                     ulRbs = c.d("ul_rbs"), ulMcs = c.d("ul_mcs"), ulModulation = c.optString("ul_mod").ifEmpty { null },
                     ulLayers = c.d("ul_layers"), ulTxMode = c.optString("ul_tx_mode").ifEmpty { null }, ulPower = c.d("ul_pwr"),
-                    ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler")
+                    ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler"), bwpMhz = c.i("bwp")
                 )
             }
             return DiagStats(o.optLong("ms"), (0 until arr.length()).map { n ->
@@ -226,7 +228,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.34"
+        private const val EXPECTED_VERSION = "1.22.35"
     }
 
     private var socket: LocalSocket? = null
