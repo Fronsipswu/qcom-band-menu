@@ -205,6 +205,12 @@
     <string name="lock_fmt_pci_band">NR-ARFCN PCI SCS Band</string>
     <string name="lock_fmt_multipci">NR-ARFCN SCS Band PCI1 PCI2...</string>
     <string name="lock_fmt_plmn">MCC MNC (e.g. 244 01)</string>
+    <string name="lock_earfcn_only_title">EARFCN-only (NV write + restart modem)</string>
+    <string name="lock_status_earfcn_only">EARFCN %1$s locked ✓</string>
+    <string name="lock_earfcn_only_dialog_title">Restart modem</string>
+    <string name="lock_earfcn_only_confirm">EARFCN-only lock will restart the modem so you will temporarily lose connection. Proceed?</string>
+    <string name="lock_earfcn_only_clear_confirm">Clearing the EARFCN-only lock will restart the modem so you will temporarily lose connection. Proceed?</string>
+    <string name="lock_earfcn_invalid">Invalid EARFCN</string>
     <string name="display_band">Band</string>
     <string name="display_bandwidth">Bandwidth</string>
     <string name="display_frequency">Frequency</string>

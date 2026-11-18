@@ -205,6 +205,12 @@
     <string name="lock_fmt_pci_band">NR-ARFCN PCI SCS 频段</string>
     <string name="lock_fmt_multipci">NR-ARFCN SCS 频段 PCI1 PCI2...</string>
     <string name="lock_fmt_plmn">MCC MNC（例如 244 01）</string>
+    <string name="lock_earfcn_only_title">仅 EARFCN（写入 NV + 重启调制解调器）</string>
+    <string name="lock_status_earfcn_only">EARFCN %1$s 已锁定 ✓</string>
+    <string name="lock_earfcn_only_dialog_title">重启调制解调器</string>
+    <string name="lock_earfcn_only_confirm">仅 EARFCN 锁定会重启调制解调器，连接会暂时中断。是否继续？</string>
+    <string name="lock_earfcn_only_clear_confirm">清除仅 EARFCN 锁定会重启调制解调器，连接会暂时中断。是否继续？</string>
+    <string name="lock_earfcn_invalid">EARFCN 无效</string>
     <string name="display_band">频段</string>
     <string name="display_bandwidth">带宽</string>
     <string name="display_frequency">频率</string>

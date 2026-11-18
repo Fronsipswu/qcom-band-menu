@@ -201,6 +201,12 @@
     <string name="lock_fmt_pci_band">NR-ARFCN PCI SCS Диапазон</string>
     <string name="lock_fmt_multipci">NR-ARFCN SCS Диапазон PCI1 PCI2...</string>
     <string name="lock_fmt_plmn">MCC MNC (например, 244 01)</string>
+    <string name="lock_earfcn_only_title">Только EARFCN (запись NV + перезапуск модема)</string>
+    <string name="lock_status_earfcn_only">EARFCN %1$s заблокирован ✓</string>
+    <string name="lock_earfcn_only_dialog_title">Перезапуск модема</string>
+    <string name="lock_earfcn_only_confirm">Блокировка только по EARFCN перезапустит модем, связь временно пропадёт. Продолжить?</string>
+    <string name="lock_earfcn_only_clear_confirm">Снятие блокировки только по EARFCN перезапустит модем, связь временно пропадёт. Продолжить?</string>
+    <string name="lock_earfcn_invalid">Неверный EARFCN</string>
     <string name="display_band">Диапазон</string>
     <string name="display_bandwidth">Полоса</string>
     <string name="display_frequency">Частота</string>

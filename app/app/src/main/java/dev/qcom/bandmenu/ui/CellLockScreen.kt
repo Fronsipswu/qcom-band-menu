@@ -151,6 +151,9 @@ fun CellLockScreen(
     simLabels: List<String> = listOf("SIM 1", "SIM 2"),
     lockResult: CellLockResult?,
     onLockResultConsumed: () -> Unit,
+    /** The EARFCN-only lock per SIM (its EARFCN), and a re-read of it. */
+    earfcnOnlyLocks: Map<Int, Int> = emptyMap(),
+    onEarfcnOnlyRefresh: (Int) -> Unit = {},
     snackbarHostState: SnackbarHostState,
     /** The Network page's poller: the cell table shows its rounds. */
     networkMonitor: NetworkMonitor,
@@ -305,6 +308,8 @@ fun CellLockScreen(
                                 onLockResultConsumed = onLockResultConsumed,
                                 onApplyLock = onApplyLock,
                                 experimentalEnabled = experimentalEnabled,
+                                earfcnOnlyLocked = earfcnOnlyLocks[slot + 1],
+                                onEarfcnOnlyRefresh = { onEarfcnOnlyRefresh(slot + 1) },
                                 snackbarHostState = snackbarHostState,
                                 navbarSpace = navbarSpace,
                                 hasNrHardware = hasNrHardware,
@@ -483,6 +488,9 @@ private fun SimCellLockPage(
     onLockResultConsumed: () -> Unit,
     onApplyLock: (sim: Int, fieldIndex: Int, input: String) -> Unit,
     experimentalEnabled: Boolean,
+    /** The EARFCN-only lock in place (its EARFCN), null for none. */
+    earfcnOnlyLocked: Int? = null,
+    onEarfcnOnlyRefresh: () -> Unit = {},
     snackbarHostState: SnackbarHostState,
     navbarSpace: androidx.compose.ui.unit.Dp,
     hasNrHardware: Boolean,
@@ -521,6 +529,9 @@ private fun SimCellLockPage(
     var lteEarfcnValue by rememberSaveable { mutableStateOf("") }
     var ltePciValue by rememberSaveable { mutableStateOf("") }
     var lteSent by rememberSaveable { mutableStateOf<String?>(null) }
+    // The EARFCN-only box, and the input waiting for the restart warning.
+    var earfcnOnlyText by rememberSaveable { mutableStateOf("") }
+    var earfcnOnlyConfirm by remember { mutableStateOf<String?>(null) }
     var plmnText by rememberSaveable { mutableStateOf("") }
     var syncedStateKey by rememberSaveable { mutableStateOf("") }
     // The Clear ALL this page has already applied: the wipe is a one-shot
@@ -878,6 +889,67 @@ private fun SimCellLockPage(
             onClear = { keyboard?.hide(); onClear4G(simSlot + 1) }
                 .takeIf { lteLocked != null && earfcn != null && lteKey(earfcn, ltePcis) == lteLocked }
         )
+
+        if (experimentalEnabled) {
+            // Field 7: the EARFCN-only lock (EFS items, then a modem restart).
+            // Done sends the EARFCN, or with the box empty clears the lock,
+            // each after a warning; the box shows the lock in place.
+            LaunchedEffect(refreshKey) { onEarfcnOnlyRefresh() }
+            LaunchedEffect(earfcnOnlyLocked) { earfcnOnlyLocked?.let { earfcnOnlyText = it.toString() } }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                stringResource(R.string.lock_earfcn_only_title),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            val o7 = labelOverrides[7]
+            val lockedLabel = earfcnOnlyLocked?.let { stringResource(R.string.lock_status_earfcn_only, it.toString()) }
+            TextField(
+                value = earfcnOnlyText,
+                onValueChange = { earfcnOnlyText = it },
+                label = o7?.text ?: lockedLabel ?: "EARFCN",
+                colors = TextFieldDefaults.textFieldColors(
+                    labelColor = o7?.color ?: if (lockedLabel != null) GreenColor else defaultLabelColor
+                ),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = switchableNumericKeyboard,
+                keyboardActions = KeyboardActions(onDone = {
+                    keyboard?.hide()
+                    val t = earfcnOnlyText.trim()
+                    // Nothing to clear, or the lock already in place: no restart.
+                    if ((t.isEmpty() && earfcnOnlyLocked == null) || t == earfcnOnlyLocked?.toString()) return@KeyboardActions
+                    earfcnOnlyConfirm = t
+                })
+            )
+            earfcnOnlyConfirm?.let { pending ->
+                WindowDialog(
+                    show = true,
+                    title = stringResource(R.string.lock_earfcn_only_dialog_title),
+                    summary = stringResource(if (pending.isEmpty()) R.string.lock_earfcn_only_clear_confirm else R.string.lock_earfcn_only_confirm),
+                    onDismissRequest = { earfcnOnlyConfirm = null }
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton(
+                            text = stringResource(R.string.common_no),
+                            onClick = { earfcnOnlyConfirm = null },
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            text = stringResource(R.string.common_yes),
+                            onClick = {
+                                earfcnOnlyConfirm = null
+                                onApplyLock(simSlot + 1, 7, pending)
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(20.dp))
 

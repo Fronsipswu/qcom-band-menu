@@ -130,6 +130,9 @@ fun MainScreen(
     onCellLockClearPlmn: (Int) -> Unit,
     cellLockResult: CellLockResult?,
     onCellLockResultConsumed: () -> Unit,
+    /** The EARFCN-only lock per SIM (its EARFCN), and a re-read of it. */
+    earfcnOnlyLocks: Map<Int, Int> = emptyMap(),
+    onEarfcnOnlyRefresh: (Int) -> Unit = {},
     cellLockRefreshing: Boolean,
     onCellLockRefresh: () -> Unit,
     cellLockRefreshKey: Int,
@@ -300,6 +303,8 @@ fun MainScreen(
                             lockResult = cellLockResult,
                             simLabels = simLabels,
                             onLockResultConsumed = onCellLockResultConsumed,
+                            earfcnOnlyLocks = earfcnOnlyLocks,
+                            onEarfcnOnlyRefresh = onEarfcnOnlyRefresh,
                             snackbarHostState = snackbarHostState,
                             networkMonitor = networkMonitor,
                             isActive = pagerState.settledPage == 2,

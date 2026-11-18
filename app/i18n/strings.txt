@@ -1656,6 +1656,54 @@ de = MCC MNC (z. B. 244 01)
 ru = MCC MNC (например, 244 01)
 es = MCC MNC (p. ej., 244 01)
 
+[lock.earfcn_only_title]
+en = EARFCN-only (NV write + restart modem)
+th = เฉพาะ EARFCN (เขียน NV + รีสตาร์ทโมเด็ม)
+zh = 仅 EARFCN（写入 NV + 重启调制解调器）
+de = Nur EARFCN (NV schreiben + Modem neu starten)
+ru = Только EARFCN (запись NV + перезапуск модема)
+es = Solo EARFCN (escritura NV + reinicio del módem)
+
+[lock.status_earfcn_only]
+en = EARFCN {earfcn} locked ✓
+th = ล็อก EARFCN {earfcn} แล้ว ✓
+zh = EARFCN {earfcn} 已锁定 ✓
+de = EARFCN {earfcn} gesperrt ✓
+ru = EARFCN {earfcn} заблокирован ✓
+es = EARFCN {earfcn} bloqueado ✓
+
+[lock.earfcn_only_dialog_title]
+en = Restart modem
+th = รีสตาร์ทโมเด็ม
+zh = 重启调制解调器
+de = Modem neu starten
+ru = Перезапуск модема
+es = Reiniciar el módem
+
+[lock.earfcn_only_confirm]
+en = EARFCN-only lock will restart the modem so you will temporarily lose connection. Proceed?
+th = การล็อกเฉพาะ EARFCN จะรีสตาร์ทโมเด็ม การเชื่อมต่อจะหายไปชั่วคราว ดำเนินการต่อหรือไม่?
+zh = 仅 EARFCN 锁定会重启调制解调器，连接会暂时中断。是否继续？
+de = Die Nur-EARFCN-Sperre startet das Modem neu, die Verbindung geht kurz verloren. Fortfahren?
+ru = Блокировка только по EARFCN перезапустит модем, связь временно пропадёт. Продолжить?
+es = El bloqueo solo de EARFCN reiniciará el módem y perderás la conexión temporalmente. ¿Continuar?
+
+[lock.earfcn_only_clear_confirm]
+en = Clearing the EARFCN-only lock will restart the modem so you will temporarily lose connection. Proceed?
+th = การล้างล็อกเฉพาะ EARFCN จะรีสตาร์ทโมเด็ม การเชื่อมต่อจะหายไปชั่วคราว ดำเนินการต่อหรือไม่?
+zh = 清除仅 EARFCN 锁定会重启调制解调器，连接会暂时中断。是否继续？
+de = Das Aufheben der Nur-EARFCN-Sperre startet das Modem neu, die Verbindung geht kurz verloren. Fortfahren?
+ru = Снятие блокировки только по EARFCN перезапустит модем, связь временно пропадёт. Продолжить?
+es = Quitar el bloqueo solo de EARFCN reiniciará el módem y perderás la conexión temporalmente. ¿Continuar?
+
+[lock.earfcn_invalid]
+en = Invalid EARFCN
+th = EARFCN ไม่ถูกต้อง
+zh = EARFCN 无效
+de = Ungültige EARFCN
+ru = Неверный EARFCN
+es = EARFCN no válido
+
 # Remaining UI display text
 
 [display.band]

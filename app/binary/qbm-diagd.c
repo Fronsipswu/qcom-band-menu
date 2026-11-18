@@ -15,6 +15,9 @@
  *   {"cmd":"stats","sim":N} -> SIM N's per-carrier summary since the previous
  *                       "stats" (N 1 or 2, default 1)
  *   {"cmd":"stop"}   -> unsubscribe, release and exit
+ *   {"cmd":"earfcn_lock","sim":1,"earfcn":E,"band":B} -> the LTE EARFCN-only
+ *                       lock (EFS items, then a modem restart); earfcn 0 clears
+ *   {"cmd":"earfcn_lock_get","sim":1} -> {"earfcn":E,"band":B}, 0 = no lock
  * Without a "stats" request for WATCHDOG_MS the helper unsubscribes and exits
  * by itself, so it never keeps logging after the app goes away.
  *
@@ -74,8 +77,9 @@
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
 #include "nas_session.h"   /* the data session's APN, QoS class and AMBR */
+#include "efs_lock.h"      /* the LTE EARFCN-only lock (EFS items) */
 
-#define HELPER_VERSION "1.22.37"
+#define HELPER_VERSION "1.22.38"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -2346,6 +2350,11 @@ int main(int argc, char **argv) {
         if (!external) fprintf(stderr, "DCI on the external modem failed: %d\n", r2);
     }
     window_start = now_ms();
+    /* The EARFCN-only lock's EFS requests go on the client that has the modem. */
+    efs_lock_setup((dci_async_t)dlsym(h, "diag_send_dci_async_req"), soc_open ? client : client2);
+    /* After the lock restarts the modem, the log subscription is sent again
+     * (the restarted modem starts without it): when, 0 = not pending. */
+    long resubscribe_at[2] = { 0, 0 };
 
     long last_request = now_ms();
     int cfd = -1;
@@ -2355,6 +2364,12 @@ int main(int argc, char **argv) {
     while (!stop_flag && now_ms() - last_request < WATCHDOG_MS) {
         struct pollfd pf[2] = { { lfd, POLLIN, 0 }, { cfd, POLLIN, 0 } };
         if (poll(pf, cfd >= 0 ? 2 : 1, 500) < 0 && errno != EINTR) break;
+        for (int k = 0; k < 2; k++) {
+            if (!resubscribe_at[k] || now_ms() < resubscribe_at[k]) continue;
+            resubscribe_at[k] = 0;
+            if (soc_open) diag_log_stream_config(client, 1, CODES, NCODES);
+            if (external) diag_log_stream_config(client2, 1, CODES, NCODES);
+        }
         if (pf[0].revents & POLLIN) {
             int nfd = accept4(lfd, NULL, NULL, SOCK_CLOEXEC);
             if (nfd >= 0) {
@@ -2382,6 +2397,28 @@ int main(int argc, char **argv) {
                     const char *n_sim = strstr(in, "\"sim\":");
                     int n = write_stats(out, sizeof out, n_sim ? atoi(n_sim + 6) : 1);
                     if (n < 0 || write_all(cfd, out, (size_t)n) < 0) { close(cfd); cfd = -1; break; }
+                } else if (strstr(in, "\"earfcn_lock_get\"")) {
+                    const char *n_sim = strstr(in, "\"sim\":");
+                    int e = 0, b = 0;
+                    int r3 = efs_lock_get(n_sim ? atoi(n_sim + 6) : 1, &e, &b);
+                    char msg[128];
+                    int n = r3 < 0 ? snprintf(msg, sizeof msg, "{\"ok\":false,\"error\":\"EFS read failed\"}\n")
+                                   : snprintf(msg, sizeof msg, "{\"ok\":true,\"earfcn\":%d,\"band\":%d}\n", e, b);
+                    write_all(cfd, msg, (size_t)n);
+                } else if (strstr(in, "\"earfcn_lock\"")) {
+                    /* {"cmd":"earfcn_lock","sim":1,"earfcn":E,"band":B}; earfcn 0 clears. */
+                    const char *n_sim = strstr(in, "\"sim\":"), *n_e = strstr(in, "\"earfcn\":"), *n_b = strstr(in, "\"band\":");
+                    const char *err = "Missing EARFCN";
+                    int r3 = n_e ? efs_lock_set(n_sim ? atoi(n_sim + 6) : 1, atoi(n_e + 9), n_b ? atoi(n_b + 7) : 0, &err) : -1;
+                    if (r3 == 0) {
+                        long t = now_ms();
+                        resubscribe_at[0] = t + 15000;
+                        resubscribe_at[1] = t + 40000;
+                    }
+                    char msg[128];
+                    int n = r3 == 0 ? snprintf(msg, sizeof msg, "{\"ok\":true}\n")
+                                    : snprintf(msg, sizeof msg, "{\"ok\":false,\"error\":\"%s\"}\n", err ? err : "Failed");
+                    write_all(cfd, msg, (size_t)n);
                 } else if (strstr(in, "\"stop\"")) {
                     write_all(cfd, "{\"ok\":true,\"stopping\":true}\n", 28);
                     stop_flag = 1;

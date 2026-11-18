@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.Mutex
  * state survive instead of being reset and re-initialized.
  * Cleared only when the activity really finishes.
  */
-class DaemonHolder(val daemonManager: DaemonManager, diagClient: DiagClient, replayDir: File) : ViewModel() {
+class DaemonHolder(val daemonManager: DaemonManager, val diagClient: DiagClient, replayDir: File) : ViewModel() {
     val scope: CoroutineScope get() = viewModelScope
 
     /** Serializes multi-request modem sequences (SIM select + commands). Lives
@@ -44,6 +44,8 @@ class DaemonHolder(val daemonManager: DaemonManager, diagClient: DiagClient, rep
     val refreshKey0 = mutableIntStateOf(0)
     val refreshKey1 = mutableIntStateOf(0)
     val cellLockResult = mutableStateOf<CellLockResult?>(null)
+    /** The EARFCN-only lock (EFS) per SIM: its EARFCN; absent = none or not read yet. */
+    val earfcnOnlyLocks = mutableStateOf<Map<Int, Int>>(emptyMap())
     val cellLockRefreshing = mutableStateOf(false)
     val cellLockRefreshKey = mutableIntStateOf(0)
     val cellLockSelectedSim = mutableIntStateOf(0)

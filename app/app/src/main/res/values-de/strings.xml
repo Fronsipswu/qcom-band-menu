@@ -205,6 +205,12 @@
     <string name="lock_fmt_pci_band">NR-ARFCN PCI SCS Band</string>
     <string name="lock_fmt_multipci">NR-ARFCN SCS Band PCI1 PCI2...</string>
     <string name="lock_fmt_plmn">MCC MNC (z. B. 244 01)</string>
+    <string name="lock_earfcn_only_title">Nur EARFCN (NV schreiben + Modem neu starten)</string>
+    <string name="lock_status_earfcn_only">EARFCN %1$s gesperrt ✓</string>
+    <string name="lock_earfcn_only_dialog_title">Modem neu starten</string>
+    <string name="lock_earfcn_only_confirm">Die Nur-EARFCN-Sperre startet das Modem neu, die Verbindung geht kurz verloren. Fortfahren?</string>
+    <string name="lock_earfcn_only_clear_confirm">Das Aufheben der Nur-EARFCN-Sperre startet das Modem neu, die Verbindung geht kurz verloren. Fortfahren?</string>
+    <string name="lock_earfcn_invalid">Ungültige EARFCN</string>
     <string name="display_band">Band</string>
     <string name="display_bandwidth">Bandbreite</string>
     <string name="display_frequency">Frequenz</string>

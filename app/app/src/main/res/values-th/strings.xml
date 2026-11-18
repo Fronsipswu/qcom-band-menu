@@ -205,6 +205,12 @@
     <string name="lock_fmt_pci_band">NR-ARFCN PCI SCS แบนด์</string>
     <string name="lock_fmt_multipci">NR-ARFCN SCS ย่านความถี่ PCI1 PCI2...</string>
     <string name="lock_fmt_plmn">MCC MNC (เช่น 244 01)</string>
+    <string name="lock_earfcn_only_title">เฉพาะ EARFCN (เขียน NV + รีสตาร์ทโมเด็ม)</string>
+    <string name="lock_status_earfcn_only">ล็อก EARFCN %1$s แล้ว ✓</string>
+    <string name="lock_earfcn_only_dialog_title">รีสตาร์ทโมเด็ม</string>
+    <string name="lock_earfcn_only_confirm">การล็อกเฉพาะ EARFCN จะรีสตาร์ทโมเด็ม การเชื่อมต่อจะหายไปชั่วคราว ดำเนินการต่อหรือไม่?</string>
+    <string name="lock_earfcn_only_clear_confirm">การล้างล็อกเฉพาะ EARFCN จะรีสตาร์ทโมเด็ม การเชื่อมต่อจะหายไปชั่วคราว ดำเนินการต่อหรือไม่?</string>
+    <string name="lock_earfcn_invalid">EARFCN ไม่ถูกต้อง</string>
     <string name="display_band">แบนด์</string>
     <string name="display_bandwidth">แบนด์วิดท์</string>
     <string name="display_frequency">ความถี่</string>

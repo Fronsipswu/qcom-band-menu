@@ -141,6 +141,7 @@ class MainActivity : ComponentActivity() {
                 val modemLock = daemonHolder.modemLock
 
                 var cellLockResult by daemonHolder.cellLockResult
+                var earfcnOnlyLocks by daemonHolder.earfcnOnlyLocks
                 var cellLockRefreshing by daemonHolder.cellLockRefreshing
                 var cellLockRefreshKey by daemonHolder.cellLockRefreshKey
                 var cellLockSelectedSim by daemonHolder.cellLockSelectedSim
@@ -600,6 +601,32 @@ class MainActivity : ComponentActivity() {
                     },
                     onCellLockApply = cellApply@{ sim, fieldIndex, input ->
                         if (sim2Unavailable(sim)) return@cellApply
+                        // Field 7: the EARFCN-only lock (EFS items through the DIAG
+                        // helper, then a modem restart); an empty input clears it.
+                        if (fieldIndex == 7) {
+                            scope.launch {
+                                modemLock.withLock {
+                                    val earfcn = input.trim().ifEmpty { "0" }.toIntOrNull()
+                                    val band = earfcn?.takeIf { it > 0 }?.let { dev.qcom.bandmenu.network.lteBandForEarfcn(it) }
+                                    var errorMsg: String? = null
+                                    if (earfcn == null || earfcn > 65535 || (earfcn > 0 && band == null)) {
+                                        errorMsg = getString(R.string.lock_earfcn_invalid)
+                                    } else withContext(Dispatchers.IO) {
+                                        try {
+                                            val r = daemonHolder.diagClient.earfcnLock(sim, earfcn, band ?: 0)
+                                            if (r.optBoolean("ok")) {
+                                                earfcnOnlyLocks = if (earfcn > 0) earfcnOnlyLocks + (sim to earfcn) else earfcnOnlyLocks - sim
+                                            } else errorMsg = r.optString("error").ifEmpty { getString(R.string.lock_rejected) }
+                                        } catch (e: Exception) {
+                                            errorMsg = getString(R.string.msg_apply_failed, e.message)
+                                            AppLog.e(TAG, "EARFCN-only lock: error", e)
+                                        }
+                                    }
+                                    cellLockResult = CellLockResult(sim, 7, "EARFCN-only", errorMsg == null, errorMsg)
+                                }
+                            }
+                            return@cellApply
+                        }
                         scope.launch {
                             modemLock.withLock {
                                 var success = false
@@ -897,6 +924,18 @@ class MainActivity : ComponentActivity() {
                     },
                     cellLockResult = cellLockResult,
                     onCellLockResultConsumed = { cellLockResult = null },
+                    earfcnOnlyLocks = earfcnOnlyLocks,
+                    onEarfcnOnlyRefresh = { sim ->
+                        scope.launch {
+                            val locked = withContext(Dispatchers.IO) {
+                                try { daemonHolder.diagClient.earfcnLockGet(sim)?.first } catch (e: Exception) {
+                                    AppLog.e(TAG, "EARFCN-only lock: read failed", e); return@withContext -1
+                                }
+                            }
+                            if (locked == null) earfcnOnlyLocks = earfcnOnlyLocks - sim
+                            else if (locked > 0) earfcnOnlyLocks = earfcnOnlyLocks + (sim to locked)
+                        }
+                    },
                     cellLockRefreshing = cellLockRefreshing,
                     onCellLockRefresh = cellRefresh@{
                         val slot = cellLockSelectedSim

@@ -250,7 +250,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.37"
+        private const val EXPECTED_VERSION = "1.22.38"
     }
 
     private var socket: LocalSocket? = null
@@ -289,6 +289,47 @@ class DiagClient(private val context: Context) {
         }
         lastStatsJson = resp
         return DiagStats.parse(resp)
+    }
+
+    /**
+     * The LTE EARFCN-only lock (EFS items; SIM 1): locks [earfcn] in [band],
+     * or with [earfcn] 0 clears it, then the helper restarts the modem.
+     * Blocking. The reply's "ok" and "error".
+     */
+    @Synchronized
+    fun earfcnLock(sim: Int, earfcn: Int, band: Int): JSONObject =
+        command("""{"cmd":"earfcn_lock","sim":$sim,"earfcn":$earfcn,"band":$band}""", timeoutMs = 30_000)
+
+    /** The EARFCN-only lock in place: EARFCN to band, null for none. Blocking. */
+    @Synchronized
+    fun earfcnLockGet(sim: Int): Pair<Int, Int>? {
+        val r = command("""{"cmd":"earfcn_lock_get","sim":$sim}""")
+        if (!r.optBoolean("ok")) throw IOException(r.optString("error", "EFS read failed"))
+        return r.optInt("earfcn").takeIf { it > 0 }?.let { it to r.optInt("band") }
+    }
+
+    /** One command on a helper of this version (an older one is replaced). */
+    private fun command(line: String, timeoutMs: Int = 5000): JSONObject {
+        if (socket == null) ensureRunning()
+        val version = try {
+            request("""{"cmd":"version"}""")
+        } catch (e: IOException) {
+            close()
+            ensureRunning()
+            request("""{"cmd":"version"}""")
+        }.optString("version")
+        if (version != EXPECTED_VERSION) {
+            AppLog.i(TAG, "helper v$version != v$EXPECTED_VERSION, restarting")
+            stopHelper()
+            ensureRunning()
+        }
+        val s = socket ?: throw IOException("Not connected")
+        s.soTimeout = timeoutMs
+        try {
+            return request(line)
+        } finally {
+            socket?.soTimeout = 5000
+        }
     }
 
     /** Unsubscribes and stops the helper. Blocking; safe when not running. */
