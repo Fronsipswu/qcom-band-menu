@@ -16,6 +16,7 @@ th = ไทย
 zh = 中文（简体）
 de = Deutsch
 ru = Русский
+es = Español
 
 # ── Info page ──────────────────────────────
 
@@ -25,6 +26,7 @@ th = เกี่ยวกับ
 zh = 关于
 de = Über
 ru = О приложении
+es = Acerca de
 
 [info.version]
 en = Version: {name} ({code})
@@ -32,6 +34,7 @@ th = เวอร์ชัน: {name} ({code})
 zh = 版本：{name}（{code}）
 de = Version: {name} ({code})
 ru = Версия: {name} ({code})
+es = Versión: {name} ({code})
 
 [info.package]
 en = Package: {package}
@@ -39,6 +42,7 @@ th = แพ็กเกจ: {package}
 zh = 包名：{package}
 de = Paket: {package}
 ru = Имя пакета: {package}
+es = Paquete: {package}
 
 [info.credits]
 en = Credits
@@ -46,6 +50,7 @@ th = เครดิต
 zh = 致谢
 de = Mitwirkende
 ru = Авторы
+es = Créditos
 
 [info.powered_by]
 en = Powered by
@@ -53,6 +58,7 @@ th = ขับเคลื่อนโดย
 zh = 技术支持
 de = Unterstützt von
 ru = На базе
+es = Con la tecnología de
 
 [common.menu]
 en = Menu
@@ -60,6 +66,7 @@ th = เมนู
 zh = 菜单
 de = Menü
 ru = Меню
+es = Menú
 
 [info.debug_logging]
 en = Debug logging
@@ -67,6 +74,7 @@ th = บันทึกการดีบัก
 zh = 调试日志
 de = Debug-Protokollierung
 ru = Журнал отладки
+es = Registro de depuración
 
 [info.hide_navbar]
 en = Hide navigation bar
@@ -74,6 +82,7 @@ th = ซ่อนแถบนำทาง
 zh = 隐藏导航栏
 de = Navigationsleiste ausblenden
 ru = Скрыть панель навигации
+es = Ocultar barra de navegación
 
 [info.network_at_start]
 en = Network page at start
@@ -81,6 +90,7 @@ th = เปิดหน้าเครือข่ายตอนเริ่ม
 zh = 启动时打开网络页
 de = Netzwerkseite beim Start
 ru = Страница Сеть на старте
+es = Abrir en la página Red
 
 [info.light_theme]
 en = Light theme
@@ -88,30 +98,35 @@ th = ธีมสว่าง
 zh = 浅色主题
 de = Helles Design
 ru = Светлая тема
+es = Tema claro
 
 [info.display_scale]
 en = Display Scale: {scale}
 th = ขนาดการแสดงผล: {scale}
 zh = 显示比例：{scale}
 de = Skalierung: {scale}
+es = Escala de la pantalla: {scale}
 
 [scale.normal]
 en = Normal
 th = ปกติ
 zh = 正常
 de = Normal
+es = Normal
 
 [scale.large]
 en = Large
 th = ใหญ่
 zh = 大
 de = Groß
+es = Grande
 
 [scale.small]
 en = Small
 th = เล็ก
 zh = 小
 de = Klein
+es = Pequeña
 
 [common.detach]
 en = Detach
@@ -119,6 +134,7 @@ th = ตัดการเชื่อมต่อ
 zh = 去附着
 de = Trennen
 ru = Отключить
+es = Desconectar
 
 [common.attach]
 en = Attach
@@ -126,6 +142,7 @@ th = เชื่อมต่อ
 zh = 附着
 de = Verbinden
 ru = Подключить
+es = Conectar
 
 [common.reattach]
 en = Re-Attach
@@ -133,6 +150,7 @@ th = เชื่อมต่อใหม่
 zh = 重新附着
 de = Erneut verbinden
 ru = Переподключить
+es = Reconectar
 
 [info.language]
 en = Language
@@ -140,6 +158,7 @@ th = ภาษา
 zh = 语言
 de = Sprache
 ru = Язык
+es = Idioma
 
 [info.language_system]
 en = System default
@@ -147,6 +166,7 @@ th = ตามเครื่อง
 zh = 跟随系统
 de = Systemstandard
 ru = Системный
+es = Predeterminado del sistema
 
 # ── Shared ──────────────────────────────
 
@@ -156,6 +176,7 @@ th = ยกเลิก
 zh = 取消
 de = Abbrechen
 ru = Отмена
+es = Cancelar
 
 [common.save]
 en = Save
@@ -163,6 +184,7 @@ th = บันทึก
 zh = 保存
 de = Speichern
 ru = Сохранить
+es = Guardar
 
 [common.none]
 en = None
@@ -170,6 +192,7 @@ th = ไม่มี
 zh = 无
 de = Keine
 ru = Нет
+es = Ninguno
 
 # ── Bands page ──────────────────────────
 
@@ -179,6 +202,7 @@ th = แบนด์
 zh = 频段
 de = Bänder
 ru = Диапазоны
+es = Bandas
 
 [bands.filter_shown]
 en = Filter shown bands
@@ -186,6 +210,7 @@ th = กรองแบนด์ที่แสดง
 zh = 筛选显示的频段
 de = Angezeigte Bänder filtern
 ru = Фильтр отображаемых диапазонов
+es = Filtrar bandas mostradas
 
 [bands.clear_filter]
 en = Clear filter
@@ -193,6 +218,7 @@ th = ล้างตัวกรอง
 zh = 清除筛选
 de = Filter löschen
 ru = Очистить фильтр
+es = Quitar filtro
 
 [bands.filter_active]
 en = Filter active
@@ -200,6 +226,7 @@ th = ฟิลเตอร์เปิดอยู่
 zh = 筛选生效中
 de = Filter aktiv
 ru = Фильтр активен
+es = Filtro activo
 
 [bands.hide_nr_mode]
 en = Hide NR mode
@@ -207,6 +234,7 @@ th = ซ่อนโหมด NR
 zh = 隐藏 NR 模式
 de = NR-Modus ausblenden
 ru = Скрыть режим NR
+es = Ocultar modo NR
 
 [bands.hide_usage]
 en = Hide usage setting
@@ -214,6 +242,7 @@ th = ซ่อนการตั้งค่าการใช้งาน
 zh = 隐藏使用设置
 de = Nutzungseinstellung ausblenden
 ru = Скрыть настройки приоритета сети
+es = Ocultar ajuste de uso
 
 [bands.hide_quick_select]
 en = Hide quick select
@@ -221,6 +250,7 @@ th = ซ่อนการเลือกด่วน
 zh = 隐藏快捷选择
 de = Schnellauswahl ausblenden
 ru = Скрыть быстрый выбор
+es = Ocultar selección rápida
 
 [bands.combine_nr]
 en = Combine NR
@@ -228,6 +258,7 @@ th = รวม NR
 zh = 合并 NR
 de = NR zusammenfassen
 ru = Объединять NR
+es = Combinar NR
 
 [bands.reset_defaults]
 en = Reset to hardware defaults
@@ -235,6 +266,7 @@ th = รีเซ็ตเป็นค่าเริ่มต้นของเ
 zh = 重置为硬件默认
 de = Auf Hardware-Standard zurücksetzen
 ru = Сбросить до аппаратных настроек
+es = Restablecer valores de fábrica del hardware
 
 [bands.apply_description]
 en = Apply band locks
@@ -242,6 +274,7 @@ th = ใช้การล็อกแบนด์
 zh = 应用频段锁定
 de = Band-Sperren anwenden
 ru = Применить блокировку диапазонов
+es = Aplicar bloqueo de bandas
 
 [bands.rat_lock]
 en = RAT lock
@@ -249,6 +282,7 @@ th = ชนิดเครือข่าย
 zh = RAT 锁定
 de = RAT-Sperre
 ru = Блокировка RAT
+es = Bloqueo de RAT
 
 [bands.nr_mode]
 en = NR mode
@@ -256,6 +290,7 @@ th = โหมด NR
 zh = NR 模式
 de = NR-Modus
 ru = Режим NR
+es = Modo NR
 
 [bands.usage_setting]
 en = Usage setting
@@ -263,6 +298,7 @@ th = การตั้งค่าการใช้งาน
 zh = 使用设置
 de = Nutzungseinstellung
 ru = Приоритет сети
+es = Ajuste de uso
 
 [bands.voice_centric]
 en = Voice-centric
@@ -270,6 +306,7 @@ th = เน้นเสียง
 zh = 语音优先
 de = Sprachzentriert
 ru = Приоритет голоса
+es = Centrado en voz
 
 [bands.data_centric]
 en = Data-centric
@@ -277,6 +314,7 @@ th = เน้นข้อมูล
 zh = 数据优先
 de = Datenzentriert
 ru = Приоритет данных
+es = Centrado en datos
 
 [bands.quick_selections]
 en = Quick selections
@@ -284,6 +322,7 @@ th = เลือกด่วน
 zh = 快捷选择
 de = Schnellauswahl
 ru = Быстрый выбор
+es = Selecciones rápidas
 
 [bands.toggle_groups]
 en = Toggle band groups
@@ -291,6 +330,7 @@ th = สลับกลุ่มแบนด์
 zh = 切换频段组
 de = Bandgruppen umschalten
 ru = Переключение групп диапазонов
+es = Activar/desactivar grupos de bandas
 
 [bands.auto_all_rats]
 en = AUTO (All RATs)
@@ -298,6 +338,7 @@ th = อัตโนมัติ (ทุก RAT)
 zh = AUTO（全部 RAT）
 de = AUTO (alle RATs)
 ru = АВТО (все RAT)
+es = AUTO (todas las RAT)
 
 [bands.all_bands]
 en = All bands (all RATs)
@@ -305,6 +346,7 @@ th = แบนด์ทั้งหมด (ทุก RAT)
 zh = 全部频段（全部 RAT）
 de = Alle Bänder (alle RATs)
 ru = Все диапазоны (все RAT)
+es = Todas las bandas (todas las RAT)
 
 [bands.all_5g]
 en = All 5G bands (NSA+SA)
@@ -312,6 +354,7 @@ th = แบนด์ 5G ทั้งหมด (NSA+SA)
 zh = 全部 5G 频段（NSA+SA）
 de = Alle 5G-Bänder (NSA+SA)
 ru = Все диапазоны 5G (NSA+SA)
+es = Todas las bandas 5G (NSA+SA)
 
 [bands.all_nr_sa]
 en = All NR-SA bands
@@ -319,6 +362,7 @@ th = แบนด์ NR-SA ทั้งหมด
 zh = 全部 NR-SA 频段
 de = Alle NR-SA-Bänder
 ru = Все диапазоны NR-SA
+es = Todas las bandas NR-SA
 
 [bands.all_nr_nsa]
 en = All NR-NSA bands
@@ -326,6 +370,7 @@ th = แบนด์ NR-NSA ทั้งหมด
 zh = 全部 NR-NSA 频段
 de = Alle NR-NSA-Bänder
 ru = Все диапазоны NR-NSA
+es = Todas las bandas NR-NSA
 
 [bands.all_nr]
 en = All NR bands
@@ -333,6 +378,7 @@ th = แบนด์ NR ทั้งหมด
 zh = 全部 NR 频段
 de = Alle NR-Bänder
 ru = Все диапазоны NR
+es = Todas las bandas NR
 
 [bands.all_lte]
 en = All LTE bands
@@ -340,6 +386,7 @@ th = แบนด์ LTE ทั้งหมด
 zh = 全部 LTE 频段
 de = Alle LTE-Bänder
 ru = Все диапазоны LTE
+es = Todas las bandas LTE
 
 [bands.all_wcdma]
 en = All WCDMA bands
@@ -347,6 +394,7 @@ th = แบนด์ WCDMA ทั้งหมด
 zh = 全部 WCDMA 频段
 de = Alle WCDMA-Bänder
 ru = Все диапазоны WCDMA
+es = Todas las bandas WCDMA
 
 [bands.all_gsm]
 en = All GSM bands
@@ -354,6 +402,7 @@ th = แบนด์ GSM ทั้งหมด
 zh = 全部 GSM 频段
 de = Alle GSM-Bänder
 ru = Все диапазоны GSM
+es = Todas las bandas GSM
 
 [bands.copy_to_sim2]
 en = Copy selection to SIM 2
@@ -361,6 +410,7 @@ th = คัดลอกที่เลือกไป SIM 2
 zh = 复制选择到 SIM 2
 de = Auswahl auf SIM 2 kopieren
 ru = Скопировать выбор на SIM 2
+es = Copiar selección a la SIM 2
 
 [bands.copy_to_sim1]
 en = Copy selection to SIM 1
@@ -368,6 +418,7 @@ th = คัดลอกที่เลือกไป SIM 1
 zh = 复制选择到 SIM 1
 de = Auswahl auf SIM 1 kopieren
 ru = Скопировать выбор на SIM 1
+es = Copiar selección a la SIM 1
 
 [bands.sim2_unavailable]
 en = SIM 2 is not available
@@ -375,6 +426,7 @@ th = SIM 2 ใช้งานไม่ได้
 zh = SIM 2 不可用
 de = SIM 2 ist nicht verfügbar
 ru = SIM 2 недоступна
+es = La SIM 2 no está disponible
 
 [bands.sim2_refused]
 en = The modem refused to select SIM 2. This is expected on single-SIM phones and when dual SIM (DSDS) is turned off. SIM 1 works normally.
@@ -382,6 +434,7 @@ th = โมเด็มไม่ยอมเลือก SIM 2 ซึ่งเ�
 zh = 调制解调器拒绝选择 SIM 2。单卡手机或关闭双卡双待（DSDS）时属正常现象，SIM 1 可正常使用。
 de = Das Modem hat die Auswahl von SIM 2 abgelehnt. Das ist bei Single-SIM-Telefonen und bei deaktiviertem Dual-SIM (DSDS) zu erwarten. SIM 1 funktioniert normal.
 ru = Модем отказался выбрать SIM 2. Это ожидаемо на смартфонах с одной SIM-картой и при выключенном режиме двух SIM-карт (DSDS). SIM 1 работает в обычном режиме.
+es = El módem ha rechazado seleccionar la SIM 2. Es lo esperado en teléfonos con una sola SIM y cuando la doble SIM (DSDS) está desactivada. La SIM 1 funciona con normalidad.
 
 [bands.applied_sim]
 en = Settings applied for SIM {sim}
@@ -389,6 +442,7 @@ th = ใช้การตั้งค่าแล้วสำหรับ SIM {
 zh = 已为 SIM {sim} 应用设置
 de = Einstellungen für SIM {sim} angewendet
 ru = Настройки применены для SIM {sim}
+es = Ajustes aplicados a la SIM {sim}
 
 [bands.applied_nr_refused]
 en = Bands applied. This modem can't change the NR mode.
@@ -396,6 +450,7 @@ th = ใช้แบนด์แล้ว แต่โมเด็มนี้�
 zh = 频段已应用，但此调制解调器无法更改 NR 模式。
 de = Bänder angewendet. Dieses Modem kann den NR-Modus nicht ändern.
 ru = Диапазоны применены. Этот модем не может изменить режим NR.
+es = Bandas aplicadas. Este módem no puede cambiar el modo NR.
 
 # ── Navigation and root access ──────────────────────────
 
@@ -405,6 +460,7 @@ th = เครือข่าย
 zh = 网络
 de = Netzwerk
 ru = Сеть
+es = Red
 
 [nav.cell_lock]
 en = Cell-Lock
@@ -412,6 +468,7 @@ th = ล็อกเซลล์
 zh = 小区锁定
 de = Zellensperre
 ru = Блокировка соты
+es = Bloqueo de celda
 
 
 [nav.info]
@@ -420,6 +477,7 @@ th = ข้อมูล
 zh = 关于
 de = Info
 ru = Инфо
+es = Info
 
 [root.title]
 en = Root Access Required
@@ -427,6 +485,7 @@ th = ต้องใช้สิทธิ์รูท
 zh = 需要 Root 权限
 de = Root-Zugriff erforderlich
 ru = Требуется root-доступ
+es = Se necesita acceso root
 
 [root.summary]
 en = This app requires root access to communicate with the Qualcomm modem. Please grant root access and retry.
@@ -434,6 +493,7 @@ th = แอปนี้ต้องใช้สิทธิ์รูทเพื
 zh = 此应用需要 Root 权限才能与高通调制解调器通信。请授予 Root 权限后重试。
 de = Diese App benötigt Root-Zugriff, um mit dem Qualcomm-Modem zu kommunizieren. Bitte Root-Zugriff gewähren und erneut versuchen.
 ru = Этому приложению требуются root-доступ для взаимодействия с модемом Qualcomm. Предоставьте root-доступ и повторите попытку.
+es = Esta aplicación necesita acceso root para comunicarse con el módem Qualcomm. Concede el acceso root y vuelve a intentarlo.
 
 [common.retry]
 en = Retry
@@ -441,6 +501,7 @@ th = ลองอีกครั้ง
 zh = 重试
 de = Erneut versuchen
 ru = Повторить
+es = Reintentar
 
 [common.ok]
 en = OK
@@ -448,6 +509,7 @@ th = ตกลง
 zh = 确定
 de = OK
 ru = ОК
+es = Aceptar
 
 [common.download]
 en = Download
@@ -455,6 +517,7 @@ th = ดาวน์โหลด
 zh = 下载
 de = Download
 ru = Загрузка
+es = Descarga
 
 [common.upload]
 en = Upload
@@ -462,6 +525,7 @@ th = อัปโหลด
 zh = 上传
 de = Upload
 ru = Выгрузка
+es = Subida
 
 # ── Test script ──────────────────────────
 
@@ -471,6 +535,7 @@ th = สคริปต์ทดสอบ
 zh = 测试脚本
 de = Testskript
 ru = Тестовый скрипт
+es = Script de prueba
 
 [test.http_get]
 en = HTTP GET (download)
@@ -478,6 +543,7 @@ th = HTTP GET (ดาวน์โหลด)
 zh = HTTP GET（下载）
 de = HTTP GET (Download)
 ru = HTTP GET (загрузка)
+es = HTTP GET (descarga)
 
 [test.http_post]
 en = HTTP POST (upload)
@@ -485,6 +551,7 @@ th = HTTP POST (อัปโหลด)
 zh = HTTP POST（上传）
 de = HTTP POST (Upload)
 ru = HTTP GET (выгрузка)
+es = HTTP POST (subida)
 
 [test.streams]
 en = Streams
@@ -492,6 +559,7 @@ th = จำนวนสตรีม
 zh = 并发流数
 de = Streams
 ru = Потоки
+es = Flujos
 
 [test.mode]
 en = Mode
@@ -499,6 +567,7 @@ th = โหมด
 zh = 模式
 de = Modus
 ru = Режим
+es = Modo
 
 [test.duration]
 en = Duration (seconds)
@@ -506,6 +575,7 @@ th = ระยะเวลา (วินาที)
 zh = 时长（秒）
 de = Dauer (Sekunden)
 ru = Продолжительность (секунд)
+es = Duración (segundos)
 
 # ── Cell-Lock page ──────────────────────────
 
@@ -515,6 +585,7 @@ th = ล้างทั้งหมด
 zh = 全部清除
 de = ALLE löschen
 ru = Очистить все
+es = Quitar TODO
 
 [lock.clear_5g]
 en = Clear 5G
@@ -522,6 +593,7 @@ th = ล้าง 5G
 zh = 清除 5G
 de = 5G löschen
 ru = Очистить 5G
+es = Quitar 5G
 
 [lock.clear_4g]
 en = Clear 4G
@@ -529,6 +601,7 @@ th = ล้าง 4G
 zh = 清除 4G
 de = 4G löschen
 ru = Очистить 4G
+es = Quitar 4G
 
 [lock.clear_plmn]
 en = Clear PLMN
@@ -536,6 +609,7 @@ th = ล้าง PLMN
 zh = 清除 PLMN
 de = PLMN löschen
 ru = Очистить PLMN
+es = Quitar PLMN
 
 [lock.enable_experimental]
 en = Enable Experimental
@@ -543,6 +617,7 @@ th = เปิดโหมดทดลอง
 zh = 启用实验功能
 de = Experimentell aktivieren
 ru = Экспериментальные функции
+es = Activar funciones experimentales
 
 [lock.success]
 en = Success locking {type} ✓
@@ -550,6 +625,7 @@ th = ล็อก {type} สำเร็จ ✓
 zh = 锁定成功：{type} ✓
 de = {type} erfolgreich gesperrt ✓
 ru = {type} успешно заблокировано ✓
+es = {type} bloqueado correctamente ✓
 
 [lock.rejected]
 en = Rejected by modem
@@ -557,6 +633,7 @@ th = โมเด็มปฏิเสธ
 zh = 被调制解调器拒绝
 de = Vom Modem abgelehnt
 ru = Отклонено модемом
+es = Rechazado por el módem
 
 [lock.status_nr_arfcn]
 en = NR-ARFCN locked ✓
@@ -564,6 +641,7 @@ th = ล็อก NR-ARFCN แล้ว ✓
 zh = NR-ARFCN 已锁定 ✓
 de = NR-ARFCN gesperrt ✓
 ru = NR-ARFCN заблокирован ✓
+es = NR-ARFCN bloqueado ✓
 
 [lock.status_nr_pci]
 en = NR-ARFCN + PCI locked ✓
@@ -571,6 +649,7 @@ th = ล็อก NR-ARFCN + PCI แล้ว ✓
 zh = NR-ARFCN + PCI 已锁定 ✓
 de = NR-ARFCN + PCI gesperrt ✓
 ru = NR-ARFCN + PCI заблокированы ✓
+es = NR-ARFCN + PCI bloqueados ✓
 
 [lock.status_gnb]
 en = gNB locked ✓
@@ -578,6 +657,7 @@ th = ล็อก gNB แล้ว ✓
 zh = gNB 已锁定 ✓
 de = gNB gesperrt ✓
 ru = gNB заблокирован ✓
+es = gNB bloqueado ✓
 
 [lock.status_multi_pci]
 en = Multi-PCI locked ✓
@@ -585,6 +665,7 @@ th = ล็อกหลาย PCI แล้ว ✓
 zh = 多 PCI 锁定 ✓
 de = Multi-PCI gesperrt ✓
 ru = Несколько PCI заблокировано ✓
+es = Multi-PCI bloqueado ✓
 
 [lock.status_cell]
 en = Cell locked ✓
@@ -592,6 +673,7 @@ th = ล็อกเซลล์แล้ว ✓
 zh = 小区锁定 ✓
 de = Zelle gesperrt ✓
 ru = Сота заблокирована ✓
+es = Celda bloqueada ✓
 
 [lock.status_multi_cell]
 en = Multi-cell locked ✓
@@ -599,6 +681,7 @@ th = ล็อกหลายเซลล์แล้ว ✓
 zh = 多小区锁定 ✓
 de = Mehrere Zellen gesperrt ✓
 ru = Несколько сот заблокировано ✓
+es = Multicelda bloqueada ✓
 
 [lock.status_plmn]
 en = {plmn} locked ✓
@@ -606,6 +689,7 @@ th = ล็อก {plmn} แล้ว ✓
 zh = {plmn} 已锁定 ✓
 de = {plmn} gesperrt ✓
 ru = {plmn} заблокировано ✓
+es = {plmn} bloqueado ✓
 
 [lock.lock_5g_title]
 en = Lock 5G cell
@@ -613,6 +697,7 @@ th = ล็อกเซลล์ 5G
 zh = 锁定 5G 小区
 de = 5G-Zelle sperren
 ru = Блокировка соты 5G
+es = Bloquear celda 5G
 
 [lock.frequency_only]
 en = Frequency only
@@ -620,6 +705,7 @@ th = เฉพาะความถี่
 zh = 仅频率
 de = Nur Frequenz
 ru = Только частота
+es = Solo frecuencia
 
 [lock.frequency_pci]
 en = Frequency + PCI
@@ -627,6 +713,7 @@ th = ความถี่ + PCI
 zh = 频率 + PCI
 de = Frequenz + PCI
 ru = Частота + PCI
+es = Frecuencia + PCI
 
 [lock.pci_missing]
 en = The modem reports no PCI for this frequency. Enter the cell's PCI (0-1007).
@@ -634,6 +721,7 @@ th = โมเด็มไม่รายงาน PCI สำหรับคว�
 zh = 该频率下调制解调器未报告 PCI。请输入小区 PCI（0-1007）。
 de = Das Modem meldet für diese Frequenz kein PCI. Bitte das PCI der Zelle eingeben (0-1007).
 ru = Модем не сообщает PCI для этой частоты. Введите PCI соты (0–1007).
+es = El módem no indica ningún PCI para esta frecuencia. Introduce el PCI de la celda (0-1007).
 
 [lock.button_lock]
 en = Lock
@@ -641,6 +729,7 @@ th = ล็อก
 zh = 锁定
 de = Sperren
 ru = Заблокировать
+es = Bloquear
 
 [lock.waiting]
 en = Waiting for the first reading from SIM {sim}…
@@ -648,6 +737,7 @@ th = กำลังรอค่าที่อ่านได้ครั้ง
 zh = 正在等待 SIM {sim} 的首次读取…
 de = Warte auf den ersten Messwert von SIM {sim}…
 ru = Ожидание первых данных от SIM {sim}…
+es = Esperando la primera lectura de la SIM {sim}…
 
 [lock.no_cells]
 en = No cells reported.
@@ -655,6 +745,7 @@ th = ไม่มีเซลล์ที่รายงาน
 zh = 未报告任何小区。
 de = Keine Zellen gemeldet.
 ru = Соты не обнаружены.
+es = No se ha detectado ninguna celda.
 
 [lock.resume_table]
 en = Resume the cell table
@@ -662,6 +753,7 @@ th = เริ่มตารางเซลล์ต่อ
 zh = 恢复小区列表
 de = Zellentabelle fortsetzen
 ru = Возобновить таблицу сот
+es = Reanudar la tabla de celdas
 
 [lock.freeze_table]
 en = Freeze the cell table
@@ -669,6 +761,7 @@ th = หยุดตารางเซลล์ชั่วคราว
 zh = 冻结小区列表
 de = Zellentabelle einfrieren
 ru = Приостановить таблицу сот
+es = Congelar la tabla de celdas
 
 
 # ── Messages (MainActivity) ──────────────────────────
@@ -679,6 +772,7 @@ th = การเชื่อมต่อกับเดมอนกลับม
 zh = 守护进程连接已恢复
 de = Verbindung zum Daemon wiederhergestellt
 ru = Связь с демоном восстановлена
+es = Conexión con el daemon restablecida
 
 [msg.daemon_lost]
 en = Daemon connection lost — retrying...
@@ -686,6 +780,7 @@ th = การเชื่อมต่อกับเดมอนขาดหา
 zh = 守护进程连接已断开——正在重试...
 de = Verbindung zum Daemon verloren – neuer Versuch...
 ru = Связь с демоном потеряна — повтор...
+es = Conexión con el daemon perdida; reintentando...
 
 [msg.daemon_launch_failed]
 en = Daemon Launch Failed
@@ -693,6 +788,7 @@ th = เปิดเดมอนไม่สำเร็จ
 zh = 守护进程启动失败
 de = Daemon-Start fehlgeschlagen
 ru = Сбой запуска демона
+es = No se ha podido iniciar el daemon
 
 [msg.init_failed]
 en = Initialization Failed
@@ -700,6 +796,7 @@ th = การเริ่มต้นล้มเหลว
 zh = 初始化失败
 de = Initialisierung fehlgeschlagen
 ru = Сбой инициализации
+es = Error de inicialización
 
 [msg.select_sim_failed]
 en = Failed to select SIM {sim}
@@ -707,6 +804,7 @@ th = เลือก SIM {sim} ไม่สำเร็จ
 zh = 选择 SIM {sim} 失败
 de = SIM {sim} konnte nicht ausgewählt werden
 ru = Не удалось выбрать SIM {sim}
+es = No se ha podido seleccionar la SIM {sim}
 
 [msg.select_sim1_failed]
 en = Failed to select SIM 1: {error}
@@ -714,6 +812,7 @@ th = เลือก SIM 1 ไม่สำเร็จ: {error}
 zh = 选择 SIM 1 失败：{error}
 de = SIM 1 konnte nicht ausgewählt werden: {error}
 ru = Не удалось выбрать SIM 1: {error}
+es = No se ha podido seleccionar la SIM 1: {error}
 
 [msg.query_failed]
 en = Failed to query modem state: {error}
@@ -721,6 +820,7 @@ th = สอบถามสถานะโมเด็มไม่สำเร็
 zh = 查询调制解调器状态失败：{error}
 de = Modemstatus konnte nicht abgefragt werden: {error}
 ru = Не удалось запросить состояние модема: {error}
+es = No se ha podido consultar el estado del módem: {error}
 
 [msg.apply_failed]
 en = Apply failed: {error}
@@ -728,6 +828,7 @@ th = การใช้งานไม่สำเร็จ: {error}
 zh = 应用失败：{error}
 de = Anwenden fehlgeschlagen: {error}
 ru = Сбой применения: {error}
+es = Error al aplicar: {error}
 
 [msg.clear_all_failed]
 en = Clear all failed: {error}
@@ -735,6 +836,7 @@ th = ล้างทั้งหมดไม่สำเร็จ: {error}
 zh = 全部清除失败：{error}
 de = Löschen aller Einträge fehlgeschlagen: {error}
 ru = Сбой очистки всего: {error}
+es = Error al quitar todo: {error}
 
 [msg.cleared_all]
 en = Cleared all cell locks for SIM {sim}
@@ -742,6 +844,7 @@ th = ล้างการล็อกเซลล์ทั้งหมดขอ
 zh = 已清除 SIM {sim} 的全部小区锁定
 de = Alle Zellensperren für SIM {sim} gelöscht
 ru = Сняты все блокировки сот для SIM {sim}
+es = Se han quitado todos los bloqueos de celda de la SIM {sim}
 
 [msg.clear_5g_conn_failed]
 en = Clear 5G failed (connection error)
@@ -749,6 +852,7 @@ th = ล้าง 5G ไม่สำเร็จ (การเชื่อมต
 zh = 清除 5G 失败（连接错误）
 de = 5G löschen fehlgeschlagen (Verbindungsfehler)
 ru = Сбой очистки 5G (ошибка соединения)
+es = Error al quitar 5G (error de conexión)
 
 [msg.cleared_5g]
 en = Cleared 5G cell lock for SIM {sim}
@@ -756,6 +860,7 @@ th = ล้างการล็อกเซลล์ 5G ของ SIM {sim} แ
 zh = 已清除 SIM {sim} 的 5G 小区锁定
 de = 5G-Zellensperre für SIM {sim} gelöscht
 ru = Снята блокировка соты 5G для SIM {sim}
+es = Se ha quitado el bloqueo de celda 5G de la SIM {sim}
 
 [msg.clear_4g_failed]
 en = Clear 4G failed: {error}
@@ -763,6 +868,7 @@ th = ล้าง 4G ไม่สำเร็จ: {error}
 zh = 清除 4G 失败：{error}
 de = 4G löschen fehlgeschlagen: {error}
 ru = Сбой очистки 4G: {error}
+es = Error al quitar 4G: {error}
 
 [msg.cleared_4g]
 en = Cleared 4G cell lock for SIM {sim}
@@ -770,6 +876,7 @@ th = ล้างการล็อกเซลล์ 4G ของ SIM {sim} แ
 zh = 已清除 SIM {sim} 的 4G 小区锁定
 de = 4G-Zellensperre für SIM {sim} gelöscht
 ru = Снята блокировка соты 4G для SIM {sim}
+es = Se ha quitado el bloqueo de celda 4G de la SIM {sim}
 
 [msg.clear_plmn_failed]
 en = Clear PLMN failed: {error}
@@ -777,6 +884,7 @@ th = ล้าง PLMN ไม่สำเร็จ: {error}
 zh = 清除 PLMN 失败：{error}
 de = PLMN löschen fehlgeschlagen: {error}
 ru = Сбой очистки PLMN: {error}
+es = Error al quitar PLMN: {error}
 
 [msg.cleared_plmn]
 en = Cleared PLMN lock for SIM {sim}
@@ -784,6 +892,7 @@ th = ล้างการล็อก PLMN ของ SIM {sim} แล้ว
 zh = 已清除 SIM {sim} 的 PLMN 锁定
 de = PLMN-Sperre für SIM {sim} gelöscht
 ru = Снята блокировка PLMN для SIM {sim}
+es = Se ha quitado el bloqueo de PLMN de la SIM {sim}
 
 [msg.refresh_failed]
 en = Refresh failed
@@ -791,6 +900,7 @@ th = รีเฟรชไม่สำเร็จ
 zh = 刷新失败
 de = Aktualisierung fehlgeschlagen
 ru = Сбой обновления
+es = Error al actualizar
 
 [msg.refresh_failed_error]
 en = Refresh failed: {error}
@@ -798,6 +908,7 @@ th = รีเฟรชไม่สำเร็จ: {error}
 zh = 刷新失败：{error}
 de = Aktualisierung fehlgeschlagen: {error}
 ru = Сбой обновления: {error}
+es = Error al actualizar: {error}
 
 [msg.refresh_no_sim]
 en = Refresh failed: could not select SIM {sim}
@@ -805,6 +916,7 @@ th = รีเฟรชไม่สำเร็จ: เลือก SIM {sim} �
 zh = 刷新失败：无法选择 SIM {sim}
 de = Aktualisierung fehlgeschlagen: SIM {sim} konnte nicht ausgewählt werden
 ru = Сбой обновления: не удалось выбрать SIM {sim}
+es = Error al actualizar: no se ha podido seleccionar la SIM {sim}
 
 [msg.reset_defaults]
 en = Reset to hardware defaults for SIM {sim}
@@ -812,6 +924,7 @@ th = รีเซ็ต SIM {sim} เป็นค่าเริ่มต้น�
 zh = 已将 SIM {sim} 重置为硬件默认
 de = SIM {sim} auf Hardware-Standard zurückgesetzt
 ru = Сброс к аппаратным настройкам для SIM {sim}
+es = Valores de fábrica del hardware restablecidos en la SIM {sim}
 
 [msg.reset_failed]
 en = Reset failed: {error}
@@ -819,6 +932,7 @@ th = รีเซ็ตไม่สำเร็จ: {error}
 zh = 重置失败：{error}
 de = Zurücksetzen fehlgeschlagen: {error}
 ru = Сбой сброса: {error}
+es = Error al restablecer: {error}
 
 [msg.detach_failed]
 en = Detach failed
@@ -826,6 +940,7 @@ th = ตัดการเชื่อมต่อไม่สำเร็จ
 zh = 去附着失败
 de = Trennen fehlgeschlagen
 ru = Сбой отключения
+es = Error al desconectar
 
 [msg.detach_failed_error]
 en = Detach failed: {error}
@@ -833,6 +948,7 @@ th = ตัดการเชื่อมต่อไม่สำเร็จ: {
 zh = 去附着失败：{error}
 de = Trennen fehlgeschlagen: {error}
 ru = Сбой отключения: {error}
+es = Error al desconectar: {error}
 
 [msg.detached]
 en = Detached from network
@@ -840,6 +956,7 @@ th = ตัดการเชื่อมต่อจากเครือข่
 zh = 已从网络去附着
 de = Vom Netzwerk getrennt
 ru = Отключено от сети
+es = Desconectado de la red
 
 [msg.attach_failed]
 en = Attach failed
@@ -847,6 +964,7 @@ th = เชื่อมต่อไม่สำเร็จ
 zh = 附着失败
 de = Verbinden fehlgeschlagen
 ru = Сбой подключения
+es = Error al conectar
 
 [msg.attach_failed_error]
 en = Attach failed: {error}
@@ -854,6 +972,7 @@ th = เชื่อมต่อไม่สำเร็จ: {error}
 zh = 附着失败：{error}
 de = Verbinden fehlgeschlagen: {error}
 ru = Сбой подключения: {error}
+es = Error al conectar: {error}
 
 [msg.attached]
 en = Attached to network
@@ -861,6 +980,7 @@ th = เชื่อมต่อกับเครือข่ายแล้ว
 zh = 已附着到网络
 de = Mit dem Netzwerk verbunden
 ru = Подключено к сети
+es = Conectado a la red
 
 [msg.reattaching]
 en = Re-attaching to network…
@@ -868,6 +988,7 @@ th = กำลังเชื่อมต่อกับเครือข่า
 zh = 正在重新附着到网络…
 de = Erneutes Verbinden mit dem Netzwerk…
 ru = Переподключение к сети…
+es = Reconectando a la red…
 
 [msg.reattach_failed]
 en = Re-attach failed
@@ -875,6 +996,7 @@ th = เชื่อมต่อใหม่ไม่สำเร็จ
 zh = 重新附着失败
 de = Erneutes Verbinden fehlgeschlagen
 ru = Сбой переподключения
+es = Error al reconectar
 
 [msg.reattach_failed_error]
 en = Re-attach failed: {error}
@@ -882,6 +1004,7 @@ th = เชื่อมต่อใหม่ไม่สำเร็จ: {error}
 zh = 重新附着失败：{error}
 de = Erneutes Verbinden fehlgeschlagen: {error}
 ru = Сбой переподключения: {error}
+es = Error al reconectar: {error}
 
 [msg.reattach_left_detached]
 en = Re-attach failed; network may be left detached
@@ -889,6 +1012,7 @@ th = เชื่อมต่อใหม่ไม่สำเร็จ เค�
 zh = 重新附着失败；网络可能仍处于去附着状态
 de = Erneutes Verbinden fehlgeschlagen; das Netzwerk ist möglicherweise getrennt
 ru = Сбой переподключения; сеть может остаться отключенной
+es = Error al reconectar; puede que la red se haya quedado desconectada
 
 [msg.reattach_recovered]
 en = Re-attach recovered: attach succeeded
@@ -896,6 +1020,7 @@ th = กู้คืนการเชื่อมต่อใหม่แล้
 zh = 重新附着已恢复：附着成功
 de = Erneutes Verbinden erfolgreich: Verbindung hergestellt
 ru = Переподключение восстановлено: связь установлена
+es = Reconexión recuperada: la conexión se ha completado
 
 [msg.reattach_complete]
 en = Re-attach complete
@@ -903,6 +1028,7 @@ th = เชื่อมต่อใหม่เสร็จสิ้น
 zh = 重新附着完成
 de = Erneutes Verbinden abgeschlossen
 ru = Переподключение завершено
+es = Reconexión completada
 
 [msg.need_arfcn_scs]
 en = Need: arfcn scs_khz
@@ -910,6 +1036,7 @@ th = ต้องใส่: arfcn scs_khz
 zh = 格式：arfcn scs_khz
 de = Erforderlich: arfcn scs_khz
 ru = Требуется: arfcn scs_khz
+es = Necesario: arfcn scs_khz
 
 [msg.need_arfcn_pci_scs_band]
 en = Need: arfcn pci scs_khz band
@@ -917,6 +1044,7 @@ th = ต้องใส่: arfcn pci scs_khz band
 zh = 格式：arfcn pci scs_khz band
 de = Erforderlich: arfcn pci scs_khz band
 ru = Требуется: arfcn pci scs_khz band
+es = Necesario: arfcn pci scs_khz band
 
 [msg.need_arfcn_scs_band_pci]
 en = Need: arfcn scs_khz band pci...
@@ -924,6 +1052,7 @@ th = ต้องใส่: arfcn scs_khz band pci...
 zh = 格式：arfcn scs_khz band pci...
 de = Erforderlich: arfcn scs_khz band pci...
 ru = Требуется: arfcn scs_khz band pci...
+es = Necesario: arfcn scs_khz band pci...
 
 [msg.need_id_bits_gnb]
 en = Need: id_bits gnb...
@@ -931,6 +1060,7 @@ th = ต้องใส่: id_bits gnb...
 zh = 格式：id_bits gnb...
 de = Erforderlich: id_bits gnb...
 ru = Требуется: id_bits gnb...
+es = Necesario: id_bits gnb...
 
 [msg.need_earfcn_pci]
 en = Need: earfcn pci
@@ -938,6 +1068,7 @@ th = ต้องใส่: earfcn pci
 zh = 格式：earfcn pci
 de = Erforderlich: earfcn pci
 ru = Требуется: earfcn pci
+es = Necesario: earfcn pci
 
 [msg.need_earfcn_pci_list]
 en = Need: earfcn pci...
@@ -945,6 +1076,7 @@ th = ต้องใส่: earfcn pci...
 zh = 格式：earfcn pci...
 de = Erforderlich: earfcn pci...
 ru = Требуется: earfcn pci...
+es = Necesario: earfcn pci...
 
 [msg.need_mcc_mnc]
 en = Need: mcc mnc
@@ -952,6 +1084,7 @@ th = ต้องใส่: mcc mnc
 zh = 格式：mcc mnc
 de = Erforderlich: mcc mnc
 ru = Требуется: mcc mnc
+es = Necesario: mcc mnc
 
 [msg.max_64_pci]
 en = Max 64 PCIs
@@ -959,6 +1092,7 @@ th = สูงสุด 64 PCI
 zh = 最多 64 个 PCI
 de = Maximal 64 PCIs
 ru = Максимум 64 PCI
+es = Máximo 64 PCI
 
 [msg.pci_range]
 en = PCI must be 0-503
@@ -966,6 +1100,7 @@ th = PCI ต้องอยู่ระหว่าง 0-503
 zh = PCI 必须在 0-503 之间
 de = PCI muss zwischen 0 und 503 liegen
 ru = Значение PCI должно быть от 0 до 503
+es = El PCI debe estar entre 0 y 503
 
 [msg.mnc_digits]
 en = MNC is up to 3 digits
@@ -973,6 +1108,7 @@ th = MNC มีได้สูงสุด 3 หลัก
 zh = MNC 最多 3 位数字
 de = MNC hat höchstens 3 Ziffern
 ru = MNC содержит до 3 цифр
+es = El MNC tiene como máximo 3 dígitos
 
 [msg.mcc_mnc_range]
 en = MCC and MNC must be 0-999
@@ -980,6 +1116,7 @@ th = MCC และ MNC ต้องอยู่ระหว่าง 0-999
 zh = MCC 和 MNC 必须在 0-999 之间
 de = MCC und MNC müssen zwischen 0 und 999 liegen
 ru = MCC и MNC должны быть от 0 до 999
+es = El MCC y el MNC deben estar entre 0 y 999
 
 [msg.unknown_field]
 en = Unknown field
@@ -987,6 +1124,7 @@ th = ไม่รู้จักช่องนี้
 zh = 未知字段
 de = Unbekanntes Feld
 ru = Неизвестное поле
+es = Campo desconocido
 
 [msg.invalid_number]
 en = Invalid number: {error}
@@ -994,6 +1132,7 @@ th = ตัวเลขไม่ถูกต้อง: {error}
 zh = 无效数字：{error}
 de = Ungültige Zahl: {error}
 ru = Неверное число: {error}
+es = Número no válido: {error}
 
 [sim.off]
 en = Off
@@ -1001,6 +1140,7 @@ th = ปิดอยู่
 zh = 已关闭
 de = Aus
 ru = Выкл.
+es = Desactivada
 
 [sim.no_sim]
 en = No SIM
@@ -1008,6 +1148,7 @@ th = ไม่มีซิม
 zh = 无 SIM 卡
 de = Keine SIM
 ru = Нет SIM
+es = Sin SIM
 
 # ── Network page and Cell-Lock dropdowns ──────────────
 
@@ -1017,6 +1158,7 @@ th = หยุดสคริปต์ทดสอบ
 zh = 停止测试脚本
 de = Testskript stoppen
 ru = Остановить тестовый скрипт
+es = Detener el script de prueba
 
 [net.start_test]
 en = Start test script
@@ -1024,6 +1166,7 @@ th = เริ่มสคริปต์ทดสอบ
 zh = 开始测试脚本
 de = Testskript starten
 ru = Запустить тестовый скрипт
+es = Iniciar el script de prueba
 
 [net.resume_live]
 en = Resume live monitoring
@@ -1031,6 +1174,7 @@ th = เริ่มการตรวจสอบสดต่อ
 zh = 恢复实时监控
 de = Live-Überwachung fortsetzen
 ru = Возобновить мониторинг в реальном времени
+es = Reanudar la monitorización en directo
 
 [net.freeze]
 en = Freeze monitoring
@@ -1038,6 +1182,7 @@ th = หยุดการตรวจสอบชั่วคราว
 zh = 冻结监控
 de = Überwachung einfrieren
 ru = Заморозить мониторинг
+es = Congelar la monitorización
 
 [net.enable_diag]
 en = Enable DIAG
@@ -1045,6 +1190,7 @@ th = เปิด DIAG
 zh = 启用 DIAG
 de = DIAG aktivieren
 ru = Включить DIAG
+es = Activar DIAG
 
 [net.enable_replay]
 en = Enable replay
@@ -1052,6 +1198,7 @@ th = เปิดการเล่นซ้ำ
 zh = 启用回放
 de = Wiedergabe aktivieren
 ru = Включить повтор
+es = Activar la grabación
 
 [net.keep_screen_on]
 en = Keep screen on
@@ -1059,6 +1206,7 @@ th = คงหน้าจอให้เปิดอยู่
 zh = 保持屏幕常亮
 de = Bildschirm eingeschaltet lassen
 ru = Не гасить экран
+es = Mantener la pantalla encendida
 
 [net.hide_serving]
 en = Hide serving cell
@@ -1066,6 +1214,7 @@ th = ซ่อนเซลล์ที่ให้บริการ
 zh = 隐藏服务小区
 de = Versorgende Zelle ausblenden
 ru = Скрыть обслуживающую соту
+es = Ocultar celda de servicio
 
 [net.hide_throughput]
 en = Hide throughput
@@ -1073,6 +1222,7 @@ th = ซ่อนอัตราการส่งข้อมูล
 zh = 隐藏吞吐
 de = Durchsatz ausblenden
 ru = Скрыть пропускную способность
+es = Ocultar velocidad
 
 [net.hide_uplink]
 en = Hide uplink
@@ -1080,6 +1230,7 @@ th = ซ่อนขาขึ้น
 zh = 隐藏上行
 de = Uplink ausblenden
 ru = Скрыть uplink
+es = Ocultar enlace ascendente
 
 [net.combine_endc]
 en = Combine ENDC
@@ -1087,6 +1238,7 @@ th = รวม ENDC
 zh = 合并 ENDC
 de = ENDC zusammenfassen
 ru = Объединить ENDC
+es = Combinar ENDC
 
 [net.pause_replay]
 en = Pause replay
@@ -1094,6 +1246,7 @@ th = หยุดการเล่นซ้ำชั่วคราว
 zh = 暂停回放
 de = Wiedergabe pausieren
 ru = Приостановить повтор
+es = Pausar la reproducción
 
 [net.play_replay]
 en = Play replay
@@ -1101,6 +1254,7 @@ th = เล่นซ้ำ
 zh = 播放回放
 de = Wiedergabe abspielen
 ru = Воспроизвести повтор
+es = Reproducir la grabación
 
 [net.gnb_cell]
 en = gNB {gnb} / Cell {cell}
@@ -1108,6 +1262,7 @@ th = gNB {gnb} / Cell {cell}
 zh = gNB {gnb} / 小区 {cell}
 de = gNB {gnb} / Zelle {cell}
 ru = gNB {gnb} / Сота {cell}
+es = gNB {gnb} / Celda {cell}
 
 [net.sim1_off]
 en = SIM 1 is turned off.
@@ -1115,6 +1270,7 @@ th = SIM 1 ถูกปิดอยู่
 zh = SIM 1 已停用。
 de = SIM 1 ist ausgeschaltet.
 ru = SIM 1 отключена.
+es = La SIM 1 está desactivada.
 
 [net.no_sim_slot1]
 en = No SIM in slot 1.
@@ -1122,6 +1278,7 @@ th = ไม่มีซิมในช่อง 1
 zh = 卡槽 1 无 SIM 卡。
 de = Keine SIM in Steckplatz 1.
 ru = Нет SIM в слоте 1.
+es = No hay ninguna SIM en la ranura 1.
 
 [net.last_read_failed]
 en = Last read failed: {error}. Showing the previous reading.
@@ -1129,6 +1286,7 @@ th = การอ่านล่าสุดล้มเหลว: {error} แ�
 zh = 上次读取失败：{error}。显示上一次的读数。
 de = Letzte Messung fehlgeschlagen: {error}. Der vorherige Messwert wird angezeigt.
 ru = Сбой последнего чтения: {error}. Отображается предыдущее значение.
+es = Error en la última lectura: {error}. Se muestra la lectura anterior.
 
 [net.no_serving_details]
 en = No serving-cell details were reported.
@@ -1136,6 +1294,7 @@ th = ไม่มีรายละเอียดเซลล์ที่ให
 zh = 未报告服务小区详情。
 de = Es wurden keine Details zur versorgenden Zelle gemeldet.
 ru = Сведения об обслуживающей соте не поступали.
+es = No se han recibido datos de la celda de servicio.
 
 [net.diag_read_failed]
 en = DIAG read failed: {error}
@@ -1143,6 +1302,7 @@ th = อ่าน DIAG ไม่สำเร็จ: {error}
 zh = DIAG 读取失败：{error}
 de = DIAG-Lesen fehlgeschlagen: {error}
 ru = Сбой чтения DIAG: {error}
+es = Error de lectura de DIAG: {error}
 
 [net.diag_stopped]
 en = DIAG stopped: {error}
@@ -1150,6 +1310,7 @@ th = DIAG หยุดแล้ว: {error}
 zh = DIAG 已停止：{error}
 de = DIAG gestoppt: {error}
 ru = DIAG остановлен: {error}
+es = DIAG detenido: {error}
 
 [net.not_available_round]
 en = Not available this round: {failed}
@@ -1157,6 +1318,7 @@ th = ไม่พร้อมใช้งานในรอบนี้: {failed
 zh = 本轮不可用：{failed}
 de = In diesem Durchlauf nicht verfügbar: {failed}
 ru = Not available this round: {failed}
+es = No disponible en esta ronda: {failed}
 
 [net.antenna]
 en = Antenna measurements
@@ -1164,6 +1326,7 @@ th = การวัดสายอากาศ
 zh = 天线测量
 de = Antennenmessungen
 ru = Измерения антенн
+es = Mediciones de la antena
 
 [net.neighbours]
 en = Neighbour cells ({count})
@@ -1171,6 +1334,7 @@ th = เซลล์ใกล้เคียง ({count})
 zh = 邻区（{count}）
 de = Nachbarzellen ({count})
 ru = Соседние соты ({count})
+es = Celdas vecinas ({count})
 
 [net.operator]
 en = Operator
@@ -1178,6 +1342,7 @@ th = ผู้ให้บริการ
 zh = 运营商
 de = Betreiber
 ru = Оператор
+es = Operador
 
 [net.roaming]
 en = Roaming
@@ -1185,6 +1350,7 @@ th = โรมมิ่ง
 zh = 漫游
 de = Roaming
 ru = Роуминг
+es = Itinerancia
 
 [net.row_tx_rx]
 en = Tx/Rx
@@ -1192,6 +1358,7 @@ th = ส่ง/รับ
 zh = 收发
 de = Tx/Rx
 ru = Tx/Rx
+es = Tx/Rx
 
 [net.row_tx_mode]
 en = TxMode
@@ -1199,6 +1366,7 @@ th = โหมดส่ง
 zh = 发射模式
 de = Tx-Modus
 ru = Режим Tx
+es = TxMode
 
 [net.row_tx_mode_ul]
 en = TX mode
@@ -1206,6 +1374,7 @@ th = โหมดส่ง
 zh = 发射模式
 de = TX-Modus
 ru = Режим TX
+es = Modo TX
 
 [net.row_rank]
 en = Rank
@@ -1213,6 +1382,7 @@ th = อันดับ
 zh = 秩
 de = Rang
 ru = Ранг
+es = Rango
 
 [net.row_mod]
 en = Mod
@@ -1220,6 +1390,7 @@ th = การมอดูเลต
 zh = 调制
 de = Mod.
 ru = Модуляция
+es = Mod
 
 [net.row_port_rx]
 en = Port/Rx
@@ -1227,6 +1398,7 @@ th = พอร์ต/Rx
 zh = 端口/Rx
 de = Port/Rx
 ru = Порт/Rx
+es = Puerto/Rx
 
 [common.expand]
 en = Expand
@@ -1234,6 +1406,7 @@ th = ขยาย
 zh = 展开
 de = Ausklappen
 ru = Развернуть
+es = Desplegar
 
 [common.collapse]
 en = Collapse
@@ -1241,6 +1414,7 @@ th = ยุบ
 zh = 收起
 de = Einklappen
 ru = Свернуть
+es = Contraer
 
 [common.yes]
 en = Yes
@@ -1248,6 +1422,7 @@ th = ใช่
 zh = 是
 de = Ja
 ru = Да
+es = Sí
 
 [common.no]
 en = No
@@ -1255,6 +1430,7 @@ th = ไม่
 zh = 否
 de = Nein
 ru = Нет
+es = No
 
 [lock.none_seen]
 en = None seen yet
@@ -1262,6 +1438,7 @@ th = ยังไม่เคยเห็น
 zh = 暂无记录
 de = Keine bekannten Zellen
 ru = Пока ничего не обнаружено
+es = Aún no se ha visto ninguno
 
 [lock.seen_nr_arfcns]
 en = Seen NR-ARFCNs
@@ -1269,6 +1446,7 @@ th = NR-ARFCN ที่เคยเห็น
 zh = 已见的 NR-ARFCN
 de = Bekannte NR-ARFCNs
 ru = Обнаруженные NR-ARFCN
+es = NR-ARFCN vistos
 
 [lock.pick_nr_arfcn_first]
 en = Pick an NR-ARFCN first
@@ -1276,6 +1454,7 @@ th = เลือก NR-ARFCN ก่อน
 zh = 请先选择 NR-ARFCN
 de = Zuerst eine NR-ARFCN auswählen
 ru = Сначала выберите NR-ARFCN
+es = Elige antes un NR-ARFCN
 
 [lock.none_seen_nr_arfcn]
 en = None seen on this NR-ARFCN
@@ -1283,6 +1462,7 @@ th = ยังไม่เคยเห็นบน NR-ARFCN นี้
 zh = 该 NR-ARFCN 上暂无记录
 de = Auf dieser NR-ARFCN sind noch keine Zellen bekannt
 ru = На этом NR-ARFCN ничего не обнаружено
+es = No se ha visto ninguno en este NR-ARFCN
 
 [lock.seen_pcis]
 en = Seen PCIs
@@ -1290,6 +1470,7 @@ th = PCI ที่เคยเห็น
 zh = 已见的 PCI
 de = Bekannte PCIs
 ru = Обнаруженные PCI
+es = PCI vistos
 
 [lock.no_nr_band]
 en = No NR band
@@ -1297,6 +1478,7 @@ th = ไม่มีย่าน NR
 zh = 无 NR 频段
 de = Kein NR-Band
 ru = Нет диапазона NR
+es = Sin banda NR
 
 [lock.apply_nr_arfcn]
 en = Apply NR-ARFCN lock
@@ -1304,6 +1486,7 @@ th = ใช้การล็อก NR-ARFCN
 zh = 应用 NR-ARFCN 锁定
 de = NR-ARFCN-Sperre anwenden
 ru = Применить блокировку по NR-ARFCN
+es = Aplicar bloqueo de NR-ARFCN
 
 [lock.apply_nr_cell]
 en = Apply NR cell lock
@@ -1311,6 +1494,7 @@ th = ใช้การล็อกเซลล์ NR
 zh = 应用 NR 小区锁定
 de = NR-Zellensperre anwenden
 ru = Применить блокировку соты NR
+es = Aplicar bloqueo de celda NR
 
 [lock.seen_earfcns]
 en = Seen EARFCNs
@@ -1318,6 +1502,7 @@ th = EARFCN ที่เคยเห็น
 zh = 已见的 EARFCN
 de = Bekannte EARFCNs
 ru = Обнаруженные EARFCN
+es = EARFCN vistos
 
 [lock.pick_earfcn_first]
 en = Pick an EARFCN first
@@ -1325,6 +1510,7 @@ th = เลือก EARFCN ก่อน
 zh = 请先选择 EARFCN
 de = Zuerst eine EARFCN auswählen
 ru = Сначала выберите EARFCN
+es = Elige antes un EARFCN
 
 [lock.none_seen_earfcn]
 en = None seen on this EARFCN
@@ -1332,6 +1518,7 @@ th = ยังไม่เคยเห็นบน EARFCN นี้
 zh = 该 EARFCN 上暂无记录
 de = Auf dieser EARFCN sind noch keine Zellen bekannt
 ru = На этом EARFCN ничего не обнаружено
+es = No se ha visto ninguno en este EARFCN
 
 [lock.apply_lte]
 en = Apply LTE lock
@@ -1339,6 +1526,7 @@ th = ใช้การล็อก LTE
 zh = 应用 LTE 锁定
 de = LTE-Sperre anwenden
 ru = Применить блокировку LTE
+es = Aplicar bloqueo LTE
 
 [lock.clear_the_lock]
 en = Clear the lock
@@ -1346,6 +1534,7 @@ th = ล้างการล็อก
 zh = 清除锁定
 de = Sperre aufheben
 ru = Сбросить блокировку
+es = Quitar el bloqueo
 
 [lock.band_label]
 en = Band
@@ -1353,6 +1542,7 @@ th = แบนด์
 zh = 频段
 de = Band
 ru = Диапазон
+es = Banda
 
 [lock.nr_arfcn_title]
 en = NR-ARFCN lock
@@ -1360,6 +1550,7 @@ th = การล็อก NR-ARFCN
 zh = NR-ARFCN 锁定
 de = NR-ARFCN-Sperre
 ru = Блокировка NR-ARFCN
+es = Bloqueo de NR-ARFCN
 
 [lock.hint_pci_band]
 en = PCI + Band lock (OPTIONAL)
@@ -1367,6 +1558,7 @@ th = การล็อก PCI + แบนด์ (ไม่บังคับ)
 zh = PCI + 频段锁定（可选）
 de = PCI- + Band-Sperre (OPTIONAL)
 ru = Блокировка по PCI + Диапазон (ОПЦИОНАЛЬНО)
+es = Bloqueo de PCI + banda (OPCIONAL)
 
 [lock.hint_multipci]
 en = MultiPCI lock: Put NR-ARFCN SCS Band and PCI list
@@ -1374,6 +1566,7 @@ th = การล็อกหลาย PCI: ใส่ NR-ARFCN, SCS, ย่า�
 zh = 多 PCI 锁定：填写 NR-ARFCN、SCS、频段和 PCI 列表
 de = Multi-PCI-Sperre: NR-ARFCN, SCS, Band und PCI-Liste eingeben
 ru = Блокировка нескольких PCI: укажите NR-ARFCN, SCS, диапазон и список PCI
+es = Bloqueo multi-PCI: introduce NR-ARFCN, SCS, banda y lista de PCI
 
 [lock.hint_gnb]
 en = gNB lock: Put ID bits (22-32) and gNB IDs
@@ -1381,6 +1574,7 @@ th = การล็อก gNB: ใส่ ID bits (22-32) และ gNB ID
 zh = gNB 锁定：填写 ID 位（22-32）和 gNB ID
 de = gNB-Sperre: ID-Bits (22-32) und gNB-IDs eingeben
 ru = Блокировка gNB: укажите биты ID (22-32) и gNB ID
+es = Bloqueo de gNB: introduce los bits de ID (22-32) y los ID de gNB
 
 [lock.hint_pci]
 en = PCI lock: Put EARFCN and PCI
@@ -1388,6 +1582,7 @@ th = การล็อก PCI: ใส่ EARFCN และ PCI
 zh = PCI 锁定：填写 EARFCN 和 PCI
 de = PCI-Sperre: EARFCN und PCI eingeben
 ru = Блокировка по PCI: укажите EARFCN и PCI
+es = Bloqueo de PCI: introduce EARFCN y PCI
 
 [lock.hint_plmn]
 en = PLMN lock: Put MCC and MNC (e.g. 244 01)
@@ -1395,6 +1590,7 @@ th = การล็อก PLMN: ใส่ MCC และ MNC (เช่น 244 0
 zh = PLMN 锁定：填写 MCC 和 MNC（例如 244 01）
 de = PLMN-Sperre: MCC und MNC eingeben (z. B. 244 01)
 ru = Блокировка по PLMN: укажите MCC и MNC (например, 244 01)
+es = Bloqueo de PLMN: introduce MCC y MNC (p. ej., 244 01)
 
 [lock.hint_multicell]
 en = Multi-cell lock: Put EARFCN and PCI list (0-503)
@@ -1402,6 +1598,7 @@ th = การล็อกหลายเซลล์: ใส่ EARFCN แล�
 zh = 多小区锁定：填写 EARFCN 和 PCI 列表（0-503）
 de = Mehrzellen-Sperre: EARFCN und PCI-Liste eingeben (0-503)
 ru = Блокировка сот: укажите EARFCN и список PCI (0-503)
+es = Bloqueo multicelda: introduce EARFCN y lista de PCI (0-503)
 
 [lock.fmt_pci_band]
 en = NR-ARFCN PCI SCS Band
@@ -1409,6 +1606,7 @@ th = NR-ARFCN PCI SCS แบนด์
 zh = NR-ARFCN PCI SCS 频段
 de = NR-ARFCN PCI SCS Band
 ru = NR-ARFCN PCI SCS Диапазон
+es = NR-ARFCN PCI SCS Banda
 
 [lock.fmt_multipci]
 en = NR-ARFCN SCS Band PCI1 PCI2...
@@ -1416,6 +1614,7 @@ th = NR-ARFCN SCS ย่านความถี่ PCI1 PCI2...
 zh = NR-ARFCN SCS 频段 PCI1 PCI2...
 de = NR-ARFCN SCS Band PCI1 PCI2...
 ru = NR-ARFCN SCS Диапазон PCI1 PCI2...
+es = NR-ARFCN SCS Banda PCI1 PCI2...
 
 [lock.fmt_plmn]
 en = MCC MNC (e.g. 244 01)
@@ -1423,6 +1622,7 @@ th = MCC MNC (เช่น 244 01)
 zh = MCC MNC（例如 244 01）
 de = MCC MNC (z. B. 244 01)
 ru = MCC MNC (например, 244 01)
+es = MCC MNC (p. ej., 244 01)
 
 # Remaining UI display text
 
@@ -1432,6 +1632,7 @@ th = แบนด์
 zh = 频段
 de = Band
 ru = Диапазон
+es = Banda
 
 [display.bandwidth]
 en = Bandwidth
@@ -1439,6 +1640,7 @@ th = แบนด์วิดท์
 zh = 带宽
 de = Bandbreite
 ru = Полоса
+es = Ancho de banda
 
 [display.frequency]
 en = Frequency
@@ -1446,6 +1648,7 @@ th = ความถี่
 zh = 频率
 de = Frequenz
 ru = Частота
+es = Frecuencia
 
 [display.cell_id]
 en = Cell ID
@@ -1453,6 +1656,7 @@ th = รหัสเซลล์
 zh = 小区 ID
 de = Zellen-ID
 ru = Cell ID
+es = ID de celda
 
 [display.gnb_cell]
 en = gNB / Cell
@@ -1460,6 +1664,7 @@ th = gNB / เซลล์
 zh = gNB / 小区
 de = gNB / Zelle
 ru = gNB / Сота
+es = gNB / Celda
 
 [display.lte_primary]
 en = LTE primary cell
@@ -1467,6 +1672,7 @@ th = เซลล์หลัก LTE
 zh = LTE 主小区
 de = LTE-Primärzelle
 ru = Первичная сота LTE
+es = Celda primaria LTE
 
 [display.nr_primary]
 en = NR primary cell
@@ -1474,6 +1680,7 @@ th = เซลล์หลัก NR
 zh = NR 主小区
 de = NR-Primärzelle
 ru = Первичная сота NR
+es = Celda primaria NR
 
 
 [display.wcdma_serving]
@@ -1482,6 +1689,7 @@ th = เซลล์ที่ให้บริการ WCDMA
 zh = WCDMA 服务小区
 de = Versorgende WCDMA-Zelle
 ru = Обслуживающая сота WCDMA
+es = Celda de servicio WCDMA
 
 [display.gsm_serving]
 en = GSM serving cell
@@ -1489,6 +1697,7 @@ th = เซลล์ที่ให้บริการ GSM
 zh = GSM 服务小区
 de = Versorgende GSM-Zelle
 ru = Обслуживающая сота GSM
+es = Celda de servicio GSM
 
 [display.carrier_aggregation]
 en = Carrier aggregation
@@ -1496,6 +1705,7 @@ th = การรวมคลื่นความถี่
 zh = 载波聚合
 de = Trägeraggregation
 ru = Агрегация несущих
+es = Agregación de portadoras
 
 [display.nr_aggregation]
 en = NR aggregation
@@ -1503,6 +1713,7 @@ th = การรวมคลื่น NR
 zh = NR 载波聚合
 de = NR-Aggregation
 ru = Агрегация NR
+es = Agregación NR
 
 [display.primary]
 en = Primary
@@ -1510,6 +1721,7 @@ th = หลัก
 zh = 主载波
 de = Primär
 ru = Первичная
+es = Primaria
 
 [display.active]
 en = Active
@@ -1517,6 +1729,7 @@ th = ใช้งานอยู่
 zh = 已激活
 de = Aktiv
 ru = Активно
+es = Activa
 
 [display.configured]
 en = Configured
@@ -1524,6 +1737,7 @@ th = ตั้งค่าแล้ว
 zh = 已配置
 de = Konfiguriert
 ru = Настроено
+es = Configurada
 
 [display.connected]
 en = Connected
@@ -1531,6 +1745,7 @@ th = เชื่อมต่อแล้ว
 zh = 已连接
 de = Verbunden
 ru = Подключено
+es = Conectada
 
 [display.unavailable]
 en = Unavailable
@@ -1538,6 +1753,7 @@ th = ไม่พร้อมใช้งาน
 zh = 不可用
 de = Nicht verfügbar
 ru = Недоступно
+es = No disponible
 
 [display.no_service]
 en = No service
@@ -1545,6 +1761,7 @@ th = ไม่มีบริการ
 zh = 无服务
 de = Kein Netz
 ru = Нет сети
+es = Sin servicio
 
 [display.limited_service]
 en = Limited service
@@ -1552,6 +1769,7 @@ th = บริการจำกัด
 zh = 服务受限
 de = Eingeschränkter Dienst
 ru = Ограниченный сервис
+es = Servicio limitado
 
 [display.qmi_nr_note]
 en = QMI only reports frequency data for NR Scells
@@ -1559,6 +1777,7 @@ th = QMI รายงานเฉพาะข้อมูลความถี�
 zh = QMI 仅报告 NR 辅小区的频率数据
 de = QMI meldet Frequenzdaten nur für NR-SCells
 ru = QMI передаёт данные о частотах только для SCell NR
+es = QMI solo informa de la frecuencia de las Scells NR
 
 [display.no_neighbours]
 en = No neighbour cells reported.
@@ -1566,6 +1785,7 @@ th = ไม่มีรายงานเซลล์ข้างเคียง
 zh = 未报告邻区。
 de = Keine Nachbarzellen gemeldet.
 ru = Соседние соты не обнаружены.
+es = No se ha detectado ninguna celda vecina.
 
 [display.uplink]
 en = Uplink
@@ -1573,6 +1793,7 @@ th = อัปลิงก์
 zh = 上行
 de = Uplink
 ru = Uplink
+es = Enlace ascendente
 
 [display.beam]
 en = Beam
@@ -1580,6 +1801,7 @@ th = บีม
 zh = 波束
 de = Beam
 ru = Beam
+es = Haz
 
 [display.receiver_chains]
 en = {rat} receiver chains
@@ -1587,6 +1809,7 @@ th = สายรับสัญญาณ {rat}
 zh = {rat} 接收链
 de = {rat}-Empfangsketten
 ru = Приёмные цепи {rat}
+es = Cadenas de recepción {rat}
 
 [display.not_tuned]
 en = RX{chain}: not tuned
@@ -1594,6 +1817,7 @@ th = RX{chain}: ไม่ได้จูน
 zh = RX{chain}：未调谐
 de = RX{chain}: nicht abgestimmt
 ru = RX{chain}: не настроена
+es = RX{chain}: sin sintonizar
 
 [display.test_stopped]
 en = Test stopped: {error}
@@ -1601,6 +1825,7 @@ th = หยุดการทดสอบ: {error}
 zh = 测试已停止：{error}
 de = Test gestoppt: {error}
 ru = Тест остановлен: {error}
+es = Prueba detenida: {error}
 
 [display.plmn_lock]
 en = PLMN lock
@@ -1608,6 +1833,7 @@ th = ล็อก PLMN
 zh = PLMN 锁定
 de = PLMN-Sperre
 ru = Блокировка PLMN
+es = Bloqueo de PLMN
 
 [display.tap_lock]
 en = Tap to lock cell
@@ -1615,6 +1841,7 @@ th = แตะเพื่อล็อกเซลล์
 zh = 点击以锁定小区
 de = Zelle antippen zum Sperren
 ru = Нажмите для блокировки соты
+es = Toca para bloquear la celda
 
 [display.no_5g_lock]
 en = No 5G cell lock active
@@ -1622,6 +1849,7 @@ th = ไม่มีการล็อกเซลล์ 5G ที่ใช้�
 zh = 没有生效的 5G 小区锁定
 de = Keine aktive 5G-Zellensperre
 ru = Блокировка сот 5G не активна
+es = No hay ningún bloqueo de celda 5G activo
 
 [display.lock_success]
 en = Success locking {type} ✓
@@ -1629,6 +1857,7 @@ th = ล็อก {type} สำเร็จ ✓
 zh = 成功锁定 {type} ✓
 de = {type} erfolgreich gesperrt ✓
 ru = Блокировка {type} выполнена ✓
+es = {type} bloqueado correctamente ✓
 
 [display.multi_pci]
 en = (Multi-PCI allowed)
@@ -1636,6 +1865,7 @@ th = (รองรับหลาย PCI)
 zh = （允许多个 PCI）
 de = (Multi-PCI erlaubt)
 ru = (Разрешено несколько PCI)
+es = (Multi-PCI permitido)
 
 [display.notification_channel]
 en = Network replay
@@ -1643,6 +1873,7 @@ th = เล่นซ้ำข้อมูลเครือข่าย
 zh = 网络回放
 de = Netzwerk-Wiedergabe
 ru = Воспроизведение измерений
+es = Grabación de la red
 
 [display.notification_title]
 en = Recording network measurements
@@ -1650,6 +1881,7 @@ th = กำลังบันทึกข้อมูลเครือข่า
 zh = 正在记录网络测量数据
 de = Netzwerkmessungen werden aufgezeichnet
 ru = Запись измерений сети
+es = Grabando mediciones de la red
 
 [display.notification_text]
 en = Replay is on. Turn it off from the Network page menu.
@@ -1657,6 +1889,7 @@ th = เปิดการเล่นซ้ำอยู่ ปิดได้�
 zh = 回放已开启，可在网络页面菜单中关闭。
 de = Die Wiedergabe ist aktiv. Im Menü der Netzwerkseite deaktivieren.
 ru = Повтор активен. Отключить можно в меню страницы "Сеть".
+es = La grabación está activada. Desactívala desde el menú de la página Red.
 
 [display.signal_excellent]
 en = excellent
@@ -1664,6 +1897,7 @@ th = ดีเยี่ยม
 zh = 极好
 de = ausgezeichnet
 ru = отлично
+es = excelente
 
 [display.signal_good]
 en = good
@@ -1671,6 +1905,7 @@ th = ดี
 zh = 良好
 de = gut
 ru = хорошо
+es = buena
 
 [display.signal_fair]
 en = fair
@@ -1678,6 +1913,7 @@ th = พอใช้
 zh = 一般
 de = mäßig
 ru = удовлетворительно
+es = aceptable
 
 [display.signal_poor]
 en = poor
@@ -1685,6 +1921,7 @@ th = อ่อน
 zh = 较差
 de = schwach
 ru = слабо
+es = débil
 
 [display.signal_bad]
 en = bad
@@ -1692,6 +1929,7 @@ th = แย่
 zh = 差
 de = schlecht
 ru = плохо
+es = mala
 
 [display.signal_unavailable]
 en = {metric} unavailable
@@ -1699,6 +1937,7 @@ th = {metric} ไม่พร้อมใช้งาน
 zh = {metric} 不可用
 de = {metric} nicht verfügbar
 ru = {metric} недоступно
+es = {metric} no disponible
 
 [rrc.null]
 en = Null
@@ -1706,6 +1945,7 @@ th = ไม่มีสถานะ
 zh = 无状态
 de = Null
 ru = Null
+es = Nulo
 
 [rrc.idle_any]
 en = Idle (any cell)
@@ -1713,6 +1953,7 @@ th = ว่าง (ทุกเซลล์)
 zh = 空闲（任意小区）
 de = Leerlauf (beliebige Zelle)
 ru = Простой (любая сота)
+es = Inactivo (cualquier celda)
 
 [rrc.idle]
 en = Idle
@@ -1720,6 +1961,7 @@ th = ว่าง
 zh = 空闲
 de = Leerlauf
 ru = Простой
+es = Inactivo
 
 [rrc.connecting]
 en = Connecting
@@ -1727,6 +1969,7 @@ th = กำลังเชื่อมต่อ
 zh = 正在连接
 de = Verbindungsaufbau
 ru = Подключение
+es = Conectando
 
 [rrc.releasing]
 en = Releasing
@@ -1734,6 +1977,7 @@ th = กำลังปล่อยการเชื่อมต่อ
 zh = 正在释放
 de = Freigabe
 ru = Сброс
+es = Liberando
 
 
 [rrc.inactive]
@@ -1742,6 +1986,7 @@ th = ไม่ใช้งาน
 zh = 非活动
 de = Inaktiv
 ru = Неактивно
+es = Inactivo (RRC_INACTIVE)
 
 [rrc.idle_not_camped]
 en = Idle (not camped)
@@ -1749,6 +1994,7 @@ th = ว่าง (ยังไม่ได้เลือกเซลล์)
 zh = 空闲（未驻留）
 de = Leerlauf (nicht eingebucht)
 ru = Простой (не захвачена)
+es = Inactivo (sin acampar)
 
 [rrc.suspended]
 en = Suspended
@@ -1756,6 +2002,7 @@ th = พักการเชื่อมต่อ
 zh = 已暂停
 de = Ausgesetzt
 ru = Приостановлено
+es = Suspendido
 
 [rrc.irat]
 en = IRAT to LTE
@@ -1763,3 +2010,4 @@ th = เปลี่ยนเครือข่ายไป LTE
 zh = 切换到 LTE
 de = IRAT zu LTE
 ru = Переход IRAT на LTE
+es = IRAT a LTE
