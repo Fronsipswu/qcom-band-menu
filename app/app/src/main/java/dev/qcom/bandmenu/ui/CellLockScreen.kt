@@ -247,6 +247,7 @@ fun CellLockScreen(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 PullToRefresh(
+                    refreshTexts = refreshTexts(),
                     isRefreshing = isRefreshing || (!frozen && live.refreshing),
                     onRefresh = {
                         onRefresh()

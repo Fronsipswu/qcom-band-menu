@@ -1416,6 +1416,38 @@ de = Einklappen
 ru = Свернуть
 es = Contraer
 
+[common.pull_to_refresh]
+en = Pull down to refresh
+th = ดึงลงเพื่อรีเฟรช
+zh = 下拉刷新
+de = Zum Aktualisieren herunterziehen
+ru = Потяните вниз, чтобы обновить
+es = Desliza hacia abajo para actualizar
+
+[common.release_to_refresh]
+en = Release to refresh
+th = ปล่อยเพื่อรีเฟรช
+zh = 松开刷新
+de = Zum Aktualisieren loslassen
+ru = Отпустите, чтобы обновить
+es = Suelta para actualizar
+
+[common.refreshing]
+en = Refreshing...
+th = กำลังรีเฟรช...
+zh = 正在刷新...
+de = Wird aktualisiert...
+ru = Обновление...
+es = Actualizando...
+
+[common.refreshed]
+en = Refreshed
+th = รีเฟรชแล้ว
+zh = 刷新成功
+de = Aktualisiert
+ru = Обновлено
+es = Actualizado
+
 [common.yes]
 en = Yes
 th = ใช่

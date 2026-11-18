@@ -171,6 +171,10 @@
     <string name="net_row_port_rx">Порт/Rx</string>
     <string name="common_expand">Развернуть</string>
     <string name="common_collapse">Свернуть</string>
+    <string name="common_pull_to_refresh">Потяните вниз, чтобы обновить</string>
+    <string name="common_release_to_refresh">Отпустите, чтобы обновить</string>
+    <string name="common_refreshing">Обновление...</string>
+    <string name="common_refreshed">Обновлено</string>
     <string name="common_yes">Да</string>
     <string name="common_no">Нет</string>
     <string name="lock_none_seen">Пока ничего не обнаружено</string>

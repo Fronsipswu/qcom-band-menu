@@ -221,6 +221,7 @@ fun BandLockScreen(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 PullToRefresh(
+                    refreshTexts = refreshTexts(),
                     isRefreshing = refreshingSlots.contains(selectedSim),
                     onRefresh = { onRefresh(selectedSim) },
                     modifier = Modifier

@@ -175,6 +175,10 @@
     <string name="net_row_port_rx">端口/Rx</string>
     <string name="common_expand">展开</string>
     <string name="common_collapse">收起</string>
+    <string name="common_pull_to_refresh">下拉刷新</string>
+    <string name="common_release_to_refresh">松开刷新</string>
+    <string name="common_refreshing">正在刷新...</string>
+    <string name="common_refreshed">刷新成功</string>
     <string name="common_yes">是</string>
     <string name="common_no">否</string>
     <string name="lock_none_seen">暂无记录</string>

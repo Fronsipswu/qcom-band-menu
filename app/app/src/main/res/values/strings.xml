@@ -175,6 +175,10 @@
     <string name="net_row_port_rx">Port/Rx</string>
     <string name="common_expand">Expand</string>
     <string name="common_collapse">Collapse</string>
+    <string name="common_pull_to_refresh">Pull down to refresh</string>
+    <string name="common_release_to_refresh">Release to refresh</string>
+    <string name="common_refreshing">Refreshing...</string>
+    <string name="common_refreshed">Refreshed</string>
     <string name="common_yes">Yes</string>
     <string name="common_no">No</string>
     <string name="lock_none_seen">None seen yet</string>

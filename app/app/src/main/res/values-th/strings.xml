@@ -175,6 +175,10 @@
     <string name="net_row_port_rx">พอร์ต/Rx</string>
     <string name="common_expand">ขยาย</string>
     <string name="common_collapse">ยุบ</string>
+    <string name="common_pull_to_refresh">ดึงลงเพื่อรีเฟรช</string>
+    <string name="common_release_to_refresh">ปล่อยเพื่อรีเฟรช</string>
+    <string name="common_refreshing">กำลังรีเฟรช...</string>
+    <string name="common_refreshed">รีเฟรชแล้ว</string>
     <string name="common_yes">ใช่</string>
     <string name="common_no">ไม่</string>
     <string name="lock_none_seen">ยังไม่เคยเห็น</string>

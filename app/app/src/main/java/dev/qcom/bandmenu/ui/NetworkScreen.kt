@@ -330,6 +330,7 @@ fun NetworkScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         PullToRefresh(
+            refreshTexts = refreshTexts(),
             isRefreshing = state.refreshing,
             onRefresh = { onRefresh(); monitor.refreshOnce() },
             modifier = Modifier.fillMaxSize().layerBackdrop(screenBackdrop),
