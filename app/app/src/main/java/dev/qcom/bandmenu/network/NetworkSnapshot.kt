@@ -37,7 +37,9 @@ data class Metric(
 
 data class Field(val label: String, val value: String)
 
-data class CellCard(val title: String, val rat: Rat, val fields: List<Field>, val metrics: List<Metric>, val nci: Long? = null)
+data class CellCard(val title: String, val rat: Rat, val fields: List<Field>, val metrics: List<Metric>, val nci: Long? = null,
+    /** The serving card's second page of fields; empty = one page. */
+    val more: List<Field> = emptyList())
 
 /** Splits a 36-bit NR Cell Identity into gNB ID ([gnbBits] = 22..32) and Cell ID (36 - [gnbBits]). */
 fun formatNrNci(nci: Long, gnbBits: Int = 22): String {
@@ -158,6 +160,14 @@ private fun nrBandwidth(d: DiagNrCarrier?, qmi: Double?): String? {
     val bwp = d.bwpMhz?.takeIf { it < bw }
     return if (bwp != null) "${fmt(bw)}($bwp) MHz" else mhz(bw)
 }
+
+/** A TDD period: "5 ms", "2.5 ms", "0.625 ms". */
+internal fun tddPeriod(us: Int): String = "${(us / 1000.0).toBigDecimal().stripTrailingZeros().toPlainString()} ms"
+
+/** A session's AMBR, downlink/uplink in Mbps: "2000/2000". */
+internal fun ambr(s: DataSession): String =
+    if (s.dlKbps == null && s.ulKbps == null) "–"
+    else listOf(s.dlKbps, s.ulKbps).joinToString("/") { k -> k?.let { fmt(it / 1000.0) } ?: "–" }
 
 class SnapshotBuilder(
     private val reads: Map<String, ReadOutcome>,
@@ -425,7 +435,36 @@ class SnapshotBuilder(
             Metric("SS-SINR", MetricKind.SINR, Rat.NR, d?.sinr ?: sig?.nrSnr, "dB")
         )
         if (sa && fields.isEmpty() && metrics.all { it.value == null }) return null
-        return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics, nci = if (sa) nci else null)
+        // Second page (through DIAG): the SIB1 row, "–" for a value SIB1 left
+        // out so the row keeps its shape, then the TDD row (none for FDD).
+        val sib1 = d?.takeIf { it.qRxLevMin != null || it.qQualMin != null || it.ssbPower != null }
+        val more = buildList {
+            if (sib1 != null) {
+                add(Field("Q-RxLevMin", sib1.qRxLevMin?.let { "$it dBm" } ?: "–"))
+                add(Field("Q-QualMin", sib1.qQualMin?.let { "$it dB" } ?: "–"))
+                add(Field("SSB power", sib1.ssbPower?.let { "$it dBm" } ?: "–"))
+            }
+            d?.tdd?.let {
+                add(Field("TDD period", tddPeriod(it.periodUs)))
+                add(Field("TDD slots", "${it.dlSlots}/${it.ulSlots}"))
+                add(Field("TDD symbols", "${it.dlSymbols}/${it.ulSymbols}"))
+            }
+            // The data session (NAS): set up over 5GS in SA, over EPS in NSA;
+            // the other when that one wasn't seen (a session moved between them).
+            val s5g = diag?.session5g
+            val eps = diag?.sessionEps
+            val (session, fiveG) = when {
+                sa && s5g != null -> s5g to true
+                eps != null -> eps to false
+                else -> s5g to true
+            }
+            session?.let {
+                add(Field("APN", it.apn ?: "–"))
+                add(Field(if (fiveG) "5QI" else "QCI", it.qosClass?.toString() ?: "–"))
+                add(Field("AMBR", ambr(it)))
+            }
+        }
+        return CellCard(if (sa) "NR primary cell" else "NR SCG", Rat.NR, fields, metrics, nci = if (sa) nci else null, more = more)
     }
 
     private fun wcdmaCell(): CellCard? {

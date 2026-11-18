@@ -9115,6 +9115,10 @@ typedef enum TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity {
 	TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms5	= 6,
 	TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms10	= 7
 } e_TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity;
+typedef enum TDD_UL_DL_Pattern__ext1__dl_UL_TransmissionPeriodicity_v1530 {
+	TDD_UL_DL_Pattern__ext1__dl_UL_TransmissionPeriodicity_v1530_ms3	= 0,
+	TDD_UL_DL_Pattern__ext1__dl_UL_TransmissionPeriodicity_v1530_ms4	= 1
+} e_TDD_UL_DL_Pattern__ext1__dl_UL_TransmissionPeriodicity_v1530;
 
 /* TDD-UL-DL-Pattern */
 typedef struct TDD_UL_DL_Pattern {
@@ -9127,6 +9131,12 @@ typedef struct TDD_UL_DL_Pattern {
 	 * This type is extensible,
 	 * possible extensions are below.
 	 */
+	struct TDD_UL_DL_Pattern__ext1 {
+		long	*dl_UL_TransmissionPeriodicity_v1530;	/* OPTIONAL */
+		
+		/* Context for parsing across buffer boundaries */
+		asn_struct_ctx_t _asn_ctx;
+	} *ext1;
 	
 	/* Context for parsing across buffer boundaries */
 	asn_struct_ctx_t _asn_ctx;
@@ -9134,9 +9144,10 @@ typedef struct TDD_UL_DL_Pattern {
 
 /* Implementation */
 /* extern asn_TYPE_descriptor_t asn_DEF_dl_UL_TransmissionPeriodicity_2;	// (Use -fall-defs-global to expose) */
+/* extern asn_TYPE_descriptor_t asn_DEF_dl_UL_TransmissionPeriodicity_v1530_17;	// (Use -fall-defs-global to expose) */
 extern asn_TYPE_descriptor_t asn_DEF_TDD_UL_DL_Pattern;
 extern asn_SEQUENCE_specifics_t asn_SPC_TDD_UL_DL_Pattern_specs_1;
-extern asn_TYPE_member_t asn_MBR_TDD_UL_DL_Pattern_1[5];
+extern asn_TYPE_member_t asn_MBR_TDD_UL_DL_Pattern_1[6];
 
 #ifdef __cplusplus
 }

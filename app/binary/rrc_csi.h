@@ -34,4 +34,27 @@ int rrc_csi_band(int pci, uint32_t arfcn);
  * marks the RRC view stale, and the BWP is 0 until the next BWP change. */
 int rrc_csi_bandwidth(int pci, uint32_t arfcn, int max_rbs, int *bwp_mhz);
 
+/* A cell's SIB1 cell selection values; each has_* is 0 when SIB1 left it out. */
+struct rrc_sib1_selection {
+    int has_q_rxlevmin, q_rxlevmin_dbm;   /* minimum RX level to camp */
+    int has_q_qualmin, q_qualmin_db;      /* minimum quality (RSRQ) to camp */
+    int has_ssb_power, ssb_power_dbm;     /* SSB transmit power per resource element */
+};
+
+/* The cell's SIB1 values in *out; returns 0 when its SIB1 hasn't been seen. */
+int rrc_csi_sib1_selection(int pci, uint32_t arfcn, struct rrc_sib1_selection *out);
+
+/* A cell's TDD pattern (tdd-UL-DL-ConfigurationCommon), with pattern2, when
+ * present, added to pattern1: 3 ms DDDSUU + 2 ms DDDD = 5 ms, 7 DL and 2 UL
+ * slots. Symbols are those of the mixed slots. */
+struct rrc_tdd {
+    int period_us;
+    int dl_slots, ul_slots;
+    int dl_symbols, ul_symbols;
+};
+
+/* The cell's TDD pattern from its RRC configuration, else its SIB1; returns
+ * 0 when neither has been seen or the cell is FDD. */
+int rrc_csi_tdd(int pci, uint32_t arfcn, struct rrc_tdd *out);
+
 #endif

@@ -56,6 +56,7 @@ struct cell {
     uint8_t active_bwp;        /* after RRCSetup the initial BWP (0), then firstActiveDownlinkBWP-Id */
     uint8_t bwp_exceeded;      /* windows in a row with a TB wider than the active BWP */
     uint8_t bwp_stale;         /* two of them: a reconfiguration was missed */
+    struct rrc_tdd tdd;        /* period_us 0 = not signalled */
     struct resource resource[RESOURCES];
     struct resource_set set[SETS];
     struct resource_config config[RESOURCE_CONFIGS];
@@ -66,7 +67,8 @@ struct group {
     struct cell cell[CELLS];
 };
 
-/* A SIB1's channel bandwidth and initial BWP, for the cell that sent it. */
+/* A SIB1's channel bandwidth, initial BWP and cell selection values, for the
+ * cell that sent it. */
 #define SIB1S 16
 struct sib1 {
     int pci;                   /* +1, 0 = empty */
@@ -74,6 +76,8 @@ struct sib1 {
     uint16_t carrier_rb[4];
     uint16_t initial_rb;
     uint8_t initial_scs;
+    struct rrc_sib1_selection selection;
+    struct rrc_tdd tdd;
 };
 
 /* One configuration per SIM (dual SIM); rrc_csi_select picks the current. */
@@ -319,6 +323,33 @@ static void apply_dedicated(struct group *group, int index, const ServingCellCon
     }
 }
 
+/* The TDD pattern, pattern2 added to pattern1; left alone without one. */
+static void store_tdd(struct rrc_tdd *out, const TDD_UL_DL_ConfigCommon_t *tdd) {
+    static const int period_us[] = { 500, 625, 1000, 1250, 2000, 2500, 5000, 10000 };
+    if (!tdd || !tdd->pattern1)
+        return;
+    struct rrc_tdd sum = { 0 };
+    const TDD_UL_DL_Pattern_t *patterns[2] = { tdd->pattern1, tdd->pattern2 };
+    for (int i = 0; i < 2; i++) {
+        const TDD_UL_DL_Pattern_t *p = patterns[i];
+        if (!p)
+            continue;
+        long period = p->dl_UL_TransmissionPeriodicity;
+        if (period < 0 || period > 7)
+            return;
+        /* The v1530 field (3 ms, 4 ms) replaces the original one. */
+        int us = period_us[period];
+        if (p->ext1 && p->ext1->dl_UL_TransmissionPeriodicity_v1530)
+            us = *p->ext1->dl_UL_TransmissionPeriodicity_v1530 == 0 ? 3000 : 4000;
+        sum.period_us += us;
+        sum.dl_slots += (int)p->nrofDownlinkSlots;
+        sum.ul_slots += (int)p->nrofUplinkSlots;
+        sum.dl_symbols += (int)p->nrofDownlinkSymbols;
+        sum.ul_symbols += (int)p->nrofUplinkSymbols;
+    }
+    *out = sum;
+}
+
 /* A cell's common configuration names it (PCI, SSB frequency) and its band.
  * Another cell at the same index replaces the old one's state. */
 static void apply_common(struct group *group, int index, const ServingCellConfigCommon_t *common) {
@@ -350,6 +381,7 @@ static void apply_common(struct group *group, int index, const ServingCellConfig
                        frequency->scs_SpecificCarrierList.list.count);
     if (common->downlinkConfigCommon && common->downlinkConfigCommon->initialDownlinkBWP)
         store_bwp(cell, 0, common->downlinkConfigCommon->initialDownlinkBWP->genericParameters);
+    store_tdd(&cell->tdd, common->tdd_UL_DL_ConfigurationCommon);
     cell->present = 1;
 }
 
@@ -389,12 +421,16 @@ static void apply_cell_group(const OCTET_STRING_t *encoded, int secondary) {
                 struct cell *cell = &group->cell[index];
                 uint16_t carrier_rb[4];
                 uint32_t ssb = cell->ssb_arfcn;
+                struct rrc_tdd tdd = cell->tdd;
                 memcpy(carrier_rb, cell->carrier_rb, sizeof carrier_rb);
                 memset(cell, 0, sizeof *cell);
                 apply_common(group, index, common);
                 int new_carrier = common && common->downlinkConfigCommon && common->downlinkConfigCommon->frequencyInfoDL;
-                if (!new_carrier && (!cell->ssb_arfcn || cell->ssb_arfcn == ssb))
+                if (!new_carrier && (!cell->ssb_arfcn || cell->ssb_arfcn == ssb)) {
                     memcpy(cell->carrier_rb, carrier_rb, sizeof carrier_rb);
+                    if (!cell->tdd.period_us)
+                        cell->tdd = tdd;
+                }
             }
             group->spcell = index;
             apply_dedicated(group, index, config->spCellConfig->spCellConfigDedicated);
@@ -589,6 +625,21 @@ static void decode_sib1(const struct b821 *record, const uint8_t *message, int l
         memset(entry, 0, sizeof *entry);
         entry->pci = record->pci + 1;
         entry->ssb_arfcn = record->arfcn;
+        const SIB1_t *sib = decoded->message->choice.c1->choice.systemInformationBlockType1;
+        struct rrc_sib1_selection *out = &entry->selection;
+        if (sib->cellSelectionInfo) {
+            /* 38.304: q-RxLevMin is sent as dBm / 2; q-QualMin in dB. */
+            out->has_q_rxlevmin = 1;
+            out->q_rxlevmin_dbm = (int)sib->cellSelectionInfo->q_RxLevMin * 2;
+            if (sib->cellSelectionInfo->q_QualMin) {
+                out->has_q_qualmin = 1;
+                out->q_qualmin_db = (int)*sib->cellSelectionInfo->q_QualMin;
+            }
+        }
+        /* SSB power: the SSB's transmit power per resource element (mandatory). */
+        out->has_ssb_power = 1;
+        out->ssb_power_dbm = (int)sib->servingCellConfigCommon->ss_PBCH_BlockPower;
+        store_tdd(&entry->tdd, sib->servingCellConfigCommon->tdd_UL_DL_ConfigurationCommon);
         if (downlink && downlink->frequencyInfoDL)
             store_carriers(entry->carrier_rb, downlink->frequencyInfoDL->scs_SpecificCarrierList.list.array,
                            downlink->frequencyInfoDL->scs_SpecificCarrierList.list.count);
@@ -776,4 +827,28 @@ int rrc_csi_bandwidth(int pci, uint32_t arfcn, int max_rbs, int *bwp_mhz) {
     if (channel && !cell->bwp_stale)
         *bwp_mhz = rbs_to_mhz(rbs, scs, fr2);
     return channel;
+}
+
+int rrc_csi_sib1_selection(int pci, uint32_t arfcn, struct rrc_sib1_selection *out) {
+    init_once();
+    const struct sib1 *sib1 = find_sib1(pci, arfcn);
+    if (!sib1)
+        return 0;
+    *out = sib1->selection;
+    return 1;
+}
+
+int rrc_csi_tdd(int pci, uint32_t arfcn, struct rrc_tdd *out) {
+    int group;
+    int index;
+    init_once();
+    const struct cell *cell = find_cell(pci, arfcn, &group, &index);
+    const struct sib1 *sib1 = find_sib1(pci, arfcn);
+    if (cell && cell->tdd.period_us)
+        *out = cell->tdd;
+    else if (sib1 && sib1->tdd.period_us)
+        *out = sib1->tdd;
+    else
+        return 0;
+    return 1;
 }

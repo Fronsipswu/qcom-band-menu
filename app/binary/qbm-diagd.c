@@ -40,6 +40,8 @@
  *       per-beam measurements (strongest beam's SNR)
  *   NR  0xB821 RRC OTA: reconfigurations, decoded (rrc_csi.c) for each
  *       cell's configured CSI-RS ports ("csi_ports")
+ *   0xB800 5GSM and 0xB0E2 ESM (plain, downlink): the data session's APN,
+ *       5QI/QCI and AMBR (nas_session.c; "session_5g", "session_eps")
  * NR SINR, per carrier: "sinr" is SS-SINR (B8D8/B8DD SSB records, best RX
  * chain; matches the UE's own MeasurementReports), "csinr" is CSI-SINR
  * (TRS records, best RX chain), "bsinr" the strongest SSB beam's SNR (B96A,
@@ -71,8 +73,9 @@
 
 #include "qbm_layouts.h"   /* generated per-version layouts */
 #include "rrc_csi.h"       /* CSI-RS ports from RRC reconfigurations */
+#include "nas_session.h"   /* the data session's APN, QoS class and AMBR */
 
-#define HELPER_VERSION "1.22.35"
+#define HELPER_VERSION "1.22.37"
 #define SOCKET_NAME "qbm_diagd"
 #define WATCHDOG_MS 15000             /* app polls every ~1 s; tolerates stalls */
 #define DIAG_PROC_MSM 0
@@ -95,8 +98,9 @@ typedef int (*remote_dev_t)(uint16_t *);
 static uint16_t CODES[] = { 0xB173, 0xB126, 0xB139, 0xB184, 0xB193, 0xB168, 0xB179, 0xB16E, 0xB16D, /* LTE */
                             0xB883, 0xB887, 0xB97F, 0xB8D8, 0xB8A7, 0xB825, 0xB823, 0xB88A, 0xB884, /* NR */
                             0xB8DD, 0xB96A,                             /* NR, X65 */
-                            0xB821 };                                   /* NR RRC */
-#define NCODES 21
+                            0xB821,                                     /* NR RRC */
+                            0xB800, 0xB0E2 };                           /* 5GSM, ESM (downlink) */
+#define NCODES 23
 
 /* ── Per-carrier window (reset on every "stats") ─────────────────────────── */
 
@@ -1768,6 +1772,8 @@ static void on_log_from(int src, unsigned char *ptr, int len) {
     else if (code == 0xB823) b823(pl, pn);
     else if (code == 0xB88A) b88a(pl, pn);
     else if (code == 0xB821) rrc_csi_b821(pl, pn);
+    else if (code == 0xB800) nas_session_b800(sim, pl, pn);
+    else if (code == 0xB0E2) nas_session_b0e2(sim, pl, pn);
     pthread_mutex_unlock(&lock);
 }
 static void on_log(unsigned char *ptr, int len) { on_log_from(0, ptr, len); }
@@ -2071,6 +2077,18 @@ static int write_stats(char *out, size_t cap, int for_sim) {
             if (tb_cell && t->scs_khz) PUT(",\"scs\":%d", t->scs_khz);
         }
         if (rrc_bw && bwp_mhz && bwp_mhz < rrc_bw) PUT(",\"bwp\":%d", bwp_mhz);
+        /* The cell's SIB1 cell selection values (the serving card's second page). */
+        struct rrc_sib1_selection sel;
+        if (rrc_csi_sib1_selection(id_pci, id_arfcn, &sel)) {
+            if (sel.has_q_rxlevmin) PUT(",\"qrxlevmin\":%d", sel.q_rxlevmin_dbm);
+            if (sel.has_q_qualmin) PUT(",\"qqualmin\":%d", sel.q_qualmin_db);
+            if (sel.has_ssb_power) PUT(",\"ssbpower\":%d", sel.ssb_power_dbm);
+        }
+        /* Its TDD pattern (pattern2 added to pattern1); none for an FDD cell. */
+        struct rrc_tdd tdd;
+        if (rrc_csi_tdd(id_pci, id_arfcn, &tdd))
+            PUT(",\"tdd\":[%d,%d,%d,%d,%d]", tdd.period_us, tdd.dl_slots, tdd.ul_slots,
+                tdd.dl_symbols, tdd.ul_symbols);
         {
             uint32_t ch = lv ? nrlive[i].earfcn : (c->ssb_arfcn ? c->ssb_arfcn : c->dl_arfcn);
             int pci = lv ? nrlive[i].pci : c->pci;
@@ -2139,6 +2157,14 @@ static int write_stats(char *out, size_t cap, int for_sim) {
     /* The last random access's TA, as the raw index. */
     if (!silent && show_lte_ta) PUT(",\"lte_ta\":%d", lte_ta.value);
     if (!silent && show_nr_ta) PUT(",\"nr_ta\":%d", nr_ta.value);
+    /* The data session, as set up over 5GS and over EPS: APN, 5QI or QCI,
+     * AMBR (kbps); kept until the network changes or releases it. */
+    for (int g = 1; g >= 0; g--) {
+        struct nas_session ns;
+        if (!nas_session_get(sim, g, &ns)) continue;
+        PUT(",\"%s\":{\"apn\":\"%s\",\"qi\":%d,\"dl\":%lld,\"ul\":%lld}", g ? "session_5g" : "session_eps",
+            ns.apn, ns.qos_class, ns.dl_kbps, ns.ul_kbps);
+    }
     PUT("}\n");
 #undef PUT
     /* Every SIM's window restarts: the next answer for either SIM covers the

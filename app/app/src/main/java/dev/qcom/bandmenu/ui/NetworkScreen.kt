@@ -42,7 +42,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -735,8 +737,33 @@ private fun SummaryCard(snap: NetworkSnapshot, state: NetworkMonitor.State, serv
             }
             if (fields.isNotEmpty() || operatorRow.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.GSM) 1 else 0, serving = true)
+                val first = @Composable {
+                    FieldGrid(fields, extraRow = operatorRow, extraRowAfter = if (snap.mode == ServiceMode.GSM) 1 else 0, serving = true)
+                }
+                val more = serving?.more.orEmpty()
+                if (more.isEmpty()) first() else FieldPages(listOf(first, { FieldGrid(more, serving = true) }))
             }
+        }
+    }
+}
+
+/**
+ * The serving card's fields in pages, swiped sideways, with a dot per page
+ * centred underneath. The pages share the tallest one's height, so the card
+ * doesn't change size on a swipe.
+ */
+@Composable
+private fun FieldPages(pages: List<@Composable () -> Unit>) {
+    val state = rememberPagerState(pageCount = { pages.size })
+    val scope = rememberCoroutineScope()
+    HorizontalPager(state = state, beyondViewportPageCount = pages.size, verticalAlignment = Alignment.Top) { pages[it]() }
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
+        pages.indices.forEach { i ->
+            Box(
+                Modifier.padding(horizontal = 3.dp).size(6.dp).clip(CircleShape)
+                    .background(MiuixTheme.colorScheme.onBackground.copy(alpha = if (state.currentPage == i) 1f else 0.25f))
+                    .clickable { scope.launch { state.animateScrollToPage(i) } }
+            )
         }
     }
 }

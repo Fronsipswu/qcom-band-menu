@@ -99,11 +99,21 @@ data class DiagNrCarrier(
     val ulLayers: Double? = null, val ulTxMode: String? = null, val ulPower: Double? = null,
     val ulPucch: Double? = null, val ulBler: Double? = null,
     /** The active downlink BWP (RRC), only when narrower than [bandwidthMhz]. */
-    val bwpMhz: Int? = null
+    val bwpMhz: Int? = null,
+    /** The cell's SIB1 q-RxLevMin (dBm), q-QualMin (dB) and SSB power (dBm per resource element). */
+    val qRxLevMin: Int? = null, val qQualMin: Int? = null, val ssbPower: Int? = null,
+    /** The cell's TDD pattern, pattern2 added to pattern1; null for FDD or unknown. */
+    val tdd: TddPattern? = null
 ) {
     /** Any uplink value this window. */
     val hasUplink: Boolean get() = ulMbps != null || ulRbs != null || ulPower != null || ulPucch != null
 }
+
+/** A data session: APN/DNN, 5QI (5GS) or QCI (EPS), and the session or APN AMBR. */
+data class DataSession(val apn: String?, val qosClass: Int?, val dlKbps: Long?, val ulKbps: Long?)
+
+/** A TDD pattern: its period (µs), DL/UL slots and the mixed slots' DL/UL symbols. */
+data class TddPattern(val periodUs: Int, val dlSlots: Int, val ulSlots: Int, val dlSymbols: Int, val ulSymbols: Int)
 
 /** One NR neighbour beam (B97F), as the neighbour list shows it. */
 data class DiagNrNeighbour(val arfcn: Long, val pci: Int, val beam: Int, val rsrp: Double, val rsrq: Double)
@@ -114,7 +124,9 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
     val lteTimingAdvance: Int? = null, val nrTimingAdvance: Int? = null,
     /** NR neighbour beams, strongest RSRP first (the serving beams left out);
      *  null when the helper sent no list (no NR measurement lately). */
-    val nrNeighbours: List<DiagNrNeighbour>? = null) {
+    val nrNeighbours: List<DiagNrNeighbour>? = null,
+    /** The data session as last set up over 5GS and over EPS (NAS). */
+    val session5g: DataSession? = null, val sessionEps: DataSession? = null) {
     /** Combined PHY downlink throughput: every LTE and NR carrier. */
     val totalMbps: Double get() = carriers.sumOf { it.mbps } + nr.sumOf { it.mbps }
 
@@ -163,7 +175,11 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                     rsrpRx = c.chains("rsrp_rx"), sinrRx = c.chains("sinr_rx"), csiSinrRx = c.chains("csinr_rx"),
                     ulRbs = c.d("ul_rbs"), ulMcs = c.d("ul_mcs"), ulModulation = c.optString("ul_mod").ifEmpty { null },
                     ulLayers = c.d("ul_layers"), ulTxMode = c.optString("ul_tx_mode").ifEmpty { null }, ulPower = c.d("ul_pwr"),
-                    ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler"), bwpMhz = c.i("bwp")
+                    ulPucch = c.d("ul_pucch"), ulBler = c.d("ul_bler"), bwpMhz = c.i("bwp"),
+                    qRxLevMin = c.i("qrxlevmin"), qQualMin = c.i("qqualmin"), ssbPower = c.i("ssbpower"),
+                    tdd = c.optJSONArray("tdd")?.takeIf { it.length() == 5 }?.let {
+                        TddPattern(it.getInt(0), it.getInt(1), it.getInt(2), it.getInt(3), it.getInt(4))
+                    }
                 )
             }
             return DiagStats(o.optLong("ms"), (0 until arr.length()).map { n ->
@@ -189,8 +205,14 @@ data class DiagStats(val windowMs: Long, val carriers: List<DiagCarrier>, val nr
                         val e = a.getJSONArray(k)
                         DiagNrNeighbour(e.getLong(0), e.getInt(1), e.getInt(2), e.getDouble(3), e.getDouble(4))
                     }
-                })
+                },
+                session5g = o.optJSONObject("session_5g")?.let(::session),
+                sessionEps = o.optJSONObject("session_eps")?.let(::session))
         }
+
+        private fun session(s: JSONObject) = DataSession(
+            apn = s.optString("apn").ifEmpty { null }, qosClass = s.optInt("qi").takeIf { it > 0 },
+            dlKbps = s.optLong("dl").takeIf { it > 0 }, ulKbps = s.optLong("ul").takeIf { it > 0 })
 
         /** Combined DL and UL throughput from [o] without decoding full carrier lists. */
         fun parseThroughput(o: JSONObject, elapsedMs: Long): ThputPoint {
@@ -228,7 +250,7 @@ class DiagClient(private val context: Context) {
         private const val TAG = "DiagClient"
         private const val BINARY_NAME = "qbm-diagd"
         private const val SOCKET_NAME = "qbm_diagd"
-        private const val EXPECTED_VERSION = "1.22.35"
+        private const val EXPECTED_VERSION = "1.22.37"
     }
 
     private var socket: LocalSocket? = null
