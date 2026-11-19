@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-qbm-diagd
 PKG_VERSION:=2.0.0
-PKG_RELEASE:=23
+PKG_RELEASE:=30
 
 PKG_LICENSE:=GPL-3.0-only
 
@@ -21,7 +21,7 @@ define Package/luci-app-qbm-diagd
   SUBMENU:=3. Applications
   TITLE:=LuCI support for qbm-diagd (modem statistics, band and cell locking)
   DEPENDS:=+qbm-diagd
-  EXTRA_DEPENDS:=luci-base (>=0), rpcd (>=0)
+  EXTRA_DEPENDS:=luci-base (>=0), rpcd (>=0), coreutils-stty (>=0)
   PKGARCH:=all
 endef
 

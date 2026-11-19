@@ -841,6 +841,13 @@ function snapshotQuectel(reply, diag, gnbBits, nrSupported) {
 		var pcc = qca.filter(function(f) { return f[0] === 'PCC' && /^LTE/.test(f[3] || ''); })[0];
 		if (pcc && QCA_LTE_BW[intOr(pcc[2])] != null) lte.bwMhz = QCA_LTE_BW[intOr(pcc[2])];
 	}
+	/* So is QENG's NR bandwidth (idle, an RM551E reports 14, "400 MHz"); an NR
+	 * PCC in QCAINFO carries the same code and holds in idle too. */
+	if (nrSa && nr) {
+		var nrPcc = qca.filter(function(f) { return f[0] === 'PCC' && /^NR5G/.test(f[3] || ''); })[0];
+		if (nrPcc && QNR_BW[intOr(nrPcc[2])] != null) nr.bwMhz = QNR_BW[intOr(nrPcc[2])];
+		else if (state !== 'CONNECT') nr.bwMhz = null;
+	}
 
 	var cells = [];
 	if (lte) cells.push(lteCell());

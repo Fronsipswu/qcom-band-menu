@@ -79,49 +79,154 @@ read_attr() {
 	[ -r "$1" ] && cat "$1" 2>/dev/null
 }
 
-# Probe a tty port with AT+CGMM. Returns 0 if the port answers with OK/ERROR/model.
-at_probe_port() {
-	local dev="$1" line ok=0
-	[ -c "$dev" ] || return 1
+CR=$(printf '\r')
 
-	if command -v stty >/dev/null 2>&1; then
-		stty -F "$dev" 115200 raw -echo 2>/dev/null
-	fi
-
-	exec 3<>"$dev" 2>/dev/null || return 1
-	# Send CR LF first to clear any incomplete command, then AT+CGMM
-	printf '\r\nAT+CGMM\r\n' >&3
-
-	local i=0
-	while [ $i -lt 10 ]; do
-		i=$((i + 1))
-		if ! read -t 1 -r line <&3; then
-			break
-		fi
-		line=$(printf '%s' "$line" | tr -d '\r')
-		case "$line" in
-			*OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*)
-				ok=1
-				break
-				;;
-		esac
+# One AT conversation at a time: the Network page polls every second and the
+# reconnect job polls AT+CGATT?, and two commands interleaved on the port get
+# each other's replies. flock is released by the kernel when the holder exits,
+# so a killed call can't leave the port locked. Nested calls (at_dev probing
+# inside a session) share the outer lock. BusyBox flock has no -w, so the
+# wait is a loop of non-blocking tries, for up to 15 s.
+AT_DEPTH=0
+at_lock() {
+	local until
+	AT_DEPTH=$((AT_DEPTH + 1))
+	[ $AT_DEPTH -gt 1 ] && return 0
+	command -v flock >/dev/null 2>&1 || return 0
+	exec 9>/tmp/qbm-at.flock
+	until=$(($(date +%s) + 15))
+	while :; do
+		flock -n 9 2>/dev/null && return 0
+		[ "$(date +%s)" -lt $until ] || break
+		sleep 0.2 2>/dev/null || sleep 1
 	done
-	exec 3<&- 3>&-
+	exec 9>&-
+	AT_DEPTH=0
+	return 1
+}
 
-	[ $ok -eq 1 ] && return 0 || return 1
+at_unlock() {
+	[ $AT_DEPTH -gt 0 ] || return 0
+	AT_DEPTH=$((AT_DEPTH - 1))
+	[ $AT_DEPTH -eq 0 ] && exec 9>&-
+	return 0
+}
+
+# AT log, for debugging: every session and command with its raw reply, in
+# /tmp/qbm-at.log (kept under 256 KB). Off unless qbm-diagd.main.at_log=1.
+# AT_WHO is the rpcd method that started the session.
+AT_LOG=/tmp/qbm-at.log
+AT_LOG_ON=$(uci -q get qbm-diagd.main.at_log)
+at_log() {
+	local size
+	[ "$AT_LOG_ON" = 1 ] || return 0
+	size=$(wc -c 2>/dev/null < "$AT_LOG")
+	if [ "${size:-0}" -gt 262144 ]; then
+		tail -c 131072 "$AT_LOG" > "$AT_LOG.tmp" 2>/dev/null && mv "$AT_LOG.tmp" "$AT_LOG"
+	fi
+	echo "$(date '+%m-%d %H:%M:%S') [$$ ${AT_WHO:-?}] $*" >> "$AT_LOG"
+}
+
+# Other processes with the AT port open (pid:name), for the log.
+at_holders() {
+	local p out=""
+	for p in /proc/[0-9]*; do
+		[ "${p#/proc/}" = "$$" ] && continue
+		ls -l "$p/fd" 2>/dev/null | grep -q " -> $1\$" && out="$out ${p#/proc/}:$(cat "$p/comm" 2>/dev/null)"
+	done
+	echo "${out:- none}"
+}
+
+# Sends $1 on fd 3 and prints the reply lines up to the final result code
+# (unsolicited lines too); $2 is the per-line timeout in seconds (default 2).
+# Returns 0 when a final result code came.
+at_cmd() {
+	local line i=0 rc=1 log="" t0
+	t0=$(date +%s)
+	printf '\r\n%s\r\n' "$1" >&3
+	while [ $i -lt 40 ]; do
+		i=$((i + 1))
+		read -t "${2:-2}" -r line <&3 || { log="$log <timeout>"; break; }
+		line=${line%%"$CR"*}    # the echo ends in CR CR LF
+		[ -n "$line" ] || continue
+		echo "$line"
+		log="$log | $line"
+		case "$line" in OK|OK\ *|ERROR|ERROR\ *|+CME\ ERROR*|+CMS\ ERROR*) rc=0; break ;; esac
+	done
+	at_log "> $1 ($(($(date +%s) - t0))s)$log"
+	[ "$AT_LOG_ON" = 1 ] && case "$log" in
+		*'<timeout>'|*'| ERROR'|*'| ERROR '*|*'+CME ERROR'*) at_log "  holders of ${AT_DEV:-?}:$(at_holders "${AT_DEV:-/dev/null}")" ;;
+	esac
+	return $rc
+}
+
+# Raw mode, no echo. Without it the tty echoes the modem's own output back
+# into the modem (AT+QAT+QAT+Q...), and replies come back garbled and one
+# command late. OpenWrt's BusyBox has no stty: the package depends on
+# coreutils-stty.
+tty_setup() {
+	if ! command -v stty >/dev/null 2>&1; then
+		logger -t qbm-diagd "no stty (install coreutils-stty): $1 left in cooked mode, AT replies will be garbled"
+		at_log "WARNING: no stty (install coreutils-stty): $1 left in cooked mode, replies will be garbled"
+		return 0
+	fi
+	# stty exits 1 when any one setting didn't take (USB serial ignores the
+	# speed), though raw and -echo did; log what it said.
+	local err
+	err=$(stty -F "$1" 115200 raw -echo 2>&1) || at_log "stty on $1: ${err:-exit $?}"
+	return 0
+}
+
+# Takes the lock and opens the AT port on fd 3 (AT_DEV). On failure, AT_ERR
+# says why and nothing is held.
+at_open() {
+	local t0
+	t0=$(date +%s)
+	at_lock || { AT_ERR="AT port busy"; at_log "lock: busy after 15 s"; return 1; }
+	AT_DEV=$(at_dev)
+	if [ -z "$AT_DEV" ] || [ ! -c "$AT_DEV" ]; then
+		AT_ERR="AT port not found or not available"
+		at_log "open: no AT port (got '$AT_DEV')"
+		at_unlock
+		return 1
+	fi
+	tty_setup "$AT_DEV"
+	exec 3<>"$AT_DEV" 2>/dev/null || { AT_ERR="Failed to open AT port $AT_DEV"; at_log "open: $AT_ERR"; at_unlock; return 1; }
+	at_log "open $AT_DEV (lock wait $(($(date +%s) - t0))s, flock: $(command -v flock || echo none))"
+	return 0
+}
+
+at_close() {
+	exec 3<&- 3>&-
+	at_unlock
+}
+
+# 0 if the tty answers AT+CGMM with a final result code.
+at_probe_port() {
+	local dev=$1 ok=1
+	[ -c "$dev" ] || return 1
+	at_lock || return 1
+	tty_setup "$dev"
+	AT_DEV=$dev
+	at_log "probe $dev"
+	if exec 3<>"$dev" 2>/dev/null; then
+		at_cmd "AT+CGMM" 1 >/dev/null && ok=0
+		exec 3<&- 3>&-
+	fi
+	at_unlock
+	return $ok
 }
 
 find_at_port() {
 	local cached p diag_dev cand="" rest=""
 
-	# 1. Check cache
+	# 1. The port found before, while the same USB device is behind it.
 	if [ -f /tmp/qbm-at-device ]; then
-		cached=$(cat /tmp/qbm-at-device 2>/dev/null)
-		if [ -n "$cached" ] && [ -c "$cached" ]; then
-			if at_probe_port "$cached"; then
-				echo "$cached"
-				return 0
-			fi
+		cached=$(sed -n 1p /tmp/qbm-at-device 2>/dev/null)
+		if [ -n "$cached" ] && [ -c "$cached" ] && [ -n "$(tty_usb_sig "$cached")" ] &&
+		   [ "$(tty_usb_sig "$cached")" = "$(sed -n 2p /tmp/qbm-at-device 2>/dev/null)" ]; then
+			echo "$cached"
+			return 0
 		fi
 		rm -f /tmp/qbm-at-device 2>/dev/null
 	fi
@@ -158,7 +263,7 @@ find_at_port() {
 
 	for p in $cand $rest; do
 		if at_probe_port "$p"; then
-			echo "$p" > /tmp/qbm-at-device
+			printf '%s\n%s\n' "$p" "$(tty_usb_sig "$p")" > /tmp/qbm-at-device
 			echo "$p"
 			return 0
 		fi
@@ -178,67 +283,16 @@ at_dev() {
 }
 
 airplane_mode() {
-	local dev
-	dev=$(at_dev)
-	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
-		json_init
-		json_add_boolean ok 0
-		json_add_object error
-		json_add_string message "AT port not found or not available"
-		json_close_object
-		json_dump
-		return
-	fi
-
-	if command -v stty >/dev/null 2>&1; then
-		stty -F "$dev" 115200 raw -echo 2>/dev/null
-	fi
-
-	exec 3<>"$dev" 2>/dev/null || {
-		json_init
-		json_add_boolean ok 0
-		json_add_object error
-		json_add_string message "Failed to open AT port $dev"
-		json_close_object
-		json_dump
-		return
-	}
-
-	# Send AT+CFUN=4
-	printf '\r\nAT+CFUN=4\r\n' >&3
-	local line r4="" r1=""
-	local i=0
-	while [ $i -lt 10 ]; do
-		i=$((i + 1))
-		read -t 1 -r line <&3 || break
-		line=$(printf '%s' "$line" | tr -d '\r')
-		[ -n "$line" ] && r4="${r4}${line} "
-		case "$line" in *OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
-	done
-
-	# Wait 100ms
-	if command -v usleep >/dev/null 2>&1; then
-		usleep 100000 2>/dev/null
-	else
-		sleep 0.1 2>/dev/null || sleep 1
-	fi
-
-	# Send AT+CFUN=1
-	printf 'AT+CFUN=1\r\n' >&3
-	i=0
-	while [ $i -lt 10 ]; do
-		i=$((i + 1))
-		read -t 1 -r line <&3 || break
-		line=$(printf '%s' "$line" | tr -d '\r')
-		[ -n "$line" ] && r1="${r1}${line} "
-		case "$line" in *OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
-	done
-
-	exec 3<&- 3>&-
+	local r4 r1
+	at_open || { at_fail "$AT_ERR"; return; }
+	r4=$(at_cmd "AT+CFUN=4" | tr '\n' ' ')
+	sleep 1
+	r1=$(at_cmd "AT+CFUN=1" | tr '\n' ' ')
+	at_close
 
 	json_init
 	json_add_boolean ok 1
-	json_add_string device "$dev"
+	json_add_string device "$AT_DEV"
 	json_add_string cfun4 "$r4"
 	json_add_string cfun1 "$r1"
 	json_dump
@@ -275,23 +329,12 @@ iface_up() {
 
 # Like at_run, but prints the raw reply lines (for parsing in this file).
 at_raw() {
-	local dev cmd line i
-	dev=$(at_dev)
-	[ -n "$dev" ] && [ -c "$dev" ] || return 1
-	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
-	exec 3<>"$dev" 2>/dev/null || return 1
+	local cmd
+	at_open || return 1
 	for cmd in "$@"; do
-		printf '\r\n%s\r\n' "$cmd" >&3
-		i=0
-		while [ $i -lt 40 ]; do
-			i=$((i + 1))
-			read -t 2 -r line <&3 || break
-			line=$(printf '%s' "$line" | tr -d '\r')
-			[ -n "$line" ] && echo "$line"
-			case "$line" in OK|ERROR|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
-		done
+		at_cmd "$cmd"
 	done
-	exec 3<&- 3>&-
+	at_close
 }
 
 # netifd's protocol update for an interface that stays up: the same calls
@@ -421,49 +464,15 @@ refresh_start() {
 }
 
 at_send() {
-	local cmd="$1" dev
-	[ -n "$cmd" ] || cmd="AT"
-	dev=$(at_dev)
-	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
-		json_init
-		json_add_boolean ok 0
-		json_add_object error
-		json_add_string message "AT port not found or not available"
-		json_close_object
-		json_dump
-		return
-	fi
-
-	if command -v stty >/dev/null 2>&1; then
-		stty -F "$dev" 115200 raw -echo 2>/dev/null
-	fi
-
-	exec 3<>"$dev" 2>/dev/null || {
-		json_init
-		json_add_boolean ok 0
-		json_add_object error
-		json_add_string message "Failed to open AT port $dev"
-		json_close_object
-		json_dump
-		return
-	}
-
-	printf '\r\n%s\r\n' "$cmd" >&3
-	local line resp=""
-	local i=0
-	while [ $i -lt 15 ]; do
-		i=$((i + 1))
-		read -t 1 -r line <&3 || break
-		line=$(printf '%s' "$line" | tr -d '\r')
-		[ -n "$line" ] && resp="${resp}${line} "
-		case "$line" in *OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
-	done
-
-	exec 3<&- 3>&-
+	local cmd=${1:-AT} resp
+	at_open || { at_fail "$AT_ERR"; return; }
+	resp=$(at_cmd "$cmd" | tr '
+' ' ')
+	at_close
 
 	json_init
 	json_add_boolean ok 1
-	json_add_string device "$dev"
+	json_add_string device "$AT_DEV"
 	json_add_string response "$resp"
 	json_dump
 }
@@ -480,35 +489,20 @@ at_fail() {
 # Runs AT commands in one session on the AT port: {"ok":true,"device":...,
 # "replies":[...]}, each reply the lines up to OK/ERROR (unsolicited lines too).
 at_run() {
-	local dev cmd line resp i
-	dev=$(at_dev)
-	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
-		at_fail "AT port not found or not available"
-		return
-	fi
-	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
-	exec 3<>"$dev" 2>/dev/null || { at_fail "Failed to open AT port $dev"; return; }
-
+	local cmd resp
+	at_open || { at_fail "$AT_ERR"; return; }
 	json_init
 	json_add_boolean ok 1
-	json_add_string device "$dev"
+	json_add_string device "$AT_DEV"
 	json_add_array replies
 	for cmd in "$@"; do
-		printf '\r\n%s\r\n' "$cmd" >&3
-		resp="" i=0
-		while [ $i -lt 40 ]; do
-			i=$((i + 1))
-			read -t 2 -r line <&3 || break
-			line=$(printf '%s' "$line" | tr -d '\r')
-			[ -n "$line" ] || continue
-			resp="$resp$line
+		resp=$(at_cmd "$cmd")
+		[ -n "$resp" ] && resp="$resp
 "
-			case "$line" in OK|OK\ *|ERROR|ERROR\ *|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
-		done
 		json_add_string "" "$resp"
 	done
 	json_close_array
-	exec 3<&- 3>&-
+	at_close
 	json_dump
 }
 
@@ -566,64 +560,7 @@ modem() {
 	esac
 }
 
-# AT+QNWPREFCFG (Quectel): query supported bands (policy_band), current bands,
-# mode_pref, nr5g_disable_mode, and ue_usage_setting.
-# Waits for each command's own +QNWPREFCFG line before breaking on OK so a
-# stale OK or URC in the serial buffer cannot shift subsequent replies.
-qnwpref_get() {
-	local dev key line resp i seen
-	dev=$(at_dev)
-	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
-		at_fail "AT port not found or not available"
-		return
-	fi
-	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
-	exec 3<>"$dev" 2>/dev/null || { at_fail "Failed to open AT port $dev"; return; }
-
-	json_init
-	json_add_boolean ok 1
-	json_add_string device "$dev"
-	json_add_array replies
-	for key in policy_band nr5g_band nsa_nr5g_band lte_band gw_band mode_pref nr5g_disable_mode ue_usage_setting; do
-		printf '\r\nAT+QNWPREFCFG="%s"\r\n' "$key" >&3
-		resp="" i=0 seen=0
-		while [ $i -lt 40 ]; do
-			i=$((i + 1))
-			read -t 2 -r line <&3 || break
-			line=$(printf '%s' "$line" | tr -d '\r')
-			[ -n "$line" ] || continue
-			case "$line" in
-				*+QNWPREFCFG:*)
-					if [ "$key" = policy_band ]; then
-						seen=1
-					else
-						case "$line" in *"\"$key\""*) seen=1 ;; esac
-					fi
-					resp="$resp$line
-"
-					;;
-				OK|OK\ *)
-					if [ $seen -eq 1 ]; then
-						resp="$resp$line
-"
-						break
-					fi
-					;;
-				ERROR|ERROR\ *|+CME\ ERROR*|+CMS\ ERROR*)
-					resp="$resp$line
-"
-					break
-					;;
-			esac
-		done
-		json_add_string "" "$resp"
-	done
-	json_close_array
-	exec 3<&- 3>&-
-	json_dump
-}
-
-# AT+QNWPREFCFG (Quectel): validated write + readback.
+# AT+QNWPREFCFG (Quectel): one setting, checked, then read back.
 qnwpref_set() {
 	local key=$1 val=$2 tok
 	case "$key" in
@@ -744,6 +681,7 @@ case "$1" in
 		echo '{ "stats": { "sim": 1 }, "status": { }, "ports": { }, "qmi_query": { "sim": 1, "cmd": "query" }, "qmi": { "sim": 1, "request": "{}" }, "serving": { "sim": 1 }, "operator": { "sim": 1, "mcc": "000", "mnc": "00" }, "airplane": { }, "reconnect": { }, "refresh_ip": { }, "at": { "cmd": "AT" }, "modem": { }, "at_bands": { }, "at_bands_set": { "rat": "20", "p1": "", "p2": "", "bands": "" }, "qnwpref_get": { }, "qnwpref_set": { "key": "", "value": "" }, "at_serving": { }, "at_serving_qcom": { }, "mtk_restore": { } }'
 		;;
 	call)
+		AT_WHO=$2
 		case "$2" in
 			stats)
 				read -r input
@@ -783,7 +721,14 @@ case "$1" in
 				at_bands_set "$rat" "$p1" "$p2" "$bands"
 				;;
 			qnwpref_get)
-				qnwpref_get
+				# Reply order is fixed; bands.js reads them by position. policy_band
+				# is what the modem accepts, rf_band the RF hardware (the fallback;
+				# ue_capability_band is only the current lock on the RM551E).
+				at_run 'AT+QNWPREFCFG="policy_band"' 'AT+QNWPREFCFG="rf_band"' \
+					'AT+QNWPREFCFG="nr5g_band"' 'AT+QNWPREFCFG="nsa_nr5g_band"' \
+					'AT+QNWPREFCFG="lte_band"' 'AT+QNWPREFCFG="gw_band"' \
+					'AT+QNWPREFCFG="mode_pref"' 'AT+QNWPREFCFG="nr5g_disable_mode"' \
+					'AT+QNWPREFCFG="ue_usage_setting"'
 				;;
 			qnwpref_set)
 				read -r input

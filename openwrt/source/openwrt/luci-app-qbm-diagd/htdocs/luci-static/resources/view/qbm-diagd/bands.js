@@ -147,24 +147,17 @@ function parseQnwpref(r) {
 	if (!r || !r.ok || !Array.isArray(r.replies)) {
 		return { ok: false, error: (r && r.error) || { message: _('The modem did not answer AT+QNWPREFCFG.') } };
 	}
+	/* Replies in the backend's order: policy_band, rf_band, then one reply per
+	 * current setting. The two band lists carry the same keys, so they are
+	 * told apart by position. The carrier policy is what the modem accepts;
+	 * the RF hardware list stands in when the policy is empty. */
 	var rep = r.replies;
-	var cap = {};
+	var policy = parseQnwLines(rep[0]);
+	var cap = Object.keys(policy).length ? policy : parseQnwLines(rep[1]);
 	var cur = {};
-	/* policy_band returns multiple band keys in one reply; individual queries
-	 * return one key each. Identify policy_band by reply index 0 or >= 2 keys. */
-	for (var i = 0; i < rep.length; i++) {
+	for (var i = 2; i < rep.length; i++) {
 		var m = parseQnwLines(rep[i]);
-		var keys = Object.keys(m);
-		if (i === 0 || keys.length >= 2) {
-			keys.forEach(function(k) {
-				if (k === 'nr5g_band' || k === 'nsa_nr5g_band' || k === 'lte_band' || k === 'gw_band')
-					cap[k] = m[k];
-				else
-					cur[k] = m[k];
-			});
-		} else {
-			keys.forEach(function(k) { cur[k] = m[k]; });
-		}
+		Object.keys(m).forEach(function(k) { cur[k] = m[k]; });
 	}
 	var hasAny = Object.keys(cap).length > 0 || Object.keys(cur).length > 0;
 	if (!hasAny) {
@@ -214,6 +207,9 @@ function parseQnwpref(r) {
 		ok: true,
 		state: {
 			valid: true,
+			/* Without a supported-band list, "all bands" is unknown: the lists
+			 * below are then only the current lock. */
+			bands_known: Object.keys(cap).length > 0,
 			hardware: { nr: hwNr, nr_sa: hwNrSa, nr_nsa: hwNrNsa, lte: hwLte, wcdma: hwWcdma, gsm: [] },
 			nr_independent_capability: { independent_lock_supported: true },
 			nr_sa: nrSa,
@@ -337,7 +333,11 @@ return view.extend({
 			if (up == null) return Promise.resolve();
 			ops.push([ 'ue_usage_setting', up ]);
 		} else if (req.cmd === 'reset') {
-			var hw = (self.state && self.state.hardware) || {};
+			if (!self.state || !self.state.bands_known) {
+				ui.addNotification(null, E('p', _('The modem did not report its supported bands, so Reset cannot unlock them.')), 'warning');
+				return Promise.resolve();
+			}
+			var hw = self.state.hardware || {};
 			ops.push([ 'mode_pref', 'AUTO' ]);
 			ops.push([ 'nr5g_disable_mode', '0' ]);
 			if ((hw.nr_sa || hw.nr || []).length) ops.push([ 'nr5g_band', (hw.nr_sa || hw.nr).join(':') ]);
@@ -348,16 +348,17 @@ return view.extend({
 			return Promise.resolve();
 		}
 
-		var failed = null;
+		/* One setting per call, in order; the first failure stops the rest. */
+		var failed = null, applied = [];
 		var chain = Promise.resolve();
 		ops.forEach(function(op) {
 			chain = chain.then(function() {
 				if (failed) return;
 				return callQnwprefSet(op[0], op[1]).then(function(r) {
-					if (!atOk(r)) {
-						var detail = ((r && r.replies && r.replies[0]) || (r && r.error && (r.error.message || r.error)) || _('no reply')).trim();
-						failed = _('AT+QNWPREFCFG="%s" failed: %s').format(op[0], detail);
-					}
+					if (atOk(r)) { applied.push(op[0]); return; }
+					var detail = String((r && r.replies && r.replies[0]) || (r && r.error && (r.error.message || r.error)) || _('no reply')).trim();
+					failed = _('AT+QNWPREFCFG="%s" failed: %s').format(op[0], detail);
+					if (applied.length) failed += ' ' + _('Already applied: %s.').format(applied.join(', '));
 				});
 			});
 		});
