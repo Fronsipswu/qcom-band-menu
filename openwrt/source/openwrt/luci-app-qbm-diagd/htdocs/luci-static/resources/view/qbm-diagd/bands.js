@@ -148,11 +148,23 @@ function parseQnwpref(r) {
 		return { ok: false, error: (r && r.error) || { message: _('The modem did not answer AT+QNWPREFCFG.') } };
 	}
 	var rep = r.replies;
-	var cap = parseQnwLines(rep[0]);
+	var cap = {};
 	var cur = {};
-	for (var i = 1; i < rep.length; i++) {
+	/* policy_band returns multiple band keys in one reply; individual queries
+	 * return one key each. Identify policy_band by reply index 0 or >= 2 keys. */
+	for (var i = 0; i < rep.length; i++) {
 		var m = parseQnwLines(rep[i]);
-		Object.keys(m).forEach(function(k) { cur[k] = m[k]; });
+		var keys = Object.keys(m);
+		if (i === 0 || keys.length >= 2) {
+			keys.forEach(function(k) {
+				if (k === 'nr5g_band' || k === 'nsa_nr5g_band' || k === 'lte_band' || k === 'gw_band')
+					cap[k] = m[k];
+				else
+					cur[k] = m[k];
+			});
+		} else {
+			keys.forEach(function(k) { cur[k] = m[k]; });
+		}
 	}
 	var hasAny = Object.keys(cap).length > 0 || Object.keys(cur).length > 0;
 	if (!hasAny) {
@@ -184,13 +196,19 @@ function parseQnwpref(r) {
 	}
 
 	var nrMode = null;
-	if (cur.nr5g_disable_mode === '0') nrMode = 'both';
-	else if (cur.nr5g_disable_mode === '1') nrMode = 'nsa';
-	else if (cur.nr5g_disable_mode === '2') nrMode = 'sa';
+	if (cur.nr5g_disable_mode != null && cur.nr5g_disable_mode !== '') {
+		var dm = parseInt(cur.nr5g_disable_mode, 10);
+		if (dm === 0) nrMode = 'both';
+		else if (dm === 1) nrMode = 'nsa';
+		else if (dm === 2) nrMode = 'sa';
+	}
 
 	var usagePref = {};
-	if (cur.ue_usage_setting === '0') usagePref.mode = 'voice';
-	else if (cur.ue_usage_setting === '1') usagePref.mode = 'data';
+	if (cur.ue_usage_setting != null && cur.ue_usage_setting !== '') {
+		var us = parseInt(cur.ue_usage_setting, 10);
+		if (us === 0) usagePref.mode = 'voice';
+		else if (us === 1) usagePref.mode = 'data';
+	}
 
 	return {
 		ok: true,
