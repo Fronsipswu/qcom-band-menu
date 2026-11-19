@@ -29,9 +29,10 @@ function identify() {
 	if (cached) return cached;
 	cached = L.resolveDefault(callModem(), null).then(function(r) {
 		var replies = (r && r.ok && r.replies) || [];
+		var allText = replies.join('\n');
 		var m = { manufacturer: value(replies[0]), model: value(replies[1]), revision: value(replies[2]) };
-		m.family = m.model && /FM350/i.test(m.model) ? 'mtk' : 'qcom';
-		m.quectel = !!(m.family === 'qcom' && (/quectel/i.test(m.manufacturer || '') || /^(RM5|RG5|EM[012]|EC2|EG2|EP06)/i.test(m.model || '')));
+		m.family = (m.model && /FM350/i.test(m.model)) || /FM350/i.test(allText) ? 'mtk' : 'qcom';
+		m.quectel = !!(m.family === 'qcom' && (/quectel/i.test(allText) || /\b(RM5\d+|RG5\d+|EM[012]\d+|EC2\d+|EG2\d+|EP06)/i.test(allText)));
 		m.known = !!m.model;
 		return m;
 	});

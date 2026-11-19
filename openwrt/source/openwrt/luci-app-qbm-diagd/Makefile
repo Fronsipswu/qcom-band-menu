@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-qbm-diagd
 PKG_VERSION:=2.0.0
-PKG_RELEASE:=21
+PKG_RELEASE:=23
 
 PKG_LICENSE:=GPL-3.0-only
 
@@ -61,6 +61,7 @@ define Package/luci-app-qbm-diagd/postinst
 rm -f /tmp/luci-indexcache* 2>/dev/null
 rm -rf /tmp/luci-modulecache 2>/dev/null
 rm -f /tmp/qbm-modem.json /tmp/qbm-modem.sig /tmp/qbm-at-device 2>/dev/null
+rmdir /tmp/qbm-at.lock 2>/dev/null
 /etc/init.d/rpcd restart 2>/dev/null
 exit 0
 endef

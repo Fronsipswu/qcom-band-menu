@@ -89,7 +89,8 @@ at_probe_port() {
 	fi
 
 	exec 3<>"$dev" 2>/dev/null || return 1
-	printf 'AT+CGMM\r' >&3
+	# Send CR LF first to clear any incomplete command, then AT+CGMM
+	printf '\r\nAT+CGMM\r\n' >&3
 
 	local i=0
 	while [ $i -lt 10 ]; do
@@ -99,7 +100,7 @@ at_probe_port() {
 		fi
 		line=$(printf '%s' "$line" | tr -d '\r')
 		case "$line" in
-			OK|ERROR|+CME\ ERROR*|+CMS\ ERROR*)
+			*OK*|*ERROR*|+CME\ ERROR*|+CMS\ ERROR*)
 				ok=1
 				break
 				;;
@@ -476,49 +477,24 @@ at_fail() {
 	json_dump
 }
 
-# Serialize AT port access across concurrent rpcd calls so replies never interleave.
-at_lock() {
-	local lock=/tmp/qbm-at.lock i=0
-	while ! mkdir "$lock" 2>/dev/null; do
-		i=$((i + 1))
-		if [ $i -ge 50 ]; then
-			rmdir "$lock" 2>/dev/null
-			mkdir "$lock" 2>/dev/null && break
-			return 1
-		fi
-		if command -v usleep >/dev/null 2>&1; then
-			usleep 100000 2>/dev/null
-		else
-			sleep 1
-		fi
-	done
-	return 0
-}
-
-at_unlock() {
-	rmdir /tmp/qbm-at.lock 2>/dev/null
-}
-
 # Runs AT commands in one session on the AT port: {"ok":true,"device":...,
 # "replies":[...]}, each reply the lines up to OK/ERROR (unsolicited lines too).
 at_run() {
 	local dev cmd line resp i
-	at_lock || { at_fail "AT port is busy"; return; }
 	dev=$(at_dev)
 	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
-		at_unlock
 		at_fail "AT port not found or not available"
 		return
 	fi
 	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
-	exec 3<>"$dev" 2>/dev/null || { at_unlock; at_fail "Failed to open AT port $dev"; return; }
+	exec 3<>"$dev" 2>/dev/null || { at_fail "Failed to open AT port $dev"; return; }
 
 	json_init
 	json_add_boolean ok 1
 	json_add_string device "$dev"
 	json_add_array replies
 	for cmd in "$@"; do
-		printf '%s\r' "$cmd" >&3
+		printf '\r\n%s\r\n' "$cmd" >&3
 		resp="" i=0
 		while [ $i -lt 40 ]; do
 			i=$((i + 1))
@@ -527,13 +503,12 @@ at_run() {
 			[ -n "$line" ] || continue
 			resp="$resp$line
 "
-			case "$line" in OK|ERROR|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
+			case "$line" in OK|OK\ *|ERROR|ERROR\ *|+CME\ ERROR*|+CMS\ ERROR*) break ;; esac
 		done
 		json_add_string "" "$resp"
 	done
 	json_close_array
 	exec 3<&- 3>&-
-	at_unlock
 	json_dump
 }
 
@@ -593,16 +568,59 @@ modem() {
 
 # AT+QNWPREFCFG (Quectel): query supported bands (policy_band), current bands,
 # mode_pref, nr5g_disable_mode, and ue_usage_setting.
+# Waits for each command's own +QNWPREFCFG line before breaking on OK so a
+# stale OK or URC in the serial buffer cannot shift subsequent replies.
 qnwpref_get() {
-	at_run \
-		'AT+QNWPREFCFG="policy_band"' \
-		'AT+QNWPREFCFG="nr5g_band"' \
-		'AT+QNWPREFCFG="nsa_nr5g_band"' \
-		'AT+QNWPREFCFG="lte_band"' \
-		'AT+QNWPREFCFG="gw_band"' \
-		'AT+QNWPREFCFG="mode_pref"' \
-		'AT+QNWPREFCFG="nr5g_disable_mode"' \
-		'AT+QNWPREFCFG="ue_usage_setting"'
+	local dev key line resp i seen
+	dev=$(at_dev)
+	if [ -z "$dev" ] || [ ! -c "$dev" ]; then
+		at_fail "AT port not found or not available"
+		return
+	fi
+	command -v stty >/dev/null 2>&1 && stty -F "$dev" 115200 raw -echo 2>/dev/null
+	exec 3<>"$dev" 2>/dev/null || { at_fail "Failed to open AT port $dev"; return; }
+
+	json_init
+	json_add_boolean ok 1
+	json_add_string device "$dev"
+	json_add_array replies
+	for key in policy_band nr5g_band nsa_nr5g_band lte_band gw_band mode_pref nr5g_disable_mode ue_usage_setting; do
+		printf '\r\nAT+QNWPREFCFG="%s"\r\n' "$key" >&3
+		resp="" i=0 seen=0
+		while [ $i -lt 40 ]; do
+			i=$((i + 1))
+			read -t 2 -r line <&3 || break
+			line=$(printf '%s' "$line" | tr -d '\r')
+			[ -n "$line" ] || continue
+			case "$line" in
+				*+QNWPREFCFG:*)
+					if [ "$key" = policy_band ]; then
+						seen=1
+					else
+						case "$line" in *"\"$key\""*) seen=1 ;; esac
+					fi
+					resp="$resp$line
+"
+					;;
+				OK|OK\ *)
+					if [ $seen -eq 1 ]; then
+						resp="$resp$line
+"
+						break
+					fi
+					;;
+				ERROR|ERROR\ *|+CME\ ERROR*|+CMS\ ERROR*)
+					resp="$resp$line
+"
+					break
+					;;
+			esac
+		done
+		json_add_string "" "$resp"
+	done
+	json_close_array
+	exec 3<&- 3>&-
+	json_dump
 }
 
 # AT+QNWPREFCFG (Quectel): validated write + readback.
