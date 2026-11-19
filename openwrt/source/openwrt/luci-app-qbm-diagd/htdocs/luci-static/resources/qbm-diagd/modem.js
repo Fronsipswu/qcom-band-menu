@@ -31,6 +31,7 @@ function identify() {
 		var replies = (r && r.ok && r.replies) || [];
 		var m = { manufacturer: value(replies[0]), model: value(replies[1]), revision: value(replies[2]) };
 		m.family = m.model && /FM350/i.test(m.model) ? 'mtk' : 'qcom';
+		m.quectel = !!(m.family === 'qcom' && (/quectel/i.test(m.manufacturer || '') || /^(RM5|RG5|EM[012]|EC2|EG2|EP06)/i.test(m.model || '')));
 		m.known = !!m.model;
 		return m;
 	});

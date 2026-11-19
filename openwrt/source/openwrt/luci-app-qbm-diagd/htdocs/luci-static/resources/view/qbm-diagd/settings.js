@@ -23,7 +23,7 @@ return view.extend({
 		return modemInfo.identify().then(function(modem) {
 			return Promise.all([
 				L.resolveDefault(callPorts(), { ports: [] }),
-				modem.family === 'mtk' ? null : L.resolveDefault(callQuery(1, 'query'), null),
+				(modem.family === 'mtk' || modem.quectel) ? null : L.resolveDefault(callQuery(1, 'query'), null),
 				modem,
 				L.resolveDefault(callStatus(), null)
 			]);
@@ -147,7 +147,8 @@ return view.extend({
 			o = s.option(form.DummyValue, '_modem', _('Modem'));
 			o.cfgvalue = function() {
 				return [ modem.manufacturer, modem.model ].filter(Boolean).join(' ') + (modem.revision ? ' (' + modem.revision + ')' : '') +
-					(mtk ? ' · ' + _('MediaTek: statistics from its debug port, band locking with AT+GTACT') : '');
+					(mtk ? ' · ' + _('MediaTek: statistics from its debug port, band locking with AT+GTACT')
+					     : modem.quectel ? ' · ' + _('Quectel: band locking with AT+QNWPREFCFG') : '');
 			};
 		} else if (product) {
 			o = s.option(form.DummyValue, '_modem', _('Modem'));

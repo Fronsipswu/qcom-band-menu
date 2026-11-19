@@ -10,12 +10,17 @@
  * Band locking through qbm-qmi (qcom-bandlockd over the QMI port). Every
  * reply carries the modem's whole state, so the page re-renders from it.
  * A Fibocom FM350 (no QMI) is locked with AT+GTACT instead (renderAt).
+ * Quectel modems use AT+QNWPREFCFG over the AT port so band/RAT locking works
+ * regardless of USB composition (ECM, RNDIS, MBIM, RMNET).
  */
 
 var callQuery = rpc.declare({ object: 'luci.qbm-diagd', method: 'qmi_query', params: [ 'sim', 'cmd' ] });
 var callQmi = rpc.declare({ object: 'luci.qbm-diagd', method: 'qmi', params: [ 'sim', 'request' ] });
 var callAtBands = rpc.declare({ object: 'luci.qbm-diagd', method: 'at_bands' });
 var callAtBandsSet = rpc.declare({ object: 'luci.qbm-diagd', method: 'at_bands_set', params: [ 'rat', 'p1', 'p2', 'bands' ] });
+var callQnwprefGet = rpc.declare({ object: 'luci.qbm-diagd', method: 'qnwpref_get' });
+var callQnwprefSet = rpc.declare({ object: 'luci.qbm-diagd', method: 'qnwpref_set', params: [ 'key', 'value' ] });
+var callAirplane = rpc.declare({ object: 'luci.qbm-diagd', method: 'airplane' });
 var callReconnect = rpc.declare({ object: 'luci.qbm-diagd', method: 'reconnect' });
 var callRefreshIp = rpc.declare({ object: 'luci.qbm-diagd', method: 'refresh_ip' });
 
@@ -110,6 +115,101 @@ function atOk(r) {
 	return /(^|\n)OK(\n|$)/.test(first);
 }
 
+function parseQnwLines(reply) {
+	var map = {};
+	String(reply || '').split('\n').forEach(function(l) {
+		var m = l.trim().match(/^\+QNWPREFCFG:\s*"([^"]+)"\s*,\s*(.*)$/i);
+		if (m) map[m[1].toLowerCase()] = m[2].trim().replace(/^"|"$/g, '');
+	});
+	return map;
+}
+
+function parseColonBands(s) {
+	if (!s) return [];
+	var seen = {}, out = [];
+	String(s).split(':').forEach(function(x) {
+		var n = parseInt(x.trim(), 10);
+		if (n > 0 && !seen[n]) { seen[n] = true; out.push(n); }
+	});
+	return out.sort(function(a, b) { return a - b; });
+}
+
+function mergeBandLists(a, b) {
+	var seen = {}, out = [];
+	(a || []).concat(b || []).forEach(function(n) {
+		if (n > 0 && !seen[n]) { seen[n] = true; out.push(n); }
+	});
+	return out.sort(function(x, y) { return x - y; });
+}
+
+/* qnwpref_get reply -> { ok, state, error } in the same shape as QMI query. */
+function parseQnwpref(r) {
+	if (!r || !r.ok || !Array.isArray(r.replies)) {
+		return { ok: false, error: (r && r.error) || { message: _('The modem did not answer AT+QNWPREFCFG.') } };
+	}
+	var rep = r.replies;
+	var cap = parseQnwLines(rep[0]);
+	var cur = {};
+	for (var i = 1; i < rep.length; i++) {
+		var m = parseQnwLines(rep[i]);
+		Object.keys(m).forEach(function(k) { cur[k] = m[k]; });
+	}
+	var hasAny = Object.keys(cap).length > 0 || Object.keys(cur).length > 0;
+	if (!hasAny) {
+		return { ok: false, error: { message: _('The modem did not answer AT+QNWPREFCFG.') } };
+	}
+
+	var nrSa = parseColonBands(cur.nr5g_band);
+	var nrNsa = parseColonBands(cur.nsa_nr5g_band);
+	var lte = parseColonBands(cur.lte_band);
+	var wcdma = parseColonBands(cur.gw_band);
+
+	var hwNrSa = mergeBandLists(parseColonBands(cap.nr5g_band), nrSa);
+	var hwNrNsa = mergeBandLists(parseColonBands(cap.nsa_nr5g_band), nrNsa);
+	var hwNr = mergeBandLists(hwNrSa, hwNrNsa);
+	var hwLte = mergeBandLists(parseColonBands(cap.lte_band), lte);
+	var hwWcdma = mergeBandLists(parseColonBands(cap.gw_band), wcdma);
+
+	var rat = { auto: false, nr: false, lte: false, wcdma: false, gsm: false };
+	var mp = (cur.mode_pref || '').toUpperCase();
+	if (mp === 'AUTO') {
+		rat.auto = true;
+	} else if (mp) {
+		mp.split(':').forEach(function(t) {
+			t = t.trim();
+			if (t === 'NR5G') rat.nr = true;
+			else if (t === 'LTE') rat.lte = true;
+			else if (t === 'WCDMA') rat.wcdma = true;
+		});
+	}
+
+	var nrMode = null;
+	if (cur.nr5g_disable_mode === '0') nrMode = 'both';
+	else if (cur.nr5g_disable_mode === '1') nrMode = 'nsa';
+	else if (cur.nr5g_disable_mode === '2') nrMode = 'sa';
+
+	var usagePref = {};
+	if (cur.ue_usage_setting === '0') usagePref.mode = 'voice';
+	else if (cur.ue_usage_setting === '1') usagePref.mode = 'data';
+
+	return {
+		ok: true,
+		state: {
+			valid: true,
+			hardware: { nr: hwNr, nr_sa: hwNrSa, nr_nsa: hwNrNsa, lte: hwLte, wcdma: hwWcdma, gsm: [] },
+			nr_independent_capability: { independent_lock_supported: true },
+			nr_sa: nrSa,
+			nr_nsa: nrNsa,
+			lte: lte,
+			wcdma: wcdma,
+			gsm: [],
+			rat: rat,
+			nr_mode: nrMode,
+			usage_pref: usagePref
+		}
+	};
+}
+
 var CSS = '\
 .qbm-bar { display:flex; flex-wrap:wrap; align-items:center; gap:.5em 1em; margin-bottom:1em }\
 .qbm-bar .qbm-meta { opacity:.75; font-size:90% }\
@@ -156,7 +256,20 @@ return view.extend({
 				return Promise.all([ L.resolveDefault(callAtBands(), null), uci.load('qbm-diagd') ]).then(function(res) {
 					return { at: res[0] };
 				});
+			if (m.quectel) {
+				self.quectelAt = true;
+				return self.loadQuectelAt();
+			}
 			return self.loadQmi(n);
+		});
+	},
+
+	loadQuectelAt: function() {
+		return Promise.all([
+			L.resolveDefault(callQnwprefGet(), null),
+			uci.load('qbm-diagd')
+		]).then(function(res) {
+			return parseQnwpref(res[0]);
 		});
 	},
 
@@ -174,7 +287,78 @@ return view.extend({
 		});
 	},
 
+	sendQuectelAt: function(req, okText, confirmText) {
+		var self = this;
+		if (confirmText && !confirm(confirmText)) return Promise.resolve();
+		if (req.cmd === 'reattach') {
+			return callAirplane().then(function(r) {
+				if (r && r.ok) ui.addNotification(null, E('p', okText), 'info');
+				else ui.addNotification(null, E('p', errorText(r)), 'danger');
+			}).catch(function(e) {
+				ui.addNotification(null, E('p', _('Request failed: %s').format(e.message || e)), 'danger');
+			});
+		}
+
+		var ops = [];
+		if (req.cmd === 'nr_sa_set') ops.push([ 'nr5g_band', req.bands.join(':') ]);
+		else if (req.cmd === 'nr_nsa_set') ops.push([ 'nsa_nr5g_band', req.bands.join(':') ]);
+		else if (req.cmd === 'lte_set') ops.push([ 'lte_band', req.bands.join(':') ]);
+		else if (req.cmd === 'wcdma_set') ops.push([ 'gw_band', req.bands.join(':') ]);
+		else if (req.cmd === 'rat_set') {
+			var val = req.rat === 'auto' ? 'AUTO' : req.rat.split(',').map(function(k) {
+				return { nr: 'NR5G', lte: 'LTE', wcdma: 'WCDMA' }[k];
+			}).filter(Boolean).join(':');
+			if (!val) { ui.addNotification(null, E('p', _('Select at least one network type.')), 'warning'); return Promise.resolve(); }
+			ops.push([ 'mode_pref', val ]);
+		} else if (req.cmd === 'mode_set') {
+			var dm = { both: '0', nsa: '1', sa: '2' }[req.mode];
+			if (dm == null) return Promise.resolve();
+			ops.push([ 'nr5g_disable_mode', dm ]);
+		} else if (req.cmd === 'usage_pref_set') {
+			var up = { voice: '0', data: '1' }[req.mode];
+			if (up == null) return Promise.resolve();
+			ops.push([ 'ue_usage_setting', up ]);
+		} else if (req.cmd === 'reset') {
+			var hw = (self.state && self.state.hardware) || {};
+			ops.push([ 'mode_pref', 'AUTO' ]);
+			ops.push([ 'nr5g_disable_mode', '0' ]);
+			if ((hw.nr_sa || hw.nr || []).length) ops.push([ 'nr5g_band', (hw.nr_sa || hw.nr).join(':') ]);
+			if ((hw.nr_nsa || hw.nr || []).length) ops.push([ 'nsa_nr5g_band', (hw.nr_nsa || hw.nr).join(':') ]);
+			if ((hw.lte || []).length) ops.push([ 'lte_band', hw.lte.join(':') ]);
+			if ((hw.wcdma || []).length) ops.push([ 'gw_band', hw.wcdma.join(':') ]);
+		} else {
+			return Promise.resolve();
+		}
+
+		var failed = null;
+		var chain = Promise.resolve();
+		ops.forEach(function(op) {
+			chain = chain.then(function() {
+				if (failed) return;
+				return callQnwprefSet(op[0], op[1]).then(function(r) {
+					if (!atOk(r)) {
+						var detail = ((r && r.replies && r.replies[0]) || (r && r.error && (r.error.message || r.error)) || _('no reply')).trim();
+						failed = _('AT+QNWPREFCFG="%s" failed: %s').format(op[0], detail);
+					}
+				});
+			});
+		});
+
+		return chain.then(function() {
+			return L.resolveDefault(callQnwprefGet(), null);
+		}).then(function(raw) {
+			var parsed = parseQnwpref(raw);
+			if (parsed && parsed.state) self.state = parsed.state;
+			if (!failed) ui.addNotification(null, E('p', okText), 'info');
+			else ui.addNotification(null, E('p', failed), 'danger');
+			self.redraw(parsed);
+		}).catch(function(e) {
+			ui.addNotification(null, E('p', _('Request failed: %s').format(e.message || e)), 'danger');
+		});
+	},
+
 	send: function(req, okText, confirmText) {
+		if (this.quectelAt) return this.sendQuectelAt(req, okText, confirmText);
 		var self = this;
 		if (confirmText && !confirm(confirmText)) return Promise.resolve();
 		return callQmi(sim(), JSON.stringify(req)).then(function(r) {
@@ -257,7 +441,8 @@ return view.extend({
 
 		var bar = E('div', { 'class': 'qbm-bar' }, [
 			filterList ? E('span', { 'class': 'qbm-meta' }, _('Filter active')) : '',
-			E('div', { 'class': 'qbm-sims' }, [1, 2].map(function(n) {
+			this.quectelAt ? E('span', { 'class': 'qbm-meta' }, 'AT+QNWPREFCFG') : '',
+			this.quectelAt ? '' : E('div', { 'class': 'qbm-sims' }, [1, 2].map(function(n) {
 				return E('button', {
 					'class': 'cbi-button' + (sim() === n ? ' cbi-button-positive' : ''),
 					'click': function() { setSim(n); location.reload(); }
@@ -268,7 +453,9 @@ return view.extend({
 		if (!st || !st.valid) {
 			return E('div', {}, [ bar, E('div', { 'class': 'alert-message warning' }, [
 				E('p', {}, errorText(r)),
-				E('p', {}, _('Band locking talks to the modem over its QMI port (%s). Check the port under Settings, and that the modem is connected.').format('/dev/cdc-wdm*'))
+				E('p', {}, this.quectelAt
+					? _('Band locking uses AT+QNWPREFCFG over the AT port. Check the AT port under Settings, and that the modem is connected.')
+					: _('Band locking talks to the modem over its QMI port (%s). Check the port under Settings, and that the modem is connected.').format('/dev/cdc-wdm*'))
 			]) ]);
 		}
 
@@ -277,6 +464,8 @@ return view.extend({
 		var independent = cap.independent_lock_supported !== false;
 
 		var nrBands = (hw.nr || []).filter(function(b) { return !filterList || filterSet['n' + b]; });
+		var nrSaBands = (hw.nr_sa || hw.nr || []).filter(function(b) { return !filterList || filterSet['n' + b]; });
+		var nrNsaBands = (hw.nr_nsa || hw.nr || []).filter(function(b) { return !filterList || filterSet['n' + b]; });
 		var lteBands = (hw.lte || []).filter(function(b) { return !filterList || filterSet['B' + b]; });
 		var wcdmaBands = (hw.wcdma || []).filter(function(b) { return !filterList || filterSet['W' + b] || filterSet['B' + b]; });
 		var gsmBands = (hw.gsm || []).filter(function(b) { return !filterList || filterSet['GSM' + b] || filterSet[String(b)]; });
@@ -284,7 +473,9 @@ return view.extend({
 		/* Network mode */
 		var rat = st.rat || {};
 		var ratBoxes = {};
-		var ratNames = [ [ 'nr', 'NR' ], [ 'lte', 'LTE' ], [ 'wcdma', 'WCDMA' ], [ 'gsm', 'GSM' ] ];
+		var ratNames = this.quectelAt
+			? [ [ 'nr', 'NR' ], [ 'lte', 'LTE' ], [ 'wcdma', 'WCDMA' ] ]
+			: [ [ 'nr', 'NR' ], [ 'lte', 'LTE' ], [ 'wcdma', 'WCDMA' ], [ 'gsm', 'GSM' ] ];
 		var autoBox = E('input', { 'type': 'checkbox', 'checked': rat.auto ? '' : null, 'change': function(ev) {
 			Object.keys(ratBoxes).forEach(function(k) { ratBoxes[k].disabled = ev.target.checked; });
 		} });
@@ -325,9 +516,11 @@ return view.extend({
 		];
 
 		if (independent) {
-			if (!filterList || nrBands.length) {
-				sections.push(this.bandGroup(_('NR SA'), 'n', nrBands, st.nr_sa, 'nr_sa_set'));
-				sections.push(this.bandGroup(_('NR NSA'), 'n', nrBands, st.nr_nsa, 'nr_nsa_set'));
+			if (!filterList || nrSaBands.length) {
+				sections.push(this.bandGroup(_('NR SA'), 'n', nrSaBands, st.nr_sa, 'nr_sa_set'));
+			}
+			if (!filterList || nrNsaBands.length) {
+				sections.push(this.bandGroup(_('NR NSA'), 'n', nrNsaBands, st.nr_nsa, 'nr_nsa_set'));
 			}
 		} else {
 			if (!filterList || nrBands.length) {

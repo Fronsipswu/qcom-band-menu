@@ -512,22 +512,113 @@ at_run() {
 	json_dump
 }
 
+# USB identity of a tty (/dev/ttyUSB*, /dev/ttyACM*): device node, VID:PID,
+# and busnum:devnum. Changes whenever a different modem is plugged in or the
+# same modem re-enumerates, even if it gets the same /dev/ttyUSBn name.
+tty_usb_sig() {
+	local name=${1##*/} dir vid pid bus dnum i=0
+	[ -e "/sys/class/tty/$name/device" ] || return 1
+	dir=$(readlink -f "/sys/class/tty/$name/device")
+	while [ $i -lt 4 ] && [ -n "$dir" ] && [ "$dir" != "/" ]; do
+		if [ -r "$dir/idVendor" ]; then
+			vid=$(read_attr "$dir/idVendor")
+			pid=$(read_attr "$dir/idProduct")
+			bus=$(read_attr "$dir/busnum")
+			dnum=$(read_attr "$dir/devnum")
+			[ -n "$vid" ] && [ -n "$pid" ] && echo "$1|$vid:$pid|$bus:$dnum" && return 0
+		fi
+		dir=${dir%/*}
+		i=$((i + 1))
+	done
+	return 1
+}
+
 # The modem's identity (AT+CGMI/CGMM/GMR), kept in /tmp once it answered,
-# while the AT port it came from is still there.
+# while the same USB device is still on that AT port (and matches at_device).
 modem() {
-	local cache=/tmp/qbm-modem.json out dev
-	if [ -s "$cache" ]; then
+	local cache=/tmp/qbm-modem.json sigfile=/tmp/qbm-modem.sig out dev cfg cur_sig old_sig
+	cfg=$(uci -q get qbm-diagd.main.at_device)
+	if [ -s "$cache" ] && [ -s "$sigfile" ]; then
 		json_load "$(cat "$cache")"
 		json_get_var dev device
-		if [ -n "$dev" ] && [ -c "$dev" ]; then
-			cat "$cache"
-			return
+		if [ -n "$dev" ] && [ -c "$dev" ] && { [ -z "$cfg" ] || [ "$cfg" = auto ] || [ "$cfg" = "$dev" ]; }; then
+			cur_sig=$(tty_usb_sig "$dev")
+			old_sig=$(cat "$sigfile" 2>/dev/null)
+			if [ -n "$cur_sig" ] && [ "$cur_sig" = "$old_sig" ]; then
+				cat "$cache"
+				return
+			fi
 		fi
-		rm -f "$cache"
+		rm -f "$cache" "$sigfile"
 	fi
 	out=$(at_run "AT+CGMI" "AT+CGMM" "AT+GMR")
 	echo "$out"
-	case "$out" in *'"ok": true'*OK*) echo "$out" > "$cache" ;; esac
+	case "$out" in
+		*'"ok": true'*OK*)
+			json_load "$out"
+			json_get_var dev device
+			cur_sig=$(tty_usb_sig "$dev")
+			if [ -n "$cur_sig" ]; then
+				echo "$out" > "$cache"
+				echo "$cur_sig" > "$sigfile"
+			fi
+			;;
+	esac
+}
+
+# AT+QNWPREFCFG (Quectel): query bands, capability, mode_pref, nr5g_disable_mode, ue_usage_setting.
+qnwpref_get() {
+	at_run \
+		'AT+QNWPREFCFG="ue_capability_band"' \
+		'AT+QNWPREFCFG="nr5g_band"' \
+		'AT+QNWPREFCFG="nsa_nr5g_band"' \
+		'AT+QNWPREFCFG="lte_band"' \
+		'AT+QNWPREFCFG="gw_band"' \
+		'AT+QNWPREFCFG="mode_pref"' \
+		'AT+QNWPREFCFG="nr5g_disable_mode"' \
+		'AT+QNWPREFCFG="ue_usage_setting"'
+}
+
+# AT+QNWPREFCFG (Quectel): validated write + readback.
+qnwpref_set() {
+	local key=$1 val=$2 tok
+	case "$key" in
+		nr5g_band|nsa_nr5g_band|lte_band|gw_band)
+			case "$val" in
+				''|*[!0-9:]*|:*|*:|*::*) at_fail "$key: colon-separated band numbers"; return ;;
+			esac
+			;;
+		mode_pref)
+			if [ "$val" != AUTO ]; then
+				case "$val" in
+					''|:*|*:|*::*) at_fail "mode_pref: AUTO or colon-separated RATs"; return ;;
+				esac
+				for tok in $(printf '%s' "$val" | tr ':' ' '); do
+					case "$tok" in
+						WCDMA|LTE|NR5G) ;;
+						*) at_fail "mode_pref: unsupported RAT $tok"; return ;;
+					esac
+				done
+			fi
+			;;
+		nr5g_disable_mode)
+			case "$val" in
+				0|1|2) ;;
+				*) at_fail "nr5g_disable_mode: 0, 1 or 2"; return ;;
+			esac
+			;;
+		ue_usage_setting)
+			case "$val" in
+				0|1) ;;
+				*) at_fail "ue_usage_setting: 0 or 1"; return ;;
+			esac
+			;;
+		*)
+			at_fail "unsupported qnwpref key"
+			return
+			;;
+	esac
+	at_run "AT+QNWPREFCFG=\"$key\",$val" "AT+QNWPREFCFG=\"$key\""
 }
 
 # AT+GTACT (Fibocom): RAT and band lock. Numbers and commas only.
@@ -606,7 +697,7 @@ ports() {
 
 case "$1" in
 	list)
-		echo '{ "stats": { "sim": 1 }, "status": { }, "ports": { }, "qmi_query": { "sim": 1, "cmd": "query" }, "qmi": { "sim": 1, "request": "{}" }, "serving": { "sim": 1 }, "operator": { "sim": 1, "mcc": "000", "mnc": "00" }, "airplane": { }, "reconnect": { }, "refresh_ip": { }, "at": { "cmd": "AT" }, "modem": { }, "at_bands": { }, "at_bands_set": { "rat": "20", "p1": "", "p2": "", "bands": "" }, "at_serving": { }, "at_serving_qcom": { }, "mtk_restore": { } }'
+		echo '{ "stats": { "sim": 1 }, "status": { }, "ports": { }, "qmi_query": { "sim": 1, "cmd": "query" }, "qmi": { "sim": 1, "request": "{}" }, "serving": { "sim": 1 }, "operator": { "sim": 1, "mcc": "000", "mnc": "00" }, "airplane": { }, "reconnect": { }, "refresh_ip": { }, "at": { "cmd": "AT" }, "modem": { }, "at_bands": { }, "at_bands_set": { "rat": "20", "p1": "", "p2": "", "bands": "" }, "qnwpref_get": { }, "qnwpref_set": { "key": "", "value": "" }, "at_serving": { }, "at_serving_qcom": { }, "mtk_restore": { } }'
 		;;
 	call)
 		case "$2" in
@@ -646,6 +737,16 @@ case "$1" in
 				json_get_var p2 p2
 				json_get_var bands bands
 				at_bands_set "$rat" "$p1" "$p2" "$bands"
+				;;
+			qnwpref_get)
+				qnwpref_get
+				;;
+			qnwpref_set)
+				read -r input
+				json_load "$input"
+				json_get_var key key
+				json_get_var val value
+				qnwpref_set "$key" "$val"
 				;;
 			at_serving)
 				at_run "AT+COPS?" "AT+GTCCINFO?"

@@ -13,6 +13,7 @@
 					"at",
 					"modem",
 					"at_bands",
+					"qnwpref_get",
 					"at_serving",
 					"at_serving_qcom"
 				]
@@ -30,6 +31,7 @@
 					"refresh_ip",
 					"at",
 					"at_bands_set",
+					"qnwpref_set",
 					"mtk_restore"
 				]
 			},
