@@ -450,17 +450,14 @@ class SnapshotBuilder(
                 add(Field("TDD symbols", "${it.dlSymbols}/${it.ulSymbols}"))
             }
             // The data session (NAS): set up over 5GS in SA, over EPS in NSA;
-            // the other when that one wasn't seen (a session moved between them).
+            // the other when that one wasn't seen (a session moved between them;
+            // the standardized QCI and 5QI values match, so SA still says 5QI).
             val s5g = diag?.session5g
             val eps = diag?.sessionEps
-            val (session, fiveG) = when {
-                sa && s5g != null -> s5g to true
-                eps != null -> eps to false
-                else -> s5g to true
-            }
+            val session = if (sa) s5g ?: eps else eps ?: s5g
             session?.let {
                 add(Field("APN", it.apn ?: "–"))
-                add(Field(if (fiveG) "5QI" else "QCI", it.qosClass?.toString() ?: "–"))
+                add(Field(if (sa) "5QI" else "QCI", it.qosClass?.toString() ?: "–"))
                 add(Field("AMBR", ambr(it)))
             }
         }
