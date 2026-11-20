@@ -602,7 +602,12 @@ function snapshotAt(reply, diag, gnbBits, nrSupported) {
 	var failed = [];
 	if (!reply || !reply.ok || !reply.replies) failed.push('AT');
 	var replies = (reply && reply.replies) || [];
-	var cops = atLines(replies[0]).map(function(l) { return /^\+COPS:\s*\d+,\d+,"([^"]*)"/.exec(l); }).filter(Boolean)[0];
+	/* AT+COPS=3,0;+COPS?;+COPS=3,2;+COPS?: the long name (format 0, or 1
+	 * short), then the numeric PLMN (format 2). */
+	var copsAll = atLines(replies[0]).map(function(l) { return /^\+COPS:\s*\d+,(\d+),"([^"]*)"/.exec(l); }).filter(Boolean);
+	var copsName = copsAll.filter(function(m) { return m[1] !== '2' && !/^\d*$/.test(m[2]); })[0];
+	var copsNum = copsAll.filter(function(m) { return /^\d{5,6}$/.test(m[2]); })[0];
+	var cops = copsAll[0] || null;
 	var lte = null, nr = null;
 	atLines(replies[1]).forEach(function(l) {
 		var f = l.split(',');
@@ -616,7 +621,8 @@ function snapshotAt(reply, diag, gnbBits, nrSupported) {
 	var mode = lte && nr ? 'NR_NSA' : lte ? 'LTE' : nr ? 'NR_SA' : failed.length ? 'UNKNOWN' : cops ? 'LIMITED' : 'NO_SERVICE';
 	var serving = lte || nr;
 	var plmn = serving && /^\d{3}$/.test(serving.mcc) && /^\d{1,3}$/.test(serving.mnc)
-		? { mcc: serving.mcc, mnc: serving.mnc.length < 2 ? ('0' + serving.mnc) : serving.mnc } : null;
+		? { mcc: serving.mcc, mnc: serving.mnc.length < 2 ? ('0' + serving.mnc) : serving.mnc }
+		: copsNum ? { mcc: copsNum[2].slice(0, 3), mnc: copsNum[2].slice(3) } : null;
 
 	function row(list, label, v) { list.push({ label: label, value: v == null ? '–' : String(v) }); }
 
@@ -674,7 +680,7 @@ function snapshotAt(reply, diag, gnbBits, nrSupported) {
 		rrc: null,
 		plmn: plmn,
 		roaming: null,
-		operatorName: cops ? cops[1] : null,
+		operatorName: copsName ? copsName[2] : copsNum ? null : cops ? cops[2] : null,
 		cells: cells,
 		loc: null,
 		failedReads: failed

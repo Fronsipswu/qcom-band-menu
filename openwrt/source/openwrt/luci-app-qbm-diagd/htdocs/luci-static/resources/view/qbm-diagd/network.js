@@ -591,6 +591,10 @@ function antennaTable(rat, chains, header, crsrp) {
  * RSRP, RSRQ/SINR, SINR/CSINR as columns. On the FM350 the NR tables add a
  * CRSRP column: the per-RX CSI-RS RSRP the MTK backend reports.
  */
+/* -150 dBm is the floor value of an RX chain that isn't there (a low band
+ * with 2 RX), not a measurement. */
+function rxRsrp(v) { return isNum(v) && v <= -150 ? null : v; }
+
 function antennas(lte, nr, mode, mtk) {
 	var carriers = [];
 	lte.forEach(function(c) { carriers.push({ rat: 'lte', c: c }); });
@@ -605,18 +609,19 @@ function antennas(lte, nr, mode, mtk) {
 		for (var i = 0; i < rxLimit; i++) {
 			var vals;
 			if (rat === 'nr') {
-				var rsrp = c.rsrp_rx ? c.rsrp_rx[i] : null;
+				var rsrp = rxRsrp(c.rsrp_rx ? c.rsrp_rx[i] : null);
 				var sinr = c.sinr_rx ? c.sinr_rx[i] : null;
 				var csinr = c.csinr_rx ? c.csinr_rx[i] : null;
-				var crsrpv = crsrp && c.crsrp_rx ? c.crsrp_rx[i] : null;
+				var crsrpv = crsrp && c.crsrp_rx ? rxRsrp(c.crsrp_rx[i]) : null;
 				/* FM350: the dedicated CSI-RS measurement, else the TRS RSRP */
-				if (crsrp && !isNum(crsrpv) && c.crsrp_trs_rx) crsrpv = c.crsrp_trs_rx[i];
+				if (crsrp && !isNum(crsrpv) && c.crsrp_trs_rx) crsrpv = rxRsrp(c.crsrp_trs_rx[i]);
 				if (!isNum(rsrp) && !isNum(sinr) && !isNum(csinr) && !isNum(crsrpv)) continue;
 				vals = crsrp ? [ rsrp, crsrpv, sinr, csinr ] : [ rsrp, sinr, csinr ];
 			} else {
-				var rsrp = c.rsrp_rx ? c.rsrp_rx[i] : null;
+				var rsrp = rxRsrp(c.rsrp_rx ? c.rsrp_rx[i] : null);
 				var rsrq = c.rsrq_rx ? c.rsrq_rx[i] : null;
-				var sinr = c.sinr_rx ? c.sinr_rx[i] : null;
+				/* the idle-SCell SINR 40 rule, per chain (lteSinr) */
+				var sinr = lteSinr({ sinr: c.sinr_rx ? c.sinr_rx[i] : null, rsrq: rsrq });
 				if (!isNum(rsrp) && !isNum(rsrq) && !isNum(sinr)) continue;
 				vals = [ rsrp, rsrq, sinr ];
 			}

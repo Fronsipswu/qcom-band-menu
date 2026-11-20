@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-qbm-diagd
 PKG_VERSION:=2.0.0
-PKG_RELEASE:=30
+PKG_RELEASE:=32
 
 PKG_LICENSE:=GPL-3.0-only
 

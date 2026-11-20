@@ -738,7 +738,9 @@ case "$1" in
 				qnwpref_set "$key" "$val"
 				;;
 			at_serving)
-				at_run "AT+COPS?" "AT+GTCCINFO?"
+				# The operator's long name, then the PLMN; the FM350 keeps
+				# numeric (format 2), so that is what it is left on.
+				at_run "AT+COPS=3,0;+COPS?;+COPS=3,2;+COPS?" "AT+GTCCINFO?"
 				;;
 			at_serving_qcom)
 				at_run 'AT+QENG="servingcell"' "AT+QCAINFO" "AT+QSPN" "AT+CEREG?" "AT+C5GREG?" "AT+COPS?"
